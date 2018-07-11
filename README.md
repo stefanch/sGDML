@@ -9,7 +9,7 @@
 
 #### Clone the repository
 
-`git clone https://gitlab.tubit.tu-berlin.de/chmidhkg/sGDML.git`
+`git clone https://github.com/stefanch/sGDML.git`
 
 `cd sGDML`
 
