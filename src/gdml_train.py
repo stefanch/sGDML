@@ -212,22 +212,25 @@ class GDMLTrain:
 	def draw_strat_sample(self, T, n):
 
 		n_train = T.shape[0]
-		n_bins = min(50,n)
-		bins = np.linspace(np.min(T), np.max(T), n_bins, endpoint=False)
 
+		# Freedman-Diaconis rule
+		h = 2*np.subtract(*np.percentile(T, [75, 25])) / np.cbrt(n)
+		n_bins = int(np.ceil((np.max(T)-np.min(T)) / h))
+
+		bins = np.linspace(np.min(T), np.max(T), n_bins, endpoint=False)
 		idxs = np.digitize(T, bins)
 		uniq_all,cnts_all = np.unique(idxs, return_counts=True)
 
-		# draw samples according to dataset distribution
-		cnts_reduced = np.random.choice(uniq_all, n-n_bins, p=cnts_all/float(np.sum(cnts_all)))
+		train_cnts = np.ceil(cnts_all/np.sum(cnts_all, dtype=float) * n).astype(int)
+
+		# Reduce bin counts to desired total number of points.
+		cnts_reduced = np.random.choice(uniq_all, np.sum(train_cnts)-n, p=(train_cnts-1)/np.sum(train_cnts-1, dtype=float))
 		uniq,cnts = np.unique(cnts_reduced, return_counts=True)
-
-		bin_cnts = np.ones((n_bins,), dtype=int) # at least one sample in each bin
-		bin_cnts[uniq] += cnts
-
+		train_cnts[uniq] -= cnts
+		
 		train_idxs = np.empty((0,), dtype=int)
-		for uniq_idx, bin_cnt in zip(uniq_all,bin_cnts):
-			train_idxs = np.append(train_idxs, np.random.choice(np.where( idxs.ravel() == uniq_idx)[0], bin_cnt, replace=False))
-			#print str(uniq_idx) + ' -> ' + str(bin_cnt)
+		for uniq_idx, bin_cnt in zip(uniq_all, train_cnts):
+			idx_in_bin_all = np.where(idxs.ravel() == uniq_idx)[0]
+			train_idxs = np.append(train_idxs, np.random.choice(idx_in_bin_all, bin_cnt, replace=False))
 
 		return train_idxs
