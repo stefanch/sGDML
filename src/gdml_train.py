@@ -8,8 +8,7 @@ import scipy as sp
 import numpy as np
 
 from gdml_predict import GDMLPredict
-from utils import desc
-from utils import perm
+from utils import desc,perm,ui
 
 import multiprocessing as mp
 from functools import partial
@@ -115,15 +114,16 @@ class GDMLTrain:
 
 		Ft = task['TG'].ravel()
 
-		print 'Assembling kernel matrix...'
 		start = timeit.default_timer()
 
 		K = self._assemble_kernel_mat(R_desc, R_d_desc, tril_perms_lin, n_perms, sig, lam)
 
 		stop = timeit.default_timer()
-		print " (%.1fs)" % ((stop - start) / 2)
+		print " \x1b[90m(%.1f s)\x1b[0m" % ((stop - start) / 2)
 
-		print 'Solving linear system...'
+		sys.stdout.write('\r ' + ui.info_str('[') + ui.blink_str(' .. ') + ui.info_str(']') + ' Solving linear system...')
+	 	sys.stdout.flush()
+
 		start = timeit.default_timer()
 
 		K[np.diag_indices_from(K)] -= lam # regularizer
@@ -131,7 +131,8 @@ class GDMLTrain:
 		alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 
 		stop = timeit.default_timer()
-		print "  DONE (%.1fs)." % ((stop - start) / 2)
+		sys.stdout.write('\r ' + ui.info_str('[DONE]') + ' Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))
+	 	sys.stdout.flush()
 
 		# Do some preprocessing.
 		r_dim = R_d_desc.shape[2]
@@ -198,12 +199,11 @@ class GDMLTrain:
 
 		pool = mp.Pool()
 		done_total = 0
-		for done in pool.imap_unordered(partial(_assemble_kernel_mat_wkr, tril_perms_lin=tril_perms_lin, n_perms=n_perms, sig=sig, lam=lam), range(0,n_train)):			
+		for done in pool.imap_unordered(partial(_assemble_kernel_mat_wkr, tril_perms_lin=tril_perms_lin, n_perms=n_perms, sig=sig, lam=lam), range(n_train)):			
 			done_total += done
 
-			sys.stdout.write('\r')
 	 		progr = float(done_total) / ((n_train**2 - n_train) / 2 + n_train)
-	 		sys.stdout.write("  [%-30s] %03d%%" % ('=' * int(progr * 30),progr * 100))
+	 		sys.stdout.write('\r \x1b[1;37m[%3d%%]\x1b[0m Assembling kernel matrix...' % (progr * 100))
 	 		sys.stdout.flush()
 	 	pool.close()
 

@@ -40,7 +40,7 @@ print '-'*100
 print 'sGDML Model Creation Assistant'
 print '-'*100
 
-print '\nSTEP 1: Create cross-validation tasks.'
+print '\n' + ui.white_back_str(' STEP 1 ') + ' Create cross-validation tasks.'
 print '-'*100
 err_code = os.system('python cv_schedule.py ' + dataset_path + ' ' + str(args.n_train)\
 				  + (' --gdml' if args.gdml else '')\
@@ -49,7 +49,7 @@ err_code = os.system('python cv_schedule.py ' + dataset_path + ' ' + str(args.n_
 if err_code != 0: sys.exit(fail_msg)
 
 
-print '\nSTEP 2: Train all models.'
+print '\n' + ui.white_back_str(' STEP 2 ') + ' Train all models.'
 print '-'*100
 theory_level_str = re.sub('[^\w\-_\.]', '_', str(dataset['theory_level']))
 theory_level_str = re.sub('__', '_', theory_level_str)
@@ -61,14 +61,14 @@ err_code = os.system('python train_batch.py ' + task_dir\
 if err_code != 0: sys.exit(fail_msg)
 
 
-print '\nSTEP 3: Test all models.'
+print '\n' + ui.white_back_str(' STEP 3 ') + ' Test all models.'
 print '-'*100
 err_code = os.system('python test_batch.py ' + task_dir + ' ' + dataset_path + ' ' + (str(args.n_test) if args.n_test else '')\
 				   + ' -s')
 if err_code != 0: sys.exit(fail_msg)
 
 
-print '\nSTEP 4: Select best hyper-parameter combination.'
+print '\n' + ui.white_back_str(' STEP 4 ') + ' Select best hyper-parameter combination.'
 print '-'*100
 err_code = os.system('python cv_select.py ' + task_dir\
 				  + (' -o' if args.overwrite else ''))

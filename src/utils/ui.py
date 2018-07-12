@@ -20,6 +20,12 @@ def yes_or_no(question):
 
 # COLORS
 
+def white_back_str(str):
+	return '\x1b[1;7m' + str + '\x1b[0m'
+
+def blink_str(str):
+	return '\x1b[5m' + str + '\x1b[0m'
+
 def info_str(str):
 	return '\x1b[1;37m' + str + '\x1b[0m'
 

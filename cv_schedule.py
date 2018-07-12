@@ -42,7 +42,7 @@ task_dir = BASE_DIR + '/training/' + dataset_name_str + '-' + theory_level_str +
 
 if os.path.exists(task_dir):
 	if args.overwrite:
-		print '[INFO] Overwriting existing training directory.'
+		print ' ' + ui.info_str('[INFO]') + ' Overwriting existing training directory.'
 		file_list = [f for f in os.listdir(task_dir)]
 		for f in file_list:
 			os.remove(os.path.join(task_dir, f))
@@ -55,12 +55,13 @@ for sig in range(2,100,4):
 
 	task_path = task_dir + '/task-' + io.task_file_name(task)
 	if os.path.isfile(task_path + '.mat'):
-		print '[INFO] Skipping exising task \'task-' + io.task_file_name(task) + '.mat\'.'
+		print ' ' + ui.info_str('[INFO]') + ' Skipping exising task \'task-' + io.task_file_name(task) + '.mat\'.'
 	else:
 		try:
 			scipy.io.savemat(task_path, task)
 		except:
 			sys.exit('  ERROR: Writing train task (\'' + task_dir + '\') failed.')
+print ''
 
 if not args.silent:
 	call_str = 'python train_batch.py training/' + dataset_name_str + '-' + theory_level_str + '-' + str(args.n_train)

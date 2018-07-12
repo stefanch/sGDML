@@ -62,10 +62,10 @@ def sync_mat(R,z):
 				match_perms[i,j] = perm
 
 			no += 1
-			sys.stdout.write('\r')
 			progr = float(no) / ((n_train**2 - n_train) / 2)
-			sys.stdout.write("  [%-30s] %03d%%" % ('=' * int(progr * 30),progr * 100))
+			sys.stdout.write('\r \x1b[1;37m[%3d%%]\x1b[0m Bi-partite matching...' % (progr * 100))
 			sys.stdout.flush()
+	print ''
 
 	match_cost = match_cost + match_cost.T
 	match_cost[np.diag_indices_from(match_cost)] = np.inf
@@ -76,16 +76,28 @@ def sync_mat(R,z):
 	_,pred = scipy.sparse.csgraph.shortest_path(tree, directed=False, return_predecessors=True) # first argument: dist matrix
 
 	# extract column 1
-	pool = mp.Pool(None)
-	perms = np.array(pool.map(partial(get_perm, t=1, pred=pred, match_perms=match_perms, n_atoms=n_atoms), range(n_train)))
-	col_perms = np.unique(perms, axis=0)
+	#pool = mp.Pool()
+	#perms = np.array(pool.map(partial(get_perm, t=1, pred=pred, match_perms=match_perms, n_atoms=n_atoms), range(n_train)))
+	#col_perms = np.unique(perms, axis=0)
 
-	print ' (Found ' + str(col_perms.shape[0]) + '.)'
-	return col_perms
+	# extract column 1
+	pool = mp.Pool()
+	perms = np.empty((0,n_atoms),dtype=int)
+	for i,perm in enumerate(pool.imap_unordered(partial(get_perm, t=1, pred=pred, match_perms=match_perms, n_atoms=n_atoms), range(n_train))):			
+
+		perms = np.vstack((perms, perm))
+		perms = np.unique(perms, axis=0)
+
+	 	progr = float(i+1) / n_train
+	 	sys.stdout.write("\r \x1b[1;37m[%3d%%]\x1b[0m Transitive closure..." % (progr * 100))
+	 	sys.stdout.flush()
+	pool.close()
+
+	return perms
 
 def get_perm(s,t,pred,match_perms,n_atoms): # from_min_span_tree
 
-	perm_st = np.arange(n_atoms,dtype=np.uint16)
+	perm_st = np.arange(n_atoms, dtype=np.uint16)
 
 	prev_t = t
 	t = pred[s,t]
@@ -102,8 +114,6 @@ def get_perm(s,t,pred,match_perms,n_atoms): # from_min_span_tree
 
 def complete_group(perms):
 
-	print 'Closing...'
-
 	perm_added = True
 	while perm_added:
 		perm_added = False
@@ -117,7 +127,7 @@ def complete_group(perms):
 					perm_added = True
 					perms = np.vstack([perms, new_perm])
 
-	print 'Complete group has ' + str(perms.shape[0]) + ' perms.'
+	print ' (Found ' + str(perms.shape[0]) + '.)'
 	return perms
 
 def inv_perm(perm):

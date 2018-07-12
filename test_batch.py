@@ -36,6 +36,7 @@ for i,model_file in enumerate(model_files):
 		   + (' ' + str(args.n_test) if args.n_test else '')\
 		   + (' -s' if args.silent else '')\
 		   + (' -u' if args.update else ''))
+	print ''
 
 if not args.silent:
 	call_str = 'python cv_select.py ' + args.model_dir

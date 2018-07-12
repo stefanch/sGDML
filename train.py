@@ -30,7 +30,7 @@ task_path, task = args.task
 
 model_path = os.path.dirname(task_path) + '/model-' + io.task_file_name(task)
 if os.path.isfile(model_path) and not args.overwrite:
-	sys.exit('[INFO] Skipping exising model \'model-' + io.task_file_name(task) + '\'.')
+	sys.exit(ui.info_str('[INFO]') + ' Skipping exising model \'model-' + io.task_file_name(task) + '\'.')
 
 gdml = GDMLTrain()
 model = gdml.train(task)

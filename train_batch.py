@@ -27,6 +27,7 @@ for i,task_file in enumerate(task_files):
 	os.system('python train.py ' + args.task_dir + '/' + task_file\
 		   + (' -o' if args.overwrite else '')\
 		   + (' -s' if args.silent else ''))
+	print ''
 
 if not args.silent:
 	call_str = 'python test_batch.py ' + args.task_dir + ' <dataset>' + ' <n_test>'

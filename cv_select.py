@@ -79,7 +79,7 @@ if not os.path.exists(best_model_dir):
 	os.makedirs(best_model_dir)
 
 if os.path.isfile(best_model_dir + best_path) and args.overwrite:	
-	print '[INFO] Overwriting existing model file in \'models/auto/' + best_path + '\'.'
+	print ui.info_str('[INFO]') + ' Overwriting existing model file in \'models/auto/' + best_path + '\'.'
 
 if not os.path.isfile(best_model_dir + best_path) or args.overwrite:
 	print 'Writing model file to \'models/auto/' + best_path + '\'...'

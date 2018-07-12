@@ -144,17 +144,19 @@ for b_range in batch(range(len(test_range)), b_size):
 	cos_err = np.arccos(np.einsum('ij,ij->i', F_norm, f_norm)) / np.pi
 	cos_mae, cos_mae_sum, cos_rmse, cos_rmse_sum = online_err(cos_err, n_atoms, n_done, cos_mae_sum, cos_rmse_sum)
 
-	sys.stdout.write('\r')
 	progr = float(n_done) / len(test_range)
 	sps = n_done / (time.time() - t) # samples per second
-	sys.stdout.write("[%-30s] %03d%% >> Energy: %.3f/%.3f - Forces: %.3f/%.3f (MAE, RMSE) @ %.1f sps" % ('=' * int(progr * 30),progr * 100,e_mae,e_rmse,f_mae,f_rmse,sps))
+	if args.silent:
+		sys.stdout.write('\r \x1b[1;37m[%3d%%]\x1b[0m >> Energy: %.3f/%.3f - Forces: %.3f/%.3f (MAE, RMSE) \x1b[90m@ %.1f geo/s\x1b[0m' % (progr * 100,e_mae,e_rmse,f_mae,f_rmse,sps))
+	else:
+		sys.stdout.write('\r[%-30s] %03d%% >> Energy: %.3f/%.3f - Forces: %.3f/%.3f (MAE, RMSE) @ %.1f sps' % ('=' * int(progr * 30),progr * 100,e_mae,e_rmse,f_mae,f_rmse,sps))
 	sys.stdout.flush()
 print ''
 
 e_rmse_pct = ((e_rmse/model['e_rmse'] - 1.) * 100)
 f_rmse_pct = ((f_rmse/model['f_rmse'] - 1.) * 100)
 
-if not args.silent: 
+if not args.silent:
 	print ''
 	print 'Measured prediction errors (MAE, RMSE):'
 	print '| {:<10} {:>.3f}/{:>.3f} kcal/mol      {:<} '.format('Energy', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= model['e_mae'] and e_rmse <= model['e_rmse'] else '!!',e_rmse_pct))
@@ -166,9 +168,9 @@ if not args.silent:
 # Update errors if they are not set or on user request.
 err_unset = np.isnan(model['e_mae']) and np.isnan(model['e_rmse']) and np.isnan(model['f_mae']) and np.isnan(model['e_rmse'])
 if err_unset:
-	print '[INFO] Expected prediction errors were recorded in model file.'
+	print ' ' + ui.info_str('[INFO]') + ' Expected prediction errors were recorded in model file.'
 elif args.update:
-	print '[INFO] Expected prediction errors were updated in model file.'
+	print ' ' + ui.info_str('[INFO]') + ' Expected prediction errors were updated in model file.'
 
 if args.update or err_unset:
 	model_mutable = dict(model)
