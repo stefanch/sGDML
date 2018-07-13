@@ -9,7 +9,7 @@ import numpy as np
 
 from src.utils import io,ui
 
-dataset_dir = 'datasets/npz/'
+dataset_dir = BASE_DIR + '/datasets/npz/'
 
 def raw_input_float(prompt):
     while True:
@@ -124,8 +124,9 @@ base_vars = {'R':				R,\
 			 'theory_level':	'unknown'}
 
 if not os.path.exists(dataset_dir):
+	print ui.info_str(' [INFO]') + ' Created directory \'%s\'.' % 'datasets/npz/'
 	os.makedirs(dataset_dir)
 dataset_path = dataset_dir + name + '.npz'
 print 'Writing dataset to \'datasets/npz/%s.npz\'...' % name
-np.savez_compressed(BASE_DIR + '/' + dataset_path, **base_vars)
+np.savez_compressed(dataset_path, **base_vars)
 print ui.pass_str('DONE')

@@ -23,6 +23,9 @@ def yes_or_no(question):
 def white_back_str(str):
 	return '\x1b[1;7m' + str + '\x1b[0m'
 
+def underline_str(str):
+	return '\x1b[4m' + str + '\x1b[0m'
+
 def blink_str(str):
 	return '\x1b[5m' + str + '\x1b[0m'
 

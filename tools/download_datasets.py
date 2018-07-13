@@ -66,9 +66,8 @@ for idx in down_idxs:
 			size += len(buffer)
 			file.write(buffer)
 
-			sys.stdout.write('\r')
 			progr = float(size) / float(filesize)
-			sys.stdout.write("[%-30s] %03d%%" % ('=' * int(progr * 30),progr * 100))
+			sys.stdout.write('\r[%-30s] %03d%%' % ('=' * int(progr * 30),progr * 100))
 			sys.stdout.flush()
 		print ''
 		file.close()

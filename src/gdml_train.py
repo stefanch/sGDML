@@ -128,6 +128,7 @@ class GDMLTrain:
 
 		K[np.diag_indices_from(K)] -= lam # regularizer
 		#alphas = np.linalg.solve(K, Ft)
+		
 		alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 
 		stop = timeit.default_timer()
@@ -209,7 +210,7 @@ class GDMLTrain:
 
 		return np.frombuffer(K).reshape(glob['K_shape'])
 
-	def draw_strat_sample(self, T, n):
+	def draw_strat_sample(self, T, n, excl_idxs=None):
 
 		n_train = T.shape[0]
 
@@ -219,18 +220,31 @@ class GDMLTrain:
 
 		bins = np.linspace(np.min(T), np.max(T), n_bins, endpoint=False)
 		idxs = np.digitize(T, bins)
+
+		# Exlude restricted indices.
+		if excl_idxs is not None:
+			idxs[excl_idxs] = n_bins+1 # impossible bin
+
 		uniq_all,cnts_all = np.unique(idxs, return_counts=True)
 
-		train_cnts = np.ceil(cnts_all/np.sum(cnts_all, dtype=float) * n).astype(int)
+		# remove restricted bin
+		if excl_idxs is not None:
+			excl_bin_idx = np.where(uniq_all == n_bins+1)
+			cnts_all = np.delete(cnts_all, excl_bin_idx)
+			uniq_all = np.delete(uniq_all, excl_bin_idx)
 
-		# Reduce bin counts to desired total number of points.
-		cnts_reduced = np.random.choice(uniq_all, np.sum(train_cnts)-n, p=(train_cnts-1)/np.sum(train_cnts-1, dtype=float))
+		# Bin counts for sample
+		train_cnts = np.ceil(cnts_all/np.sum(cnts_all, dtype=float) * n).astype(int)
+		train_cnts = np.minimum(train_cnts, cnts_all) # limit train_cnts to what is available in cnts_all
+
+		# Reduce/increase bin counts to desired total number of points.
+		train_cnts_outstanding = n - np.sum(train_cnts)
+		cnts_reduced = np.random.choice(uniq_all, np.abs(train_cnts_outstanding), p=(train_cnts-1)/np.sum(train_cnts-1, dtype=float))
 		uniq,cnts = np.unique(cnts_reduced, return_counts=True)
-		train_cnts[uniq] -= cnts
+		train_cnts[uniq] = train_cnts[uniq] + np.sign(train_cnts_outstanding)*cnts
 		
 		train_idxs = np.empty((0,), dtype=int)
 		for uniq_idx, bin_cnt in zip(uniq_all, train_cnts):
 			idx_in_bin_all = np.where(idxs.ravel() == uniq_idx)[0]
 			train_idxs = np.append(train_idxs, np.random.choice(idx_in_bin_all, bin_cnt, replace=False))
-
 		return train_idxs
