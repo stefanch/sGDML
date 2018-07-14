@@ -50,10 +50,10 @@ print ' {:<14} {:<}'.format('Theory level:', dataset['theory_level'])
 print ' {:<14} {:<d}'.format('# Points:', n_mols)
 
 T_min, T_max = np.min(dataset['T']), np.max(dataset['T'])
-print ' {:<14} {:<.3} '.format('Energies', T_min) + u'\u251c\u2500' + ' {:^8.3} '.format(T_max-T_min) + u'\u2500\u2524' + ' {:>9.3} [UNIT]'.format(T_max)
+print ' {:<14} {:<.3} '.format('Energies', T_min) + '|--' + ' {:^8.3} '.format(T_max-T_min) + '--|' + ' {:>9.3} [UNIT]'.format(T_max)
 
 TG_min, TG_max = np.min(dataset['TG'].ravel()), np.max(dataset['TG'].ravel())
-print ' {:<14} {:<.3} '.format('Forces', T_min) + u'\u251c\u2500' + ' {:.3} '.format(TG_max-TG_min) + u'\u2500\u2524' + ' {:>9.3} [UNIT]'.format(TG_max)
+print ' {:<14} {:<.3} '.format('Forces', T_min) + '|--' + ' {:.3} '.format(TG_max-TG_min) + '--|' + ' {:>9.3} [UNIT]'.format(TG_max)
 
 md5_hash = hashlib.md5()
 with open(dataset_path, 'rb') as f:
