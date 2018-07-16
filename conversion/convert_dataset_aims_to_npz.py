@@ -80,6 +80,15 @@ dataset = args.dataset
 
 
 R,z,T,TG = read_reference_data(dataset)
+
+# Prune all arrays to same length.
+n_mols = min(min(R.shape[0], TG.shape[0]), T.shape[0])
+if n_mols != R.shape[0] or n_mols != TG.shape[0] or n_mols != T.shape[0]:
+	print ui.warn_str('[WARN]') + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols
+R = R[:n_mols,:,:]
+TG = TG[:n_mols,:,:]
+T = T[:n_mols]
+
 name = os.path.splitext(os.path.basename(dataset.name))[0]
 
 # Base variables contained in every model file.
