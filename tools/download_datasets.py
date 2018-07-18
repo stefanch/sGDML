@@ -9,7 +9,7 @@ import urllib2
 
 from src.utils import io, ui
 
-base_url = 'http://www.quantum-machine.org/gdml/datasets/npz/'
+base_url = 'http://www.quantum-machine.org/gdml/datasets/npz_nd/'
 target_dir = BASE_DIR + '/datasets/npz/'
 
 print "Contacting server (%s)..." % (base_url)

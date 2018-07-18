@@ -6,6 +6,8 @@ sys.path.append(BASE_DIR)
 
 import argparse
 
+import numpy as np
+
 from src.utils import ui
 
 
@@ -26,7 +28,18 @@ args = parser.parse_args()
 dataset_path, _ = args.dataset
 
 
-model_files = [model_file for model_file in sorted(os.listdir(args.model_dir)) if model_file.endswith('.npz')]
+model_files = []
+for model_file in sorted(os.listdir(args.model_dir)):
+	if model_file.endswith('.npz'):
+		model_path = args.model_dir + '/' + model_file
+		try:
+			model = np.load(model_path)
+		except:
+			sys.exit("ERROR: Reading file failed.")
+		if 'type' in model and model['type'] == 'm':
+			model_files.append(model_file)
+
+#model_files = [model_file for model_file in sorted(os.listdir(args.model_dir)) if model_file.endswith('.npz')]
 if not len(model_files):
 	sys.exit(os.path.basename(sys.argv[0]) + ': error: no models found in directory')
 

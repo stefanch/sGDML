@@ -17,7 +17,7 @@ def read_reference_data(f):
 
 	e_next, f_next, geo_next = False, False, False
 	n_atoms = None
-	R,z,T,TG = [],[],[],[]
+	R,z,E,F = [],[],[],[]
 
 	
 	geo_idx = 0
@@ -25,11 +25,11 @@ def read_reference_data(f):
 		if n_atoms:
 			cols = line.split()
 			if e_next:
-				T.append(float(cols[5]))
+				E.append(float(cols[5]))
 				e_next = False
 			elif f_next:
 				a = int(cols[1])-1
-				TG.append(map(float,cols[2:5]))
+				F.append(map(float,cols[2:5]))
 				if a == n_atoms-1:
 					f_next = False
 			elif geo_next:
@@ -65,11 +65,11 @@ def read_reference_data(f):
 
 	R = np.array(R).reshape(-1,n_atoms,3) 
 	z = np.array(z)
-	T = np.array(T) * eV_to_kcalmol
-	TG = np.array(TG).reshape(-1,n_atoms,3) * eV_to_kcalmol
+	E = np.array(E) * eV_to_kcalmol
+	F = np.array(F).reshape(-1,n_atoms,3) * eV_to_kcalmol
 
 	f.close()
-	return (R,z,T,TG)
+	return (R,z,E,F)
 
 
 parser = argparse.ArgumentParser(description='Creates a dataset from FHI-aims format.')
@@ -80,25 +80,26 @@ args = parser.parse_args()
 dataset = args.dataset
 
 
-R,z,T,TG = read_reference_data(dataset)
+R,z,E,F = read_reference_data(dataset)
 
 # Prune all arrays to same length.
-n_mols = min(min(R.shape[0], TG.shape[0]), T.shape[0])
-if n_mols != R.shape[0] or n_mols != TG.shape[0] or n_mols != T.shape[0]:
+n_mols = min(min(R.shape[0], F.shape[0]), E.shape[0])
+if n_mols != R.shape[0] or n_mols != F.shape[0] or n_mols != E.shape[0]:
 	print ui.warn_str('[WARN]') + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols
 R = R[:n_mols,:,:]
-TG = TG[:n_mols,:,:]
-T = T[:n_mols]
+F = F[:n_mols,:,:]
+E = E[:n_mols]
 
 name = os.path.splitext(os.path.basename(dataset.name))[0]
 
 # Base variables contained in every model file.
-base_vars = {'R':				R,\
+base_vars = {'type':			'd',\
+			 'R':				R,\
 			 'z':				z,\
-			 'T':				T[:,None],\
-			 'TG':				TG,\
+			 'E':				E[:,None],\
+			 'F':				F,\
 			 'name':			name,\
-			 'theory_level':	'unknown'}
+			 'theory':	'unknown'}
 
 if not os.path.exists(dataset_dir):
 	os.makedirs(dataset_dir)

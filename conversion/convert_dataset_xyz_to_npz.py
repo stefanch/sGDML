@@ -16,7 +16,7 @@ dataset_dir = BASE_DIR + '/datasets/npz/'
 def read_concat_ext_xyz(f):
 	n_atoms = None
 
-	R,z,T,TG = [],[],[],[]
+	R,z,E,F = [],[],[],[]
 	for i,line in enumerate(f):
 		line = line.strip()
 		if not n_atoms:
@@ -26,14 +26,14 @@ def read_concat_ext_xyz(f):
 		file_i, line_i = divmod(i, n_atoms+2)
 
 		if line_i == 1:
-			T.append(float(line))
+			E.append(float(line))
 
 		cols = line.split()
 		if line_i >= 2:
 			R.append(map(float,cols[1:4]))
 			if file_i == 0: # first molecule
 				z.append(io._z_str_to_z_dict[cols[0]])
-			TG.append(map(float,cols[4:7]))
+			F.append(map(float,cols[4:7]))
 
 		if file_i % 1000 == 0:
 			sys.stdout.write("\r| Number geometries found so far: {:>7d}".format(file_i))
@@ -44,11 +44,11 @@ def read_concat_ext_xyz(f):
 
 	R = np.array(R).reshape(-1,n_atoms,3)
 	z = np.array(z)
-	T = np.array(T)
-	TG = np.array(TG).reshape(-1,n_atoms,3)
+	E = np.array(E)
+	F = np.array(F).reshape(-1,n_atoms,3)
 
 	f.close()
-	return (R,z,T,TG)
+	return (R,z,E,F)
 
 
 parser = argparse.ArgumentParser(description='Creates a dataset from extended XYZ format.')
@@ -58,16 +58,17 @@ parser.add_argument('dataset', metavar = '<dataset>',\
 args = parser.parse_args()
 dataset = args.dataset
 
-R,z,T,TG = read_concat_ext_xyz(dataset)
+R,z,E,F = read_concat_ext_xyz(dataset)
 name = os.path.splitext(os.path.basename(dataset.name))[0]
 
 # Base variables contained in every model file.
-base_vars = {'R':				R,\
+base_vars = {'type':			'd',\
+			 'R':				R,\
 			 'z':				z,\
-			 'T':				T[:,None],\
-			 'TG':				TG,\
+			 'E':				E[:,None],\
+			 'F':				F,\
 			 'name':			name,\
-			 'theory_level':	'unknown'}
+			 'theory':			'unknown'}
 
 if not os.path.exists(dataset_dir):
 	os.makedirs(dataset_dir)

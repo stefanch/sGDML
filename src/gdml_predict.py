@@ -76,15 +76,15 @@ class GDMLPredict:
 		self.n_atoms = model['z'].shape[0]
 		n_tril = (self.n_atoms**2 - self.n_atoms) / 2
 		
-		n_train = model['Rt_desc'].shape[1]
+		n_train = model['R_desc'].shape[1]
 		sig = model['sig']
 		self.c = model['c']
 
 		# Precompute permutated training descriptors and its first derivatives multiplied with the coefficients (only needed for cached variant).
 		n_perms = model['tril_perms_lin'].shape[0] / n_tril
-		R_desc_perms = np.reshape(np.tile(model['Rt_desc'].T, n_perms)[:,model['tril_perms_lin']], (n_train*n_perms,-1), order='F')
+		R_desc_perms = np.reshape(np.tile(model['R_desc'].T, n_perms)[:,model['tril_perms_lin']], (n_train*n_perms,-1), order='F')
 		glob['R_desc_perms'], glob['R_desc_perms_shape'] = share_array(R_desc_perms)
-		R_d_desc_alpha_perms = np.reshape(np.tile(np.squeeze(model['Rt_d_desc_alpha']), n_perms)[:,model['tril_perms_lin']], (n_train*n_perms,-1), order='F')
+		R_d_desc_alpha_perms = np.reshape(np.tile(np.squeeze(model['R_d_desc_alpha']), n_perms)[:,model['tril_perms_lin']], (n_train*n_perms,-1), order='F')
 		glob['R_d_desc_alpha_perms'], glob['R_d_desc_alpha_perms_shape'] = share_array(R_d_desc_alpha_perms)
 
 		self.n_procs = num_workers

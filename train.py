@@ -20,7 +20,7 @@ from src.utils import io,ui
 
 parser = argparse.ArgumentParser(description='Trains the sGDML model for a given task.')
 parser.add_argument('task', metavar = '<task>',\
-							type    = lambda x: ui.is_valid_mat_file(parser, x),\
+							type    = lambda x: ui.is_valid_np_file(parser, x),\
 							help	= 'path to task file')
 parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing model')
 parser.add_argument('-s', '--silent', dest='silent', action='store_true', help = 'suppress output')
@@ -36,7 +36,7 @@ gdml = GDMLTrain()
 model = gdml.train(task)
 
 if not args.silent: print "Recovering integration constant..."
-model['c'] = gdml.recov_int_const(model)
+model['c'] = gdml.recov_int_const(model, task)
 
 if not args.silent: print 'Writing model to file \'' + model_path + '\'...'
 np.savez_compressed(model_path, **model)

@@ -54,18 +54,18 @@ def read_concat_xyz(f):
 
 def read_out_file(f,col):
 
-	T = []
+	E = []
 	for i,line in enumerate(f):
 		line = line.strip()
 		if line[0] != '#': # Ignore comments.
-			T.append(float(line.split()[col]))
+			E.append(float(line.split()[col]))
 		if i % 1000 == 0:
-			sys.stdout.write("\r| Number lines processed so far:  {:>7d}".format(len(T)))
+			sys.stdout.write("\r| Number lines processed so far:  {:>7d}".format(len(E)))
 			sys.stdout.flush()
-	sys.stdout.write("\r| Number lines processed so far:  {:>7d}\n".format(len(T)))
+	sys.stdout.write("\r| Number lines processed so far:  {:>7d}\n".format(len(E)))
 	sys.stdout.flush()
 
-	return np.array(T)
+	return np.array(E)
 
 
 parser = argparse.ArgumentParser(description='Creates a dataset from extended [TODO] format.')
@@ -93,36 +93,37 @@ print 'Reading geometries...'
 R,z = read_concat_xyz(geometries)
 
 print 'Reading forces...'
-TG,_ = read_concat_xyz(forces)
+F,_ = read_concat_xyz(forces)
 
 print 'Reading energies from column %d...' % energy_col
-T = read_out_file(energies,energy_col)
+E = read_out_file(energies,energy_col)
 
 # Prune all arrays to same length.
-n_mols = min(min(R.shape[0], TG.shape[0]), T.shape[0])
-if n_mols != R.shape[0] or n_mols != TG.shape[0] or n_mols != T.shape[0]:
+n_mols = min(min(R.shape[0], F.shape[0]), E.shape[0])
+if n_mols != R.shape[0] or n_mols != F.shape[0] or n_mols != E.shape[0]:
 	print ui.warn_str('[WARN]') + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols
 R = R[:n_mols,:,:]
-TG = TG[:n_mols,:,:]
-T = T[:n_mols]
+F = F[:n_mols,:,:]
+E = E[:n_mols]
 
 print ui.info_str('[INFO]') + ' Geometries, forces and energies must have consistent units.'
 R_conv_fact = raw_input_float('Unit conversion factor for geometries: ')
 R = R * R_conv_fact
-TG_conv_fact = raw_input_float('Unit conversion factor for forces: ')
-TG = TG * TG_conv_fact
-T_conv_fact = raw_input_float('Unit conversion factor for energies: ')
-T = T * T_conv_fact
+F_conv_fact = raw_input_float('Unit conversion factor for forces: ')
+F = F * F_conv_fact
+E_conv_fact = raw_input_float('Unit conversion factor for energies: ')
+E = E * E_conv_fact
 
 name = os.path.splitext(os.path.basename(geometries.name))[0]
 
 # Base variables contained in every model file.
-base_vars = {'R':				R,\
+base_vars = {'type':			'd',\
+			 'R':				R,\
 			 'z':				z,\
-			 'T':				T[:,None],\
-			 'TG':				TG,\
+			 'E':				E[:,None],\
+			 'F':				F,\
 			 'name':			name,\
-			 'theory_level':	'unknown'}
+			 'theory':			'unknown'}
 
 if not os.path.exists(dataset_dir):
 	print ui.info_str(' [INFO]') + ' Created directory \'%s\'.' % 'datasets/npz/'

@@ -1,6 +1,6 @@
 # GDML Force Field
 # Author: Stefan Chmiela (stefan@chmiela.com)
-VERSION = 180702
+VERSION = 180718
 
 import os, sys
 
@@ -8,7 +8,7 @@ import scipy as sp
 import numpy as np
 
 from gdml_predict import GDMLPredict
-from utils import desc,perm,ui
+from utils import desc,perm,io,ui
 
 import multiprocessing as mp
 from functools import partial
@@ -65,24 +65,36 @@ def _assemble_kernel_mat_wkr(j, tril_perms_lin, n_perms, sig, lam):
 
 class GDMLTrain:
 
-	def create_task(self, dataset, n_train, sig, lam=1e-15, recov_sym=True):
+	def create_task(self, train_dataset, n_train, test_dataset, n_test, sig, lam=1e-15, recov_sym=True):
 
-		idxs = self.draw_strat_sample(dataset['T'], n_train)
+		train_md5 = io.dataset_md5(train_dataset)
+		test_md5 = io.dataset_md5(test_dataset)
 
-		task = {'dataset':		dataset['name'],\
-				'theory_level':	dataset['theory_level'],\
-				'R':			dataset['R'][idxs,:,:],\
-				'z':			dataset['z'],\
-				'T':			dataset['T'][idxs],\
-				'TG':			dataset['TG'][idxs,:,:],\
-				'sig':			sig,\
-				'lam':			lam}
+		train_idxs = self.draw_strat_sample(train_dataset['E'], n_train)
+
+		excl_idxs = train_idxs if train_md5 == test_md5 else None
+		test_idxs = self.draw_strat_sample(test_dataset['E'], n_test, excl_idxs)
+
+		R_train = train_dataset['R'][train_idxs,:,:]
+		task = {'type':				't',\
+				'dataset_name':		train_dataset['name'],\
+				'dataset_theory':	train_dataset['theory'],\
+				'z':				train_dataset['z'],\
+				'R_train':			R_train,\
+				'E_train':			train_dataset['E'][train_idxs],\
+				'F_train':			train_dataset['F'][train_idxs,:,:],\
+				'train_idxs':		train_idxs,\
+				'train_md5':		train_md5,\
+				'test_idxs':		test_idxs,\
+				'test_md5':			test_md5,\
+				'sig':				sig,\
+				'lam':				lam}
 
 		if recov_sym:
-			task['perms'] 		= perm.sync_mat(dataset['R'][idxs,:,:],dataset['z'])
-			task['perms'] 		= perm.complete_group(task['perms']) + 1
+			task['perms'] 		= perm.sync_mat(R_train, train_dataset['z'])
+			task['perms'] 		= perm.complete_group(task['perms'])
 		else:
-			task['perms'] 		= np.arange(1,dataset['R'].shape[1]+1)[None,:] # no symmetries
+			task['perms'] 		= np.arange(1,train_dataset['R'].shape[1])[None,:] # no symmetries
 
 		return task
 
@@ -96,7 +108,7 @@ class GDMLTrain:
 		perm_offsets = np.arange(n_perms)[:,None] * tril_perms.shape[1]
 		tril_perms_lin = (tril_perms + perm_offsets).flatten('F')
 
-		n_train, n_atoms = task['R'].shape[:2]
+		n_train, n_atoms = task['R_train'].shape[:2]
 		dim_i = n_atoms * 3
 		dim_d = (n_atoms**2 - n_atoms) / 2
 
@@ -104,7 +116,7 @@ class GDMLTrain:
 		R_d_desc = np.empty([n_train, dim_d, dim_i]) # TODO
 
 		for i in range(n_train):
-			r = task['R'][i]
+			r = task['R_train'][i]
 
 			pdist = sp.spatial.distance.pdist(r,'euclidean')
 			pdist = sp.spatial.distance.squareform(pdist)
@@ -112,12 +124,10 @@ class GDMLTrain:
 			R_desc[i,:] = desc.r_to_desc(r,pdist)
 			R_d_desc[i,:,:] = desc.r_to_d_desc(r,pdist)
 
-		Ft = task['TG'].ravel()
+		Ft = task['F_train'].ravel()
 
 		start = timeit.default_timer()
-
 		K = self._assemble_kernel_mat(R_desc, R_d_desc, tril_perms_lin, n_perms, sig, lam)
-
 		stop = timeit.default_timer()
 		print " \x1b[90m(%.1f s)\x1b[0m" % ((stop - start) / 2)
 
@@ -139,18 +149,18 @@ class GDMLTrain:
 		r_dim = R_d_desc.shape[2]
 		r_d_desc_alpha = [rj_d_desc.dot(alphas[(j * r_dim):((j + 1) * r_dim)]) for j,rj_d_desc in enumerate(R_d_desc)]
 
-		model = {'dataset':			np.squeeze(task['dataset']),\
-				 'theory_level':	np.squeeze(task['theory_level']),\
-				 'e_mae':			np.nan,\
-				 'e_rmse':			np.nan,\
-				 'f_mae':			np.nan,\
-				 'f_rmse':			np.nan,\
-				 'R':				task['R'],\
-				 'z':				task['z'][0],\
-				 'T':				task['T'],\
-				 'TG':				task['TG'],\
-				 'Rt_desc':			R_desc.T,\
-				 'Rt_d_desc_alpha': r_d_desc_alpha,\
+		model = {'type': 			'm',\
+				 'dataset_name':	np.squeeze(task['dataset_name']),\
+				 'dataset_theory':	np.squeeze(task['dataset_theory']),\
+				 'z':				task['z'],\
+				 'train_idxs':		task['train_idxs'],\
+				 'train_md5':		task['train_md5'],\
+				 'test_idxs':		task['test_idxs'],\
+				 'test_md5':		task['test_md5'],\
+				 'e_err':			{'mae':np.nan, 'rmse':np.nan},\
+				 'f_err':			{'mae':np.nan, 'rmse':np.nan},\
+				 'R_desc':			R_desc.T,\
+				 'R_d_desc_alpha': 	r_d_desc_alpha,\
 				 'c':				0.,\
 				 'sig': 			sig,\
 				 'perms': 			task['perms'],\
@@ -158,14 +168,14 @@ class GDMLTrain:
 
 		return model
 
-	def recov_int_const(self, model, tol=1e-7):
+	def recov_int_const(self, model, task, tol=1e-7):
 
 		gdml = GDMLPredict(model)
-		n_train = model['T'].shape[0]
+		n_train = task['E_train'].shape[0]
 
-		R = model['R'].reshape(n_train,-1)
+		R = task['R_train'].reshape(n_train,-1)
 		E_pred,_ = gdml.predict(R)
-		E_ref = np.squeeze(model['T'])
+		E_ref = np.squeeze(task['E_train'])
 		diff = E_ref - E_pred
 		
 		c_range = np.linspace(min(diff), max(diff), num=100)

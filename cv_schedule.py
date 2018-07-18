@@ -10,7 +10,6 @@ sys.path.append(BASE_DIR)
 import argparse
 import re
 
-import scipy.io
 import numpy as np
 
 from src.gdml_train import GDMLTrain
@@ -24,6 +23,9 @@ parser.add_argument('dataset', metavar = '<dataset>',\
 parser.add_argument('n_train', metavar = '<n_train>',\
 							   type    = lambda x: ui.is_strict_pos_int(x),\
 							   help    = 'number of data points to use for training')
+parser.add_argument('n_test', metavar = '<n_train>',\
+							   type    = lambda x: ui.is_strict_pos_int(x),\
+							   help    = 'number of data points to use for testing')
 parser.add_argument('--gdml', dest='gdml', action='store_true', help = 'don\'t include symmetries in the model')
 parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing training directory')
 parser.add_argument('-s', '--silent', dest='silent', action='store_true', help = 'suppress output')
@@ -32,10 +34,15 @@ _, dataset = args.dataset
 
 gdml = GDMLTrain()
 
-lam = 1e-15
-task = gdml.create_task(dataset, args.n_train, 1, lam, not args.gdml)
+if dataset['E'].shape[0] < args.n_train:
+	sys.exit(ui.fail_str('[FAIL]') + ' Dataset contains {} points, can not train on {} points.'.format(dataset['E'].shape[0],args.n_train)) 
+elif dataset['E'].shape[0]-args.n_train < args.n_test:
+	sys.exit(ui.fail_str('[FAIL]') + ' Dataset contains {} points, can not train on {} and test on {} points.'.format(dataset['E'].shape[0],args.n_train,args.n_test)) 
 
-theory_level_str = re.sub('[^\w\-_\.]', '_', str(dataset['theory_level']))
+lam = 1e-15
+task = gdml.create_task(dataset, args.n_train, dataset, args.n_test, sig=1, lam=lam, recov_sym=not args.gdml)
+
+theory_level_str = re.sub('[^\w\-_\.]', '_', str(dataset['theory']))
 theory_level_str = re.sub('__', '_', theory_level_str)
 dataset_name_str = str(dataset['name'])
 task_dir = BASE_DIR + '/training/' + dataset_name_str + '-' + theory_level_str + '-' + str(args.n_train)
@@ -49,16 +56,16 @@ if os.path.exists(task_dir):
 else:
 	os.makedirs(task_dir)
 
-print 'Writing tasks with %s training points each.' % task['R'].shape[0]
+print 'Writing tasks with %s training points each.' % task['R_train'].shape[0]
 for sig in range(2,100,4):
 	task['sig'] = sig
 
 	task_path = task_dir + '/task-' + io.task_file_name(task)
-	if os.path.isfile(task_path + '.mat'):
-		print ' ' + ui.info_str('[INFO]') + ' Skipping exising task \'task-' + io.task_file_name(task) + '.mat\'.'
+	if os.path.isfile(task_path + '.npz'):
+		print ' ' + ui.info_str('[INFO]') + ' Skipping exising task \'task-' + io.task_file_name(task) + '.npz\'.'
 	else:
 		try:
-			scipy.io.savemat(task_path, task)
+			np.savez_compressed(task_path, **task)
 		except:
 			sys.exit('  ERROR: Writing train task (\'' + task_dir + '\') failed.')
 print ''

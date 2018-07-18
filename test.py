@@ -61,10 +61,11 @@ gdml = GDMLPredict(model, batch_size=250, num_workers=4)
 #n_train = model['R'].shape[0] # temporal
 #n_test += n_train
 
-n_total = len(dataset['T'])
-n_test = min(n_test, n_total) if n_test else n_total
-test_range = np.random.choice(n_total, n_test, replace=False)
+#n_total = len(dataset['E'])
+#n_test = min(n_test, n_total) if n_test else n_total
+#test_range = np.random.choice(n_total, n_test, replace=False)
 
+test_range = model['test_idxs']
 
 #print 'test_range before'
 #print test_range.shape
@@ -94,18 +95,24 @@ test_range = np.random.choice(n_total, n_test, replace=False)
 
 R_test = dataset['R'][test_range,:,:]
 z = dataset['z']
-T_test = dataset['T'][test_range]
-TG_test = dataset['TG'][test_range,:,:]
+T_test = dataset['E'][test_range]
+TG_test = dataset['F'][test_range,:,:]
+
+e_err = model['e_err'].item()
+f_err = model['f_err'].item()
 
 if not args.silent:
 	print
 	print '------------------- Model Validation -------------------'
-	print "Dataset:    '" + str(model['dataset']) + "'" + (' (' + str(model['theory_level']) + ')' if 'theory_level' in model else '')
-	print "Test size:   " + str(n_test)
+	print '{:<10} {}'.format('Dataset:', model['dataset_theory'])
+	print '{:<10} {}'.format('Test size:', n_test)
+
+	#print "Dataset:    '" + str(model['dataset']) + "'" + (' (' + str(model['dataset_theory']) + ')' if 'theory_level' in model else '')
+	#print "Test size:   " + str(n_test)
 	print
 	print 'Expected prediction errors (MAE, RMSE):'
-	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol'.format('Energy', float(model['e_mae']), float(model['e_rmse']))
-	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol/Ang'.format('Forces', float(model['f_mae']), float(model['f_rmse']))
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol'.format('Energy', e_err['mae'], e_err['rmse'])
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol/Ang'.format('Forces', f_err['mae'], f_err['rmse'])
 	print '--------------------------------------------------------\n'
 
 n_atoms = z.shape[0]
@@ -153,20 +160,19 @@ for b_range in batch(range(len(test_range)), b_size):
 	sys.stdout.flush()
 print ''
 
-e_rmse_pct = ((e_rmse/model['e_rmse'] - 1.) * 100)
-f_rmse_pct = ((f_rmse/model['f_rmse'] - 1.) * 100)
+e_rmse_pct = ((e_rmse/e_err['rmse'] - 1.) * 100)
+f_rmse_pct = ((f_rmse/f_err['rmse'] - 1.) * 100)
 
 if not args.silent:
-	print ''
-	print 'Measured prediction errors (MAE, RMSE):'
-	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol      {:<} '.format('Energy', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= model['e_mae'] and e_rmse <= model['e_rmse'] else '!!',e_rmse_pct))
-	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol/Ang  {:<} '.format('Forces', f_mae, f_rmse, "%s (%+.1f %%)" % ('OK' if f_mae <= model['f_mae'] and f_rmse <= model['f_rmse'] else '!!',f_rmse_pct))
+	print '\nMeasured prediction errors (MAE, RMSE):'
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol      {:<} '.format('Energy', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= e_err['mae'] and e_rmse <= e_err['rmse'] else '!!',e_rmse_pct))
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol/Ang  {:<} '.format('Forces', f_mae, f_rmse, "%s (%+.1f %%)" % ('OK' if f_mae <= f_err['mae'] and f_rmse <= f_err['rmse'] else '!!',f_rmse_pct))
 	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol/Ang'.format('Magnitude', mag_mae, mag_rmse)
 	print '| {:<10} {:>.2e}/{:>.2e} [0-1], 0:best'.format('Angle', cos_mae, cos_rmse)
 	print ''
 
 # Update errors if they are not set or on user request.
-err_unset = np.isnan(model['e_mae']) and np.isnan(model['e_rmse']) and np.isnan(model['f_mae']) and np.isnan(model['e_rmse'])
+err_unset = np.isnan(e_err['mae']) and np.isnan(e_err['rmse']) and np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
 if err_unset:
 	print ' ' + ui.info_str('[INFO]') + ' Expected prediction errors were recorded in model file.'
 elif args.update:
@@ -174,9 +180,15 @@ elif args.update:
 
 if args.update or err_unset:
 	model_mutable = dict(model)
-	model_mutable['n_test'] = n_test
-	model_mutable['e_mae'] = np.asscalar(e_mae)
-	model_mutable['e_rmse'] = np.asscalar(e_rmse)
-	model_mutable['f_mae'] = np.asscalar(f_mae)
-	model_mutable['f_rmse'] = np.asscalar(f_rmse)
+	#model_mutable['n_test'] = n_test
+	model_mutable['e_err'] = {'mae':np.asscalar(e_mae),'rmse':np.asscalar(e_rmse)}
+	model_mutable['f_err'] = {'mae':np.asscalar(f_mae),'rmse':np.asscalar(f_rmse)}
+
+	
+	#model_mutable['e_err']['mae'] = np.asscalar(e_mae)
+	#model_mutable['e_err']['rmse'] = np.asscalar(e_rmse)
+	#model_mutable['f_err']['mae'] = np.asscalar(f_mae)
+	#model_mutable['f_err']['rmse'] = np.asscalar(f_rmse)
+	#model_mutable['f_err']['rmse'] = np.asscalar(f_rmse)
+	#model_mutable['f_err']['rmse'] = np.asscalar(f_rmse)
 	np.savez_compressed(model_path, **model_mutable)

@@ -6,6 +6,8 @@ sys.path.append(BASE_DIR)
 
 import argparse
 
+import numpy as np
+
 from src.utils import ui
 
 
@@ -17,8 +19,18 @@ parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', h
 parser.add_argument('-s', '--silent', dest='silent', action='store_true', help = 'suppress output')
 args = parser.parse_args()
 
+#task_files = [task_file for task_file in sorted(os.listdir(args.task_dir)) if task_file.endswith('.npz')]
+task_files = []
+for task_file in sorted(os.listdir(args.task_dir)):
+	if task_file.endswith('.npz'):
+		task_path = args.task_dir + '/' + task_file
+		try:
+			task = np.load(task_path)
+		except:
+			sys.exit("ERROR: Reading file failed.")
+		if 'type' in task and task['type'] == 't':
+			task_files.append(task_file)
 
-task_files = [task_file for task_file in sorted(os.listdir(args.task_dir)) if task_file.endswith('.mat')]
 if not len(task_files):
 	sys.exit(os.path.basename(sys.argv[0]) + ': error: no tasks found in directory')
 

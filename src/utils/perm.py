@@ -140,7 +140,7 @@ def inv_perm(perm):
 def to_tril_perm(perm):
 
 	n = len(perm)
-	perm = perm - 1 # MATLAB is 1-dominant (legacy reasons)
+	perm = perm# - 1 # MATLAB is 1-dominant (legacy reasons)
 
 	rest = np.zeros((n,n))
 	rest[np.tril_indices(n,-1)] = range(0,(n**2-n)/2)

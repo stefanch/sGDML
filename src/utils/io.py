@@ -14,24 +14,25 @@ def z_to_z_str(z):
 
 def task_file_name(task):
 	
-	n_train = task['R'].shape[0]
+	n_train = task['R_train'].shape[0]
 	n_perms = task['perms'].shape[0]
 
-	dataset = np.squeeze(task['dataset'])
-	theory_level_str = re.sub('[^\w\-_\.]', '_', str(np.squeeze(task['theory_level'])))
+	dataset = np.squeeze(task['dataset_name'])
+	theory_level_str = re.sub('[^\w\-_\.]', '_', str(np.squeeze(task['dataset_theory'])))
 	theory_level_str = re.sub('__', '_', theory_level_str)
 	sig = np.squeeze(task['sig'])
 
 	return str(n_train) + '-sym' + str(n_perms) + '-sig' + str(sig) + '-' + str(dataset) + '-' + theory_level_str + '.npz'
 
-## FILES
+def dataset_md5(dataset):
 
-def file_md5(file_path):
 	md5_hash = hashlib.md5()
-	with open(file_path, 'rb') as f:
-		for byte_block in iter(lambda: f.read(4096),b''): # read in chunks of 4K
-			md5_hash.update(byte_block)
+	for key in ['z', 'R', 'E', 'F']:
+		md5_hash.update(hashlib.md5(dataset[key].ravel()).digest())
+
 	return md5_hash.hexdigest()
+
+## FILES
 
 # Read of geometry file (xyz format).
 def read_geometry(filename):
