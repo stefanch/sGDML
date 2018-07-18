@@ -31,14 +31,14 @@ model_path, model = args.model
 n_reps = args.n_reps
 
 
-n_train = model['Rt_desc'].shape[1]
+n_train = model['R_desc'].shape[1]
 n_train = (n_train if n_train % 10 == 0 else n_train + 10 - n_train % 10) # round to next 10
 n_atoms = model['z'].shape[0]
 
 if not args.silent:
 	print
 	print '------------------- Benchmark -------------------------'
-	print "Dataset: '%s'%s" % (str(model['dataset']), ' (%s)' % (str(model['theory_level'])) if 'theory_level' in model else '')
+	print "Dataset: '%s'%s" % (str(model['dataset_name']), str(model['dataset_theory']))
 	print 'Sequential evaluation test (one geometry at a time)'
 	print '-------------------------------------------------------'
 
