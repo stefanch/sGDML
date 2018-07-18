@@ -58,7 +58,6 @@ parser.add_argument('dataset', metavar = '<dataset>',\
 args = parser.parse_args()
 dataset = args.dataset
 
-
 R,z,T,TG = read_concat_ext_xyz(dataset)
 name = os.path.splitext(os.path.basename(dataset.name))[0]
 

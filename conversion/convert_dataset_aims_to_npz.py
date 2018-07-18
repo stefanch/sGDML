@@ -19,6 +19,7 @@ def read_reference_data(f):
 	n_atoms = None
 	R,z,T,TG = [],[],[],[]
 
+	
 	geo_idx = 0
 	for line in f:
 		if n_atoms:

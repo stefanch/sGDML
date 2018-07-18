@@ -1,5 +1,6 @@
 import sys
 import re
+import hashlib
 import numpy as np
 
 _z_str_to_z_dict = {'Al':13,'O':8,'N':7,'C':6,'B':5,'H':1}
@@ -24,6 +25,13 @@ def task_file_name(task):
 	return str(n_train) + '-sym' + str(n_perms) + '-sig' + str(sig) + '-' + str(dataset) + '-' + theory_level_str + '.npz'
 
 ## FILES
+
+def file_md5(file_path):
+	md5_hash = hashlib.md5()
+	with open(file_path, 'rb') as f:
+		for byte_block in iter(lambda: f.read(4096),b''): # read in chunks of 4K
+			md5_hash.update(byte_block)
+	return md5_hash.hexdigest()
 
 # Read of geometry file (xyz format).
 def read_geometry(filename):
@@ -74,22 +82,22 @@ def write_geometry(filename,r,z,comment_str=''):
 	except IOError:
 		sys.exit("ERROR: Writing xyz file failed.")
 
-def read_mp_config(filename, dataset):
+# def read_mp_config(filename, dataset):
 
-	# Load model.
-	try:
-		config = np.load(filename)
-	except:
-		print 'Reading config file failed.'
-		return (-1,125)
-		#sys.exit("ERROR: Reading config file failed.")
+# 	# Load model.
+# 	try:
+# 		config = np.load(filename)
+# 	except:
+# 		print 'Reading config file failed.'
+# 		return (-1,125)
+# 		#sys.exit("ERROR: Reading config file failed.")
 
-	if dataset in config:
-		return config[dataset]
-	else:
-		return (-1,125)
+# 	if dataset in config:
+# 		return config[dataset]
+# 	else:
+# 		return (-1,125)
 
-def write_mp_config(filename, dataset, num_workers, batch_size):
+# def write_mp_config(filename, dataset, num_workers, batch_size):
 
-	base_vars = {dataset:(num_workers, batch_size)}
-	np.savez_compressed(filename, **base_vars)
+# 	base_vars = {dataset:(num_workers, batch_size)}
+# 	np.savez_compressed(filename, **base_vars)

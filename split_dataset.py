@@ -5,12 +5,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
 import argparse
-import hashlib
 
 import numpy as np
 
 from src.gdml_train import GDMLTrain
-from src.utils import ui
+from src.utils import io,ui
 
 split_dataset_path = BASE_DIR + '/datasets/npz/splits/'
 
@@ -53,14 +52,10 @@ T_min, T_max = np.min(dataset['T']), np.max(dataset['T'])
 print ' {:<14} {:<.3} '.format('Energies', T_min) + '|--' + ' {:^8.3} '.format(T_max-T_min) + '--|' + ' {:>9.3} [UNIT]'.format(T_max)
 
 TG_min, TG_max = np.min(dataset['TG'].ravel()), np.max(dataset['TG'].ravel())
-print ' {:<14} {:<.3} '.format('Forces', T_min) + '|--' + ' {:.3} '.format(TG_max-TG_min) + '--|' + ' {:>9.3} [UNIT]'.format(TG_max)
+print ' {:<14} {:<.3} '.format('Forces', TG_min) + '|--' + ' {:.3} '.format(TG_max-TG_min) + '--|' + ' {:>9.3} [UNIT]'.format(TG_max)
 
-md5_hash = hashlib.md5()
-with open(dataset_path, 'rb') as f:
-	for byte_block in iter(lambda: f.read(4096),b''): # read in chunks of 4K
-		md5_hash.update(byte_block)
-md5_str = md5_hash.hexdigest()
-print ' {:<14} {:<}'.format('MD5:', md5_str)
+md5_str = io.file_md5(dataset_path)
+print ' {:<14} {:<}'.format('Fingerprint:', md5_str)
 
 if args.n_train > n_mols:
 	sys.exit(ui.fail_str('[FAIL]') + ' Training split too large for dataset size.')

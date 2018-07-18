@@ -146,9 +146,9 @@ class GDMLTrain:
 				 'f_mae':			np.nan,\
 				 'f_rmse':			np.nan,\
 				 'R':				task['R'],\
+				 'z':				task['z'][0],\
 				 'T':				task['T'],\
 				 'TG':				task['TG'],\
-				 'z':				task['z'][0],\
 				 'Rt_desc':			R_desc.T,\
 				 'Rt_d_desc_alpha': r_d_desc_alpha,\
 				 'c':				0.,\
