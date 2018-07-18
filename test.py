@@ -104,8 +104,8 @@ if not args.silent:
 	print "Test size:   " + str(n_test)
 	print
 	print 'Expected prediction errors (MAE, RMSE):'
-	print '| {:<10} {:>.3f}/{:>.3f} kcal/mol'.format('Energy', float(model['e_mae']), float(model['e_rmse']))
-	print '| {:<10} {:>.3f}/{:>.3f} kcal/mol/Ang'.format('Forces', float(model['f_mae']), float(model['f_rmse']))
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol'.format('Energy', float(model['e_mae']), float(model['e_rmse']))
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol/Ang'.format('Forces', float(model['f_mae']), float(model['f_rmse']))
 	print '--------------------------------------------------------\n'
 
 n_atoms = z.shape[0]
@@ -159,10 +159,10 @@ f_rmse_pct = ((f_rmse/model['f_rmse'] - 1.) * 100)
 if not args.silent:
 	print ''
 	print 'Measured prediction errors (MAE, RMSE):'
-	print '| {:<10} {:>.3f}/{:>.3f} kcal/mol      {:<} '.format('Energy', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= model['e_mae'] and e_rmse <= model['e_rmse'] else '!!',e_rmse_pct))
-	print '| {:<10} {:>.3f}/{:>.3f} kcal/mol/Ang  {:<} '.format('Forces', f_mae, f_rmse, "%s (%+.1f %%)" % ('OK' if f_mae <= model['f_mae'] and f_rmse <= model['f_rmse'] else '!!',f_rmse_pct))
-	print '| {:<10} {:>.3f}/{:>.3f} kcal/mol/Ang'.format('Magnitude', mag_mae, mag_rmse)
-	print '| {:<10} {:>.3f}/{:>.3f} [0-1], 0:best'.format('Angle', cos_mae, cos_rmse)
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol      {:<} '.format('Energy', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= model['e_mae'] and e_rmse <= model['e_rmse'] else '!!',e_rmse_pct))
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol/Ang  {:<} '.format('Forces', f_mae, f_rmse, "%s (%+.1f %%)" % ('OK' if f_mae <= model['f_mae'] and f_rmse <= model['f_rmse'] else '!!',f_rmse_pct))
+	print '| {:<10} {:>.2e}/{:>.2e} kcal/mol/Ang'.format('Magnitude', mag_mae, mag_rmse)
+	print '| {:<10} {:>.2e}/{:>.2e} [0-1], 0:best'.format('Angle', cos_mae, cos_rmse)
 	print ''
 
 # Update errors if they are not set or on user request.
