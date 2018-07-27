@@ -13,7 +13,7 @@ def init(n_atoms):
 
 def r_to_desc(r,pdist):
 	n_atoms = r.shape[0]
-	return 1 / pdist[np.tril_indices(n_atoms,-1)]
+	return 1. / pdist[np.tril_indices(n_atoms,-1)]
 
 def r_to_d_desc(r,pdist):
 	global d_desc_mask

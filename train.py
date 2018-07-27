@@ -11,7 +11,6 @@ import argparse
 import random
 import string
 
-
 import numpy as np
 
 from src.gdml_train import GDMLTrain
@@ -20,7 +19,7 @@ from src.utils import io,ui
 
 parser = argparse.ArgumentParser(description='Trains the sGDML model for a given task.')
 parser.add_argument('task', metavar = '<task>',\
-							type    = lambda x: ui.is_valid_np_file(parser, x),\
+							type    = lambda x: ui.is_file_type(x, 'task'),\
 							help	= 'path to task file')
 parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing model')
 parser.add_argument('-s', '--silent', dest='silent', action='store_true', help = 'suppress output')
@@ -30,7 +29,8 @@ task_path, task = args.task
 
 model_path = os.path.dirname(task_path) + '/model-' + io.task_file_name(task)
 if os.path.isfile(model_path) and not args.overwrite:
-	sys.exit(ui.warn_str('[WARN]') + ' Skipping exising model \'model-' + io.task_file_name(task) + '\'.')
+	print ui.warn_str('[WARN]') + ' Skipping exising model \'model-' + io.task_file_name(task) + '\'.'
+	sys.exit()
 
 gdml = GDMLTrain()
 model = gdml.train(task)

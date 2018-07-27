@@ -18,12 +18,12 @@ from src.utils import io, ui
 
 parser = argparse.ArgumentParser(description='Creates sGDML model training tasks for a specified hyper-parameter range.')
 parser.add_argument('dataset', metavar = '<dataset>',\
-							   type    = lambda x: ui.is_valid_np_file(parser, x),\
+							   type    = lambda x: ui.is_file_type(x, 'dataset'),\
 							   help	   = 'path to dataset file')
 parser.add_argument('n_train', metavar = '<n_train>',\
 							   type    = lambda x: ui.is_strict_pos_int(x),\
 							   help    = 'number of data points to use for training')
-parser.add_argument('n_test', metavar = '<n_train>',\
+parser.add_argument('n_test', metavar = '<n_test>',\
 							   type    = lambda x: ui.is_strict_pos_int(x),\
 							   help    = 'number of data points to use for testing')
 parser.add_argument('--gdml', dest='gdml', action='store_true', help = 'don\'t include symmetries in the model')
@@ -39,8 +39,6 @@ if dataset['E'].shape[0] < args.n_train:
 elif dataset['E'].shape[0]-args.n_train < args.n_test:
 	sys.exit(ui.fail_str('[FAIL]') + ' Dataset contains {} points, can not train on {} and test on {} points.'.format(dataset['E'].shape[0],args.n_train,args.n_test)) 
 
-lam = 1e-15
-task = gdml.create_task(dataset, args.n_train, dataset, args.n_test, sig=1, lam=lam, recov_sym=not args.gdml)
 
 theory_level_str = re.sub('[^\w\-_\.]', '_', str(dataset['theory']))
 theory_level_str = re.sub('__', '_', theory_level_str)
@@ -53,8 +51,14 @@ if os.path.exists(task_dir):
 		file_list = [f for f in os.listdir(task_dir)]
 		for f in file_list:
 			os.remove(os.path.join(task_dir, f))
+	else:
+		print ui.warn_str('[WARN]') + ' Skipping existing task dir \'%s\'.' % task_dir
+		sys.exit()
 else:
 	os.makedirs(task_dir)
+
+lam = 1e-15
+task = gdml.create_task(dataset, args.n_train, dataset, args.n_test, sig=1, lam=lam, recov_sym=not args.gdml)
 
 print 'Writing tasks with %s training points each.' % task['R_train'].shape[0]
 for sig in range(2,100,4):

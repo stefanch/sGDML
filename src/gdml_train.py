@@ -157,6 +157,7 @@ class GDMLTrain:
 				 'train_md5':		task['train_md5'],\
 				 'test_idxs':		task['test_idxs'],\
 				 'test_md5':		task['test_md5'],\
+				 'n_valid':			0,\
 				 'e_err':			{'mae':np.nan, 'rmse':np.nan},\
 				 'f_err':			{'mae':np.nan, 'rmse':np.nan},\
 				 'R_desc':			R_desc.T,\

@@ -20,7 +20,7 @@ fail_msg = ui.fail_str('[FAIL]') + ' Training assistant failed.'
 
 parser = argparse.ArgumentParser(description='Performs all steps necessary to train a sGDML model from a given dataset.')
 parser.add_argument('dataset', metavar = '<dataset>',\
-							   type    = lambda x: ui.is_valid_np_file(parser, x),\
+							   type    = lambda x: ui.is_file_type(x, 'dataset'),\
 							   help	   = 'path to bulk dataset file')
 parser.add_argument('n_train', metavar = '<n_train>',\
 							   type    = lambda x: ui.is_strict_pos_int(x),\
@@ -108,8 +108,7 @@ if err_code != 0: sys.exit(fail_msg)
 
 print '\n' + ui.white_back_str(' STEP 3 ') + ' Testing all models.'
 print '-'*100
-err_code = os.system('python test_batch.py ' + task_dir + ' ' + dataset_path + ' ' + str(args.n_test)\
-				   + ' -s')
+err_code = os.system('python test_batch.py ' + task_dir + ' ' + dataset_path + ' -s')
 if err_code != 0: sys.exit(fail_msg)
 
 

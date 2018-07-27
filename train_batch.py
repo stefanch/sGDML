@@ -13,34 +13,22 @@ from src.utils import ui
 
 parser = argparse.ArgumentParser(description='Trains all tasks in given directory.')
 parser.add_argument('task_dir', metavar = '<task_dir>',\
-							 	type    = lambda x: ui.is_dir(x),\
+							 	type    = lambda x: ui.is_dir_with_file_type(x, 'task'),\
 							 	help	 = 'path to task directory')
 parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing model')
 parser.add_argument('-s', '--silent', dest='silent', action='store_true', help = 'suppress output')
 args = parser.parse_args()
 
-#task_files = [task_file for task_file in sorted(os.listdir(args.task_dir)) if task_file.endswith('.npz')]
-task_files = []
-for task_file in sorted(os.listdir(args.task_dir)):
-	if task_file.endswith('.npz'):
-		task_path = args.task_dir + '/' + task_file
-		try:
-			task = np.load(task_path)
-		except:
-			sys.exit("ERROR: Reading file failed.")
-		if 'type' in task and task['type'] == 't':
-			task_files.append(task_file)
+task_files, task_dir = args.task_dir
 
-if not len(task_files):
-	sys.exit(os.path.basename(sys.argv[0]) + ': error: no tasks found in directory')
 
 for i,task_file in enumerate(task_files):
 	print 'Training task %d/%d...' % (i+1,len(task_files))
-	os.system('python train.py ' + args.task_dir + '/' + task_file\
+	os.system('python train.py ' + task_dir + '/' + task_file\
 		   + (' -o' if args.overwrite else '')\
 		   + (' -s' if args.silent else ''))
 	print ''
 
 if not args.silent:
-	call_str = 'python test_batch.py ' + args.task_dir + ' <dataset>' + ' <n_test>'
+	call_str = 'python test_batch.py ' + task_dir + ' <dataset>' + ' <n_test>'
 	print '\nNEXT STEP: \'' + call_str + '\''

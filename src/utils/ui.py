@@ -50,17 +50,55 @@ def is_valid_np_file(parser, arg):
 	except:
 		parser.error("Reading '%s' failed." % arg)
 
-def is_valid_mat_file(parser, arg):
-	try:
-		return arg, scipy.io.loadmat(arg)
-	except:
-		parser.error("Reading '%s' failed." % arg)
+def is_file_type(arg, type):
 
-def is_dir(arg):
+	if not arg.endswith('.npz'):
+		argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
+
+	try:
+		file = np.load(arg)
+	except:
+		raise argparse.ArgumentTypeError('{0} is not readable'.format(arg))
+			
+	if 'type' not in file or file['type'] != type[0]:
+		raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg,type))
+
+	return arg, file
+
+
+#def is_valid_mat_file(parser, arg):
+#	try:
+#		return arg, scipy.io.loadmat(arg)
+#	except:
+#		parser.error("Reading '%s' failed." % arg)
+
+#def is_dir(arg):
+#	if not os.path.isdir(arg):
+#		raise argparse.ArgumentTypeError("{0} is not a directory".format(arg))
+#	else:
+#		return arg
+
+def is_dir_with_file_type(arg, type):
+
 	if not os.path.isdir(arg):
 		raise argparse.ArgumentTypeError("{0} is not a directory".format(arg))
-	else:
-		return arg
+
+	files = []
+	for file_name in sorted(os.listdir(arg)):
+		if file_name.endswith('.npz'):
+			file_path = os.path.join(arg, file_name)
+			try:
+				file = np.load(file_path)
+			except:
+				raise argparse.ArgumentTypeError('{0} contains unreadable .npz files'.format(arg))
+				
+			if 'type' in file and file['type'] == type[0]:
+				files.append(file_name)
+
+	if not len(files):
+		raise argparse.ArgumentTypeError('{0} contains no {1} files'.format(arg, type))
+
+	return files, arg
 
 def is_strict_pos_int(arg):
 	x = int(arg)
