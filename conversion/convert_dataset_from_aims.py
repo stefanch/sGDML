@@ -113,6 +113,7 @@ base_vars = {'type':			'd',\
 			 'F':				F,\
 			 'name':			name,\
 			 'theory':	'unknown'}
+base_vars['md5'] = io.dataset_md5(base_vars)
 
 np.savez_compressed(dataset_path, **base_vars)
 print ui.pass_str('DONE')

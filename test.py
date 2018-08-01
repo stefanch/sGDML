@@ -60,6 +60,9 @@ n_valid = args.n_valid
 # errors nan: test run
 # errors set, but n_valid == 0: validation run
 
+if dataset['md5'] != model['test_md5']:
+	sys.exit(ui.fail_str('[FAIL]') + ' Fingerprint of provided test dataset does not match the one in model file.')
+
 
 e_err = model['e_err'].item()
 f_err = model['f_err'].item()

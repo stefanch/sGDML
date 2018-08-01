@@ -19,9 +19,9 @@ fail_msg = ui.fail_str('[FAIL]') + ' Training assistant failed.'
 
 
 parser = argparse.ArgumentParser(description='Performs all steps necessary to train a sGDML model from a given dataset.')
-parser.add_argument('dataset', metavar = '<dataset>',\
+parser.add_argument('dataset', metavar = '<[train_]dataset>',\
 							   type    = lambda x: ui.is_file_type(x, 'dataset'),\
-							   help	   = 'path to bulk dataset file')
+							   help	   = 'path to dataset file (train and test data are both sampled from here, if no separate test set is specified)')
 parser.add_argument('n_train', metavar = '<n_train>',\
 							   type    = lambda x: ui.is_strict_pos_int(x),\
 							   help    = 'number of training points to sample from dataset')

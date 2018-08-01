@@ -137,11 +137,7 @@ base_vars = {'type':			'd',\
 			 'F':				F,\
 			 'name':			name,\
 			 'theory':			'unknown'}
+base_vars['md5'] = io.dataset_md5(base_vars)
 
-#if not os.path.exists(dataset_dir):
-	#print ui.info_str(' [INFO]') + ' Created directory \'%s\'.' % 'datasets/npz/'
-#	os.makedirs(dataset_dir)
-#dataset_path = dataset_dir + name + '.npz'
-#print 'Writing dataset to \'datasets/npz/%s.npz\'...' % name
 np.savez_compressed(dataset_path, **base_vars)
 print ui.pass_str('DONE')
