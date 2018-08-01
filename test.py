@@ -18,8 +18,10 @@ from src.gdml_train import GDMLTrain
 from src.utils import io,ui
 
 
-def batch(iterable, n=1):
+def batch(iterable, n=1,first_none=False):	
 	l = len(iterable)
+	if first_none:
+		yield None
 	for ndx in range(0, l, n):
 		yield iterable[ndx:min(ndx + n, l)]
 
@@ -73,13 +75,12 @@ valid_idxs = model['test_idxs']
 if not is_test:
 	gdml = GDMLTrain()
 	valid_idxs = gdml.draw_strat_sample(dataset['E'], n_valid, excl_idxs=np.concatenate([model['train_idxs'], model['test_idxs']]))
+np.random.shuffle(valid_idxs) # shuffle to improve convergence of online error
 
-#valid_idxs = model['test_idxs']
 z = dataset['z']
 R_test = dataset['R'][valid_idxs,:,:]
 T_test = dataset['E'][valid_idxs]
 TG_test = dataset['F'][valid_idxs,:,:]
-
 
 if not args.silent:
 	action_str = 'Test' if is_test else 'Validation'
@@ -98,6 +99,13 @@ if not args.silent:
 
 gdml = GDMLPredict(model, batch_size=250, num_workers=4)
 
+sys.stdout.write('\r ' + ui.info_str('[') + ui.blink_str(' .. ') + ui.info_str(']') + ' Running benchmark...')
+sys.stdout.flush()
+E_bench, F_bench = gdml.set_opt_num_workers_and_batch_size(R=R_test) #  the benchmark function takes uses real test data and returns part of the result for R_test
+n_bench = len(E_bench)
+sys.stdout.write('\r ' + ui.info_str('[DONE]') + ' Running benchmark... \x1b[90m(%d workers w/ %d batch size)\x1b[0m\n' % (gdml._num_workers, gdml._batch_size))
+sys.stdout.flush()
+
 n_atoms = z.shape[0]
 
 e_mae_sum, e_rmse_sum = 0,0
@@ -108,14 +116,23 @@ mag_mae_sum, mag_rmse_sum = 0,0
 b_size = 1
 n_done = 0
 t = time.time()
-for b_range in batch(range(len(valid_idxs)), b_size):
-	n_done += len(b_range)
+for b_range in batch(range(n_bench,len(valid_idxs)), b_size, first_none=True):
 
-	r = R_test[b_range].reshape(b_size,-1)
-	e = T_test[b_range]
-	f = TG_test[b_range].reshape(b_size,-1)
+	if b_range is None: # first run
+		n_done = n_bench
 
-	E,F = gdml.predict(r)
+		e = T_test[:n_bench]
+		f = TG_test[:n_bench].reshape(b_size,-1)
+
+		E,F = E_bench, F_bench
+	else:
+		n_done += len(b_range)
+
+		r = R_test[b_range].reshape(b_size,-1)
+		e = T_test[b_range]
+		f = TG_test[b_range].reshape(b_size,-1)
+
+		E,F = gdml.predict(r)
 
 	# energy error
 	e_mae, e_mae_sum, e_rmse, e_rmse_sum = online_err(np.squeeze(e) - E, 1, n_done, e_mae_sum, e_rmse_sum)
@@ -135,12 +152,19 @@ for b_range in batch(range(len(valid_idxs)), b_size):
 	cos_mae, cos_mae_sum, cos_rmse, cos_rmse_sum = online_err(cos_err, n_atoms, n_done, cos_mae_sum, cos_rmse_sum)
 
 	progr = float(n_done) / len(valid_idxs)
-	sps = n_done / (time.time() - t) # samples per second
+	sps = (n_done - n_bench) / (time.time() - t) # samples per second (don't time the benchmark predictions)
+	
 	if args.silent:
-		sys.stdout.write('\r \x1b[1;37m[%3d%%]\x1b[0m >> Energy: %.3f/%.3f - Forces: %.3f/%.3f (MAE, RMSE) \x1b[90m@ %.1f geo/s\x1b[0m' % (progr * 100,e_mae,e_rmse,f_mae,f_rmse,sps))
+		sys.stdout.write('\r \x1b[1;37m[%3d%%]\x1b[0m' % (progr * 100))
 	else:
-		sys.stdout.write('\r[%-30s] %03d%% >> Energy: %.3f/%.3f - Forces: %.3f/%.3f (MAE, RMSE) @ %.1f sps' % ('=' * int(progr * 30),progr * 100,e_mae,e_rmse,f_mae,f_rmse,sps))
+		sys.stdout.write('\r \r[%-30s] %03d%%' % ('=' * int(progr * 30),progr * 100))
+
+	sys.stdout.write(' >> Energy: %.3f/%.3f - Forces: %.3f/%.3f (MAE, RMSE)' % (e_mae,e_rmse,f_mae,f_rmse))
+
+	if b_range is not None:
+		sys.stdout.write(' \x1b[90m@ %.1f geo/s\x1b[0m' % sps)
 	sys.stdout.flush()
+
 print ''
 
 e_rmse_pct = ((e_rmse/e_err['rmse'] - 1.) * 100)

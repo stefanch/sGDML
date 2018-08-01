@@ -1,12 +1,13 @@
 # GDML Force Field
 # Author: Stefan Chmiela (stefan@chmiela.com)
-VERSION = 180702
+VERSION = 310702
 
 import sys
 
 import scipy.spatial.distance
 import numpy as np
 
+import time
 import multiprocessing as mp
 from functools import partial
 
@@ -68,32 +69,29 @@ class GDMLPredict:
 
 	def __init__(self,model,batch_size=250,num_workers=None):
 
-		global glob,perms_lin,sig,n_perms,b_size
+		global glob,perms_lin,sig,n_perms
 
 		# Batch size (number of training samples summed up in prediction process) that a worker processes at once.
-		b_size = batch_size
+		self.set_batch_size(batch_size)
 
 		self.n_atoms = model['z'].shape[0]
 		n_tril = (self.n_atoms**2 - self.n_atoms) / 2
 		
-		n_train = model['R_desc'].shape[1]
+		self.n_train = model['R_desc'].shape[1]
 		sig = model['sig']
 		self.c = model['c']
 
 		# Precompute permutated training descriptors and its first derivatives multiplied with the coefficients (only needed for cached variant).
 		n_perms = model['tril_perms_lin'].shape[0] / n_tril
-		R_desc_perms = np.reshape(np.tile(model['R_desc'].T, n_perms)[:,model['tril_perms_lin']], (n_train*n_perms,-1), order='F')
+		
+		R_desc_perms = np.reshape(np.tile(model['R_desc'].T, n_perms)[:,model['tril_perms_lin']], (self.n_train*n_perms,-1), order='F')
 		glob['R_desc_perms'], glob['R_desc_perms_shape'] = share_array(R_desc_perms)
-		R_d_desc_alpha_perms = np.reshape(np.tile(np.squeeze(model['R_d_desc_alpha']), n_perms)[:,model['tril_perms_lin']], (n_train*n_perms,-1), order='F')
+		
+		R_d_desc_alpha_perms = np.reshape(np.tile(np.squeeze(model['R_d_desc_alpha']), n_perms)[:,model['tril_perms_lin']], (self.n_train*n_perms,-1), order='F')
 		glob['R_d_desc_alpha_perms'], glob['R_d_desc_alpha_perms_shape'] = share_array(R_d_desc_alpha_perms)
 
-		self.n_procs = num_workers
-		self.pool = mp.Pool(processes=self.n_procs)
-
-		# Data ranges for processes
-		wkr_starts = range(0,n_train,int(np.ceil(float(n_train)/self.pool._processes)))
-		wkr_stops = wkr_starts[1:] + [n_train]
-		self.wkr_starts_stops = zip(wkr_starts,wkr_stops)
+		self.pool = None
+		self.set_num_workers(num_workers)
 
 	def __del__(self):
 		self.pool.close()
@@ -101,8 +99,92 @@ class GDMLPredict:
 	def version(self):
 		return VERSION
 
-
 	## Public ##
+
+	def set_num_workers(self, num_workers):
+		#print 'worker setter called'
+		if self.pool is not None:
+			self.pool.close()
+		self.pool = mp.Pool(processes=num_workers)
+
+		# Data ranges for processes
+		wkr_starts = range(0,self.n_train,int(np.ceil(float(self.n_train)/self.pool._processes)))
+		wkr_stops = wkr_starts[1:] + [self.n_train]
+		self.wkr_starts_stops = zip(wkr_starts,wkr_stops)
+
+		self._num_workers = num_workers
+
+	def set_batch_size(self, batch_size):
+
+		global b_size
+
+		#print 'batch setter called'
+
+		b_size = batch_size
+		self._batch_size = batch_size
+
+	# sets best (num_workers, batch_size) for model
+	# the model is either tested on a dummy input or geometries from a provided set
+	# note: the optimal parameters are NOT set if this function runs out of geometries (if provided)
+	def set_opt_num_workers_and_batch_size(self,R=None,n_reps=100):
+
+		done = 0
+		F = np.empty((0,self.n_atoms*3))
+		E = []
+
+		best_sps = 0
+		best_params = 1,1
+		best_results = []
+		r_dummy = np.random.rand(1,self.n_atoms*3)
+
+		for num_workers in range(1,mp.cpu_count()+1):
+			if self.n_train % num_workers != 0:
+				continue
+			self.set_num_workers(num_workers)
+
+			best_sps = 0
+			for batch_size in range(int(np.ceil(self.n_train/num_workers)), 0, -1):
+				if self.n_train % batch_size != 0:
+					continue
+				self.set_batch_size(batch_size)
+
+				t_elap = 0
+				for i in range(1,n_reps+1):
+					if R is None:
+						t = time.time()
+						self.predict(r_dummy)
+						t_elap += time.time() - t
+					elif R is not None and done == R.shape[0]:
+						return np.array(E),F.ravel()
+					else:
+						r = R[done].reshape(1,-1)
+						t = time.time()
+						e,f = self.predict(r)
+						t_elap += time.time() - t
+
+						E.append(e)
+						F = np.vstack((F,f))
+					done += 1 
+					
+					if t_elap > 1: # don't spend more than 1s on this
+						break
+				sps = i / t_elap
+
+				if sps < best_sps:
+					break
+				else:
+					best_sps = sps
+					best_params = num_workers, batch_size
+
+				#print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers,batch_size, sps)
+			best_results.append((best_params, best_sps))
+		
+		num_workers, batch_size = max(best_results, key=lambda x:x[1])[0]
+				
+		self.set_batch_size(batch_size)
+		self.set_num_workers(num_workers)
+
+		return np.array(E),F.ravel()
 
 	def _predict_bulk(self,R):
 

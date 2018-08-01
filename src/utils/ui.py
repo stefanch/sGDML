@@ -44,11 +44,11 @@ def fail_str(str):
 
 # USER INPUT VALIDATION
 
-def is_valid_np_file(parser, arg):
-	try:
-		return arg, np.load(arg)
-	except:
-		parser.error("Reading '%s' failed." % arg)
+#def is_valid_np_file(parser, arg):
+#	try:
+#		return arg, np.load(arg)
+#	except:
+#		parser.error("Reading '%s' failed." % arg)
 
 def is_file_type(arg, type):
 

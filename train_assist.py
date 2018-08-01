@@ -58,10 +58,10 @@ print ' {:<14} {:<}'.format('Theory:', dataset['theory'])
 print ' {:<14} {:<d}'.format('# Points:', n_mols)
 
 T_min, T_max = np.min(dataset['E']), np.max(dataset['E'])
-print ' {:<14} {:<.3} '.format('Energies', T_min) + '|--' + ' {:^8.3} '.format(T_max-T_min) + '--|' + ' {:>9.3} [UNIT]'.format(T_max)
+print ' {:<14} {:<.3} '.format('Energies', T_min) + '|--' + ' {:^8.3} '.format(T_max-T_min) + '--|' + ' {:>9.3} [a.u.]'.format(T_max)
 
 TG_min, TG_max = np.min(dataset['F'].ravel()), np.max(dataset['F'].ravel())
-print ' {:<14} {:<.3} '.format('Forces', TG_min) + '|--' + ' {:.3} '.format(TG_max-TG_min) + '--|' + ' {:>9.3} [UNIT]'.format(TG_max)
+print ' {:<14} {:<.3} '.format('Forces', TG_min) + '|--' + ' {:.3} '.format(TG_max-TG_min) + '--|' + ' {:>9.3} [a.u.]'.format(TG_max)
 
 print ' {:<14} {:<}'.format('Fingerprint:', io.dataset_md5(dataset))
 
