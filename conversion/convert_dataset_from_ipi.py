@@ -82,11 +82,26 @@ parser.add_argument('energy_col', 	 metavar = '<energy_col>',\
 							  	 type    = lambda x: ui.is_strict_pos_int(x),\
 							  	 help    = '[TODO]',\
 							  	 nargs   = '?', default = 0)
+parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing dataset file')
 args = parser.parse_args()
 geometries = args.geometries
 forces = args.forces
 energies = args.energies
 energy_col = args.energy_col
+
+
+if not os.path.exists(dataset_dir):
+	os.makedirs(dataset_dir)
+name = os.path.splitext(os.path.basename(geometries.name))[0]
+dataset_path = dataset_dir + name + '.npz'
+
+dataset_exists = os.path.isfile(dataset_path)
+if dataset_exists and args.overwrite:	
+	print ui.info_str('[INFO]') + ' Overwriting existing dataset file.'
+if not dataset_exists or args.overwrite:
+	print 'Writing dataset to \'datasets/npz/%s.npz\'...' % name
+else:
+	sys.exit(ui.fail_str('[FAIL]') + ' Dataset \'datasets/npz/%s.npz\' already exists.' % name)
 
 
 print 'Reading geometries...'
@@ -114,8 +129,6 @@ F = F * F_conv_fact
 E_conv_fact = raw_input_float('Unit conversion factor for energies: ')
 E = E * E_conv_fact
 
-name = os.path.splitext(os.path.basename(geometries.name))[0]
-
 # Base variables contained in every model file.
 base_vars = {'type':			'd',\
 			 'R':				R,\
@@ -125,10 +138,10 @@ base_vars = {'type':			'd',\
 			 'name':			name,\
 			 'theory':			'unknown'}
 
-if not os.path.exists(dataset_dir):
-	print ui.info_str(' [INFO]') + ' Created directory \'%s\'.' % 'datasets/npz/'
-	os.makedirs(dataset_dir)
-dataset_path = dataset_dir + name + '.npz'
-print 'Writing dataset to \'datasets/npz/%s.npz\'...' % name
+#if not os.path.exists(dataset_dir):
+	#print ui.info_str(' [INFO]') + ' Created directory \'%s\'.' % 'datasets/npz/'
+#	os.makedirs(dataset_dir)
+#dataset_path = dataset_dir + name + '.npz'
+#print 'Writing dataset to \'datasets/npz/%s.npz\'...' % name
 np.savez_compressed(dataset_path, **base_vars)
 print ui.pass_str('DONE')

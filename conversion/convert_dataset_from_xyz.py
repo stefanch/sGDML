@@ -55,11 +55,26 @@ parser = argparse.ArgumentParser(description='Creates a dataset from extended XY
 parser.add_argument('dataset', metavar = '<dataset>',\
 							   type    = argparse.FileType('r'),\
 							   help	   = 'path to xyz dataset file')
+parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing dataset file')
 args = parser.parse_args()
 dataset = args.dataset
 
-R,z,E,F = read_concat_ext_xyz(dataset)
+
+if not os.path.exists(dataset_dir):
+	os.makedirs(dataset_dir)
 name = os.path.splitext(os.path.basename(dataset.name))[0]
+dataset_path = dataset_dir + name + '.npz'
+
+dataset_exists = os.path.isfile(dataset_path)
+if dataset_exists and args.overwrite:	
+	print ui.info_str('[INFO]') + ' Overwriting existing dataset file.'
+if not dataset_exists or args.overwrite:
+	print 'Writing dataset to \'datasets/npz/%s.npz\'...' % name
+else:
+	sys.exit(ui.fail_str('[FAIL]') + ' Dataset \'datasets/npz/%s.npz\' already exists.' % name)
+
+
+R,z,E,F = read_concat_ext_xyz(dataset)
 
 # Base variables contained in every model file.
 base_vars = {'type':			'd',\
@@ -70,9 +85,9 @@ base_vars = {'type':			'd',\
 			 'name':			name,\
 			 'theory':			'unknown'}
 
-if not os.path.exists(dataset_dir):
-	os.makedirs(dataset_dir)
-dataset_path = dataset_dir + name + '.npz'
-print 'Writing dataset to \'datasets/npz/%s.npz\'...' % name
+#if not os.path.exists(dataset_dir):
+#	os.makedirs(dataset_dir)
+#dataset_path = dataset_dir + name + '.npz'
+#print 'Writing dataset to \'datasets/npz/%s.npz\'...' % name
 np.savez_compressed(dataset_path, **base_vars)
 print ui.pass_str('DONE')

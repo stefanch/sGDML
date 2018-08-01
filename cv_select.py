@@ -67,7 +67,7 @@ for i,model_file in enumerate(model_files):
 best_sig = data[best_i][0]
 data = sorted(data, key=lambda data_col: data_col[0]) # sort according to sigma
 print '\n' + ui.underline_str('Cross-validation runs')
-print ' '*6 + 'Energy' + ' '*6 + 'Forces'
+print ' '*7 + 'Energy' + ' '*6 + 'Forces'
 print (' {:>3} ' + '{:>5} '*4).format(*data_names)
 print ' ' + '-'*27
 row_format = ' {:>3} ' + '{:>5} '*4
