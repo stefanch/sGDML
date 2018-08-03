@@ -37,7 +37,7 @@ model = np.load('models/ethanol.npz')
 gdml = GDMLPredict(model)
 e,f = gdml.predict(r)
 print e.shape 										 # ()
-print f.shape 										 # (1,27)
+print f.shape 										# (1,27)
 ```
 
 ## References
