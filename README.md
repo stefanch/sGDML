@@ -23,21 +23,21 @@
 
 `python assist.py train datasets/npz/ethanol.npz 200 1000`
 
-#### Use you first force field
+#### Query a force field
 
 ```python
 import sys
 import numpy as np
-from gdml_predict import GDMLPredict
+from src.gdml_predict import GDMLPredict
 from src.utils import io
 
-r,_ = io.read_geometry('examples/geometries/ethanol.xyz') # 9 atoms
+r,_ = io.read_xyz('examples/geometries/ethanol.xyz') # 9 atoms
 print r.shape # (1,27)
 
-model = np.load('models/npz/ethanol.npz')
+model = np.load('models/ethanol.npz')
 gdml = GDMLPredict(model)
 e,f = gdml.predict(r)
-print e.shape # (1,)
+print e.shape # ()
 print f.shape # (1,27)
 ```
 
