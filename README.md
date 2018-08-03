@@ -21,7 +21,7 @@
 
 `python tools/download_datasets.py`
 
-`python assist.py train datasets/npz/ethanol.npz 200 1000`
+`python assist.py train datasets/npz/ethanol.npz 200 1000 5000`
 
 #### Query a force field
 

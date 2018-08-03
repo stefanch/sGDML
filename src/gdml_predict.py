@@ -11,8 +11,6 @@ import time
 import multiprocessing as mp
 from functools import partial
 
-import config
-
 from utils import desc
 
 
