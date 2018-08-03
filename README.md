@@ -31,13 +31,13 @@ from src.gdml_predict import GDMLPredict
 from src.utils import io
 
 r,_ = io.read_xyz('examples/geometries/ethanol.xyz') # 9 atoms
-print r.shape # (1,27)
+print r.shape 										 # (1,27)
 
 model = np.load('models/ethanol.npz')
 gdml = GDMLPredict(model)
 e,f = gdml.predict(r)
-print e.shape # ()
-print f.shape # (1,27)
+print e.shape 										 # ()
+print f.shape 										 # (1,27)
 ```
 
 ## References
