@@ -31,11 +31,11 @@ import numpy as np
 from gdml_predict import GDMLPredict
 from src.utils import io
 
-model_path = 'models/npz/ethanol.npz'
-model = np.load(model_path)
-
 geometry_path = 'examples/geometries/ethanol.xyz' # 9 atoms
 r,_ = io.read_geometry(filename)
+
+model_path = 'models/npz/ethanol.npz'
+model = np.load(model_path)
 
 gdml = GDMLPredict(model)
 e,f = gdml.predict(r)
