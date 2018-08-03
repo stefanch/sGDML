@@ -29,16 +29,21 @@
 import sys
 import numpy as np
 from gdml_predict import GDMLPredict
+from src.utils import io
 
 model_path = 'models/npz/ethanol.npz'
 try:
    model = np.load(model_path)
 except:
-   sys.exit(’ERROR: Reading file failed.’)
-   
-gdml = GDMLPredict(model)
-e,f = gdml.predict(r) # e: (1,)  e: (1,3*n_atoms)
+   sys.exit('error: reading file failed')
 
+geometry_path = 'examples/geometries/ethanol.xyz' # 9 atoms
+r,_ = io.read_geometry(filename)
+
+gdml = GDMLPredict(model)
+e,f = gdml.predict(r)
+print e.shape # (1,)
+print f.shape # (1,27)
 ```
 
 ## References
