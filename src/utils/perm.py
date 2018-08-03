@@ -10,6 +10,8 @@ import numpy as np
 import multiprocessing as mp
 from functools import partial
 
+import ui
+
 glob = {}
 
 def share_array(arr_np, typecode):
@@ -57,7 +59,7 @@ def sync_mat(R,z):
 
 	global glob
 
-	print 'Recovering symmetries...'
+	print ui.white_bold_str('Recovering symmetries...')
 
 	n_train,n_atoms,_ = R.shape
 	
@@ -87,7 +89,7 @@ def sync_mat(R,z):
 		match_perms_all.update(match_perms)
 
 		progr = float(i) / (n_train-1)
-		sys.stdout.write('\r \x1b[1;37m[%3d%%]\x1b[0m Bi-partite matching...' % (progr * 100))
+		sys.stdout.write('\r[%3d%%] Bi-partite matching...' % (progr * 100))
 		sys.stdout.flush()
 	print ''
 	pool.close()
@@ -106,7 +108,7 @@ def sync_mat(R,z):
 		if perm is not None:
 			perms = np.vstack((perms, perm))
 	perms = np.unique(perms, axis=0)
-	sys.stdout.write(' \x1b[1;37m[DONE]\x1b[0m Multi-partite matching...')
+	sys.stdout.write('[DONE] Permutation synchronization...')
 	sys.stdout.flush()
 
 	return perms

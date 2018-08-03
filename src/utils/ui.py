@@ -23,6 +23,12 @@ def yes_or_no(question):
 def white_back_str(str):
 	return '\x1b[1;7m' + str + '\x1b[0m'
 
+def white_bold_str(str):
+	return '\x1b[1;37m' + str + '\x1b[0m'
+
+def gray_str(str):
+	return '\x1b[90m' + str + '\x1b[0m'
+
 def underline_str(str):
 	return '\x1b[4m' + str + '\x1b[0m'
 
@@ -30,7 +36,7 @@ def blink_str(str):
 	return '\x1b[5m' + str + '\x1b[0m'
 
 def info_str(str):
-	return '\x1b[1;37m' + str + '\x1b[0m'
+	return str
 
 def pass_str(str):
 	return '\x1b[1;32m' + str + '\x1b[0m'
@@ -78,27 +84,35 @@ def is_file_type(arg, type):
 #	else:
 #		return arg
 
-def is_dir_with_file_type(arg, type):
+# if file is provided, this function acts like its a directory with just one file
+def is_dir_with_file_type(arg, type, or_file=False):
 
-	if not os.path.isdir(arg):
-		raise argparse.ArgumentTypeError("{0} is not a directory".format(arg))
+	if or_file and os.path.isfile(arg): # arg: file path
+		is_file_type(arg, type) # raises exception if there is a problem with file
+		file_name = os.path.basename(arg)
+		file_dir = os.path.dirname(arg)
+		return file_dir, [file_name]
+	else: # arg: dir
 
-	files = []
-	for file_name in sorted(os.listdir(arg)):
-		if file_name.endswith('.npz'):
-			file_path = os.path.join(arg, file_name)
-			try:
-				file = np.load(file_path)
-			except:
-				raise argparse.ArgumentTypeError('{0} contains unreadable .npz files'.format(arg))
-				
-			if 'type' in file and file['type'] == type[0]:
-				files.append(file_name)
+		if not os.path.isdir(arg):
+			raise argparse.ArgumentTypeError("{0} is not a directory".format(arg))
 
-	if not len(files):
-		raise argparse.ArgumentTypeError('{0} contains no {1} files'.format(arg, type))
+		file_names = []
+		for file_name in sorted(os.listdir(arg)):
+			if file_name.endswith('.npz'):
+				file_path = os.path.join(arg, file_name)
+				try:
+					file = np.load(file_path)
+				except:
+					raise argparse.ArgumentTypeError('{0} contains unreadable .npz files'.format(arg))
+					
+				if 'type' in file and file['type'] == type[0]:
+					file_names.append(file_name)
 
-	return files, arg
+		if not len(file_names):
+			raise argparse.ArgumentTypeError('{0} contains no {1} files'.format(arg, type))
+
+		return arg, file_names
 
 def is_strict_pos_int(arg):
 	x = int(arg)

@@ -21,7 +21,25 @@
 
 `python tools/download_datasets.py`
 
-`python train_assist.py datasets/npz/ethanol.npz 200 1000`
+`python assist.py train datasets/npz/ethanol.npz 200 1000`
+
+#### Use you first force field
+
+```python
+import sys
+import numpy as np
+from gdml_predict import GDMLPredict
+
+model_path = 'models/npz/ethanol.npz'
+try:
+   model = np.load(model_path)
+except:
+   sys.exit(’ERROR: Reading file failed.’)
+   
+gdml = GDMLPredict(model)
+e,f = gdml.predict(r) # e: (1,)  e: (1,3*n_atoms)
+
+```
 
 ## References
 

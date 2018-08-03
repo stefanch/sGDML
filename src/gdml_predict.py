@@ -102,7 +102,6 @@ class GDMLPredict:
 	## Public ##
 
 	def set_num_workers(self, num_workers):
-		#print 'worker setter called'
 		if self.pool is not None:
 			self.pool.close()
 		self.pool = mp.Pool(processes=num_workers)
@@ -118,17 +117,16 @@ class GDMLPredict:
 
 		global b_size
 
-		#print 'batch setter called'
-
 		b_size = batch_size
 		self._batch_size = batch_size
 
 	# sets best (num_workers, batch_size) for model
 	# the model is either tested on a dummy input or geometries from a provided set
 	# note: the optimal parameters are NOT set if this function runs out of geometries (if provided)
-	def set_opt_num_workers_and_batch_size(self,R=None,n_reps=100):
+	# return_when_R_done: returns as soons as all geos in R are used up, even before n_reps is done
+	def set_opt_num_workers_and_batch_size(self, R=None, n_reps=100, return_when_R_done=False):
 
-		done = 0
+		#done = 0
 		F = np.empty((0,self.n_atoms*3))
 		E = []
 
@@ -150,21 +148,27 @@ class GDMLPredict:
 
 				t_elap = 0
 				for i in range(1,n_reps+1):
-					if R is None:
+					R_done = R is None or len(E) == R.shape[0]
+					if R_done:
 						t = time.time()
 						self.predict(r_dummy)
 						t_elap += time.time() - t
-					elif R is not None and done == R.shape[0]:
-						return np.array(E),F.ravel()
 					else:
-						r = R[done].reshape(1,-1)
+						r = R[len(E)].reshape(1,-1)
+
 						t = time.time()
 						e,f = self.predict(r)
 						t_elap += time.time() - t
 
 						E.append(e)
 						F = np.vstack((F,f))
-					done += 1 
+
+						# finished computing geos in R
+						if len(E) == R.shape[0] and return_when_R_done:
+							return np.array(E),F.ravel()
+
+
+						#done += 1 
 					
 					if t_elap > 1: # don't spend more than 1s on this
 						break

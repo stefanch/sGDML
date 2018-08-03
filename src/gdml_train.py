@@ -94,7 +94,7 @@ class GDMLTrain:
 			task['perms'] 		= perm.sync_mat(R_train, train_dataset['z'])
 			task['perms'] 		= perm.complete_group(task['perms'])
 		else:
-			task['perms'] 		= np.arange(1,train_dataset['R'].shape[1])[None,:] # no symmetries
+			task['perms'] 		= np.arange(train_dataset['R'].shape[1])[None,:] # no symmetries
 
 		return task
 
@@ -131,7 +131,7 @@ class GDMLTrain:
 		stop = timeit.default_timer()
 		print " \x1b[90m(%.1f s)\x1b[0m" % ((stop - start) / 2)
 
-		sys.stdout.write('\r ' + ui.info_str('[') + ui.blink_str(' .. ') + ui.info_str(']') + ' Solving linear system...')
+		sys.stdout.write('\r[' + ui.blink_str(' .. ') + '] Solving linear system...')
 	 	sys.stdout.flush()
 
 		start = timeit.default_timer()
@@ -142,7 +142,7 @@ class GDMLTrain:
 		alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 
 		stop = timeit.default_timer()
-		sys.stdout.write('\r ' + ui.info_str('[DONE]') + ' Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))
+		sys.stdout.write('\r[DONE] Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))
 	 	sys.stdout.flush()
 
 		# Do some preprocessing.
@@ -158,6 +158,7 @@ class GDMLTrain:
 				 'test_idxs':		task['test_idxs'],\
 				 'test_md5':		task['test_md5'],\
 				 'n_valid':			0,\
+				 'valid_md5':		None,\
 				 'e_err':			{'mae':np.nan, 'rmse':np.nan},\
 				 'f_err':			{'mae':np.nan, 'rmse':np.nan},\
 				 'R_desc':			R_desc.T,\
@@ -215,7 +216,7 @@ class GDMLTrain:
 			done_total += done
 
 	 		progr = float(done_total) / ((n_train**2 - n_train) / 2 + n_train)
-	 		sys.stdout.write('\r \x1b[1;37m[%3d%%]\x1b[0m Assembling kernel matrix...' % (progr * 100))
+	 		sys.stdout.write('\r[%3d%%] Assembling kernel matrix...' % (progr * 100))
 	 		sys.stdout.flush()
 	 	pool.close()
 
