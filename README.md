@@ -26,7 +26,6 @@
 #### Query a force field
 
 ```python
-import sys
 import numpy as np
 from src.gdml_predict import GDMLPredict
 from src.utils import io
