@@ -148,11 +148,11 @@ def create(dataset, test_dataset, n_train, n_test, gdml, overwrite, command=None
 
 	if os.path.exists(task_dir):
 		if args.overwrite:
-			print '[INFO] Overwriting existing training directory.'
+			print ui.info_str('[INFO]') + ' Overwriting existing training directory.'
 			for f in os.listdir(task_dir):
 				os.remove(os.path.join(task_dir, f))
 		else:
-			print ui.warn_str('[WARN]') + ' Skipping existing task dir \'%s\'.' % task_reldir
+			print ui.warn_str('[WARN]') + ' Skipping existing task dir \'%s\'.\n' % task_reldir
 			if func_called_directly:
 				print '       Run \'python %s -o create %s %d %d\' to overwrite.\n' % (os.path.basename(__file__), dataset_path, n_train, n_test)
 			return task_dir
@@ -170,7 +170,7 @@ def create(dataset, test_dataset, n_train, n_test, gdml, overwrite, command=None
 
 		task_path = task_dir + '/task-' + io.task_file_name(task)
 		if os.path.isfile(task_path + '.npz'):
-			print '[INFO] Skipping exising task \'task-' + io.task_file_name(task) + '.npz\'.'
+			print ui.info_str('[INFO]') + ' Skipping exising task \'task-' + io.task_file_name(task) + '.npz\'.'
 		else:
 			np.savez_compressed(task_path, **task)
 	print ''
@@ -283,8 +283,6 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		print ui.white_bold_str('Dataset properties')
 		_print_dataset_properties(dataset)
 
-	#print_verbose = len(model_files) == 1
-
 	num_workers, batch_size = 0,0
 	for i,model_file in enumerate(model_files):
 
@@ -295,15 +293,12 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			print ui.white_bold_str('Model properties')
 			_print_model_properties(model)
 
-		if dataset['md5'] != model['test_md5']:
-			raise OSError('fingerprint of provided test dataset does not match the one in model file.')
-
 		e_err = model['e_err'].item()
 		f_err = model['f_err'].item()
 	
 		# is this a test or validation run?
 		needs_test = np.isnan(e_err['mae']) and np.isnan(e_err['rmse']) and np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
-		is_valid = n_valid > 0 and not needs_test
+		is_valid = n_valid != 0 and not needs_test
 
 		action_str = 'Validating' if is_valid else 'Testing'
 		if len(model_files) == 1:
@@ -312,16 +307,39 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			print ui.white_bold_str('%s model %d of %d' % (action_str, i+1, len(model_files)))
 
 		if not overwrite and not needs_test and not is_valid:
-			print ui.warn_str('[WARN]') + ' Skipping already tested model \'%s\'.' % model_path
+			model_relpath = os.path.relpath(model_path, BASE_DIR)
+			print ui.warn_str('[WARN]') + ' Skipping already tested model \'%s\'.' % model_relpath
 			if command == 'test':
 				print '       Run \'python %s -o test %s %s\' to overwrite.' % (os.path.basename(__file__), model_path, dataset_path)
 			print
 			continue
 
+		# TODO:
+		# (1) check if user tried to validate an untested model
+		# (2) if test, check if the correct test dataset was provided (done?)
+		# (3) 
+
+		if needs_test and dataset['md5'] != model['test_md5']:
+			raise OSError('fingerprint of provided test dataset does not match the one in model file.')
+
 		valid_idxs = model['test_idxs']
 		if is_valid:
 			gdml = GDMLTrain()
-			valid_idxs = gdml.draw_strat_sample(dataset['E'], n_valid, excl_idxs=np.concatenate([model['train_idxs'], model['test_idxs']]))
+
+			# exclude training and/or test sets from validation set if necessary
+			excl_idxs = np.empty((0,), dtype=int)
+			if dataset['md5'] == model['train_md5']:
+				excl_idxs = np.concatenate([excl_idxs, model['train_idxs']])
+			if dataset['md5'] == model['test_md5']:
+				excl_idxs = np.concatenate([excl_idxs, model['test_idxs']])
+			if len(excl_idxs) == 0:
+				excl_idxs = None
+
+			if n_valid is None: # test on all data points that have not been used for training or testing
+				n_valid = len(dataset['E']) - len(excl_idxs)
+				print ui.info_str('[INFO]') + ' Validation set size was automatically set to %d points.' % n_valid
+
+			valid_idxs = gdml.draw_strat_sample(dataset['E'], n_valid, excl_idxs=excl_idxs)
 		np.random.shuffle(valid_idxs) # shuffle to improve convergence of online error
 
 		z = dataset['z']
@@ -418,7 +436,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		if is_valid:
 			model_mutable['n_valid'] = len(valid_idxs)
 			if overwrite:
-				print '[INFO] Errors were updated in model file.\n'
+				print ui.info_str('[INFO]') + ' Errors were updated in model file.\n'
 			elif len(valid_idxs) <= model['n_valid']: # validating on less than the model has been previously validated on
 				model_path = os.path.join(model_dir, model_files[i])
 				model_relpath = os.path.relpath(model_path, BASE_DIR)
@@ -530,7 +548,8 @@ if __name__ == '__main__':
 										 help    = 'number of data points to use for testing')
 	parser_all.add_argument('n_valid', metavar = '<n_validate>',\
 										 type    = lambda x: ui.is_strict_pos_int(x),\
-										 help    = 'number of data points to use for validation')
+										 help    = 'number of data points to use for validation',\
+										 nargs   = '?', default = None)
 	parser_all.add_argument('--test_dataset', metavar = '<test_dataset_file>',\
 												 type    = lambda x: ui.is_file_type(x, 'dataset'),\
 												 help	   = 'path to test dataset file')
@@ -573,7 +592,6 @@ if __name__ == '__main__':
 								 	 type    = lambda x: ui.is_dir_with_file_type(x, 'model'),\
 								 	 help	 = 'path to model directory')
 
-	# TODO: check if number of validation points makes sense
 	# valid
 	parser_valid = subparsers.add_parser('validate', help='validate a model')
 	parser_valid.add_argument('model_dir', metavar='<model_dir>',\
@@ -584,7 +602,8 @@ if __name__ == '__main__':
 								     help	= 'path to dataset file')
 	parser_valid.add_argument('n_valid', metavar = '<n_validate>',\
 										 type    = lambda x: ui.is_strict_pos_int(x),\
-										 help    = 'number of data points to use for validation')
+										 help    = 'number of data points to use for validation',\
+										 nargs   = '?', default = None)
 
 	args = parser.parse_args()
 	#print args
