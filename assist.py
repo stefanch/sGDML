@@ -97,7 +97,8 @@ def all(dataset, test_dataset, n_train, n_test, n_valid, gdml, overwrite, **kwar
 	print ui.white_back_str(' STEP 3 ') + ' Test all models.'
 	print '-'*100
 	model_dir_arg = ui.is_dir_with_file_type(model_dir, 'model')
-	test(model_dir_arg, dataset, overwrite=False, **kwargs)
+	if test_dataset is None: test_dataset = dataset
+	test(model_dir_arg, test_dataset, overwrite=False, **kwargs)
 
 	print ui.white_back_str(' STEP 4 ') + ' Select best hyper-parameter combination.'
 	print '-'*100
@@ -127,14 +128,16 @@ def create(dataset, test_dataset, n_train, n_test, gdml, overwrite, command=None
 
 	if n_data < n_train:
 		raise ValueError('dataset only contains {} points, can not train on {}'.format(n_data,n_train))
-	elif test_dataset is None and n_data - n_train < n_test:
-		raise ValueError('dataset only contains {} points, can not train on {} and test on'.format(n_data,n_train,n_test))
-	elif test_dataset is not None and test_dataset['E'].shape[0] < n_test:
-		raise ValueError('test dataset only contains {} points, can not test on {}'.format(n_data,n_test))
 
-	if test_dataset == None:
-		test_dataset_path = dataset_path
-		test_dataset = dataset
+	if test_dataset is None:
+		test_dataset_path, test_dataset = dataset_path, dataset
+		if n_data - n_train < n_test:
+			raise ValueError('dataset only contains {} points, can not train on {} and test on'.format(n_data,n_train,n_test))
+	else:
+		test_dataset_path, test_dataset = test_dataset
+		n_test_data = dataset['E'].shape[0]
+		if n_test_data < n_test:
+			raise ValueError('test dataset only contains {} points, can not test on {}'.format(n_data,n_test))
 
 	recov_sym = not gdml
 
