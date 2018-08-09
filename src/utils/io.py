@@ -94,18 +94,18 @@ def read_xyz(file_path):
 
 # 	return (R,Z)
 
-# # Write geometry file (xyz format).
-# def write_geometry(filename,r,z,comment_str=''):
+# Write geometry file (xyz format).
+def write_geometry(filename,r,z,comment_str=''):
 
-# 	r = np.squeeze(r)
+	r = np.squeeze(r)
 
-# 	try:
-# 		with open(filename,'w') as f:
-# 			f.write(str(len(r)) + '\n' + comment_str)
-# 			for i,atom in enumerate(r):
-# 				#print z[i]
-# 				#print _z_to_z_str_dict[int(z[i])]
-# 				f.write('\n' + _z_to_z_str_dict[z[i]] + '\t')
-# 				f.write('\t'.join(str(x) for x in atom))
-# 	except IOError:
-# 		sys.exit("ERROR: Writing xyz file failed.")
+	try:
+		with open(filename,'w') as f:
+			f.write(str(len(r)) + '\n' + comment_str)
+			for i,atom in enumerate(r):
+				#print z[i]
+				#print _z_to_z_str_dict[int(z[i])]
+				f.write('\n' + _z_to_z_str_dict[z[i]] + '\t')
+				f.write('\t'.join(str(x) for x in atom))
+	except IOError:
+		sys.exit("ERROR: Writing xyz file failed.")

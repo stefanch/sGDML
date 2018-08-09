@@ -531,7 +531,7 @@ def select(model_dir, overwrite, command=None, **kwargs):
 if __name__ == '__main__':
 
 	parser = argparse.ArgumentParser()
-	parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing training directory')
+	parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing files')
 	parser.add_argument('--version', action='version', version='%(prog)s [unknown]')
 	subparsers = parser.add_subparsers(title='commands', dest='command')
 	
