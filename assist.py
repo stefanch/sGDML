@@ -136,7 +136,7 @@ def create(dataset, test_dataset, n_train, n_test, gdml, overwrite, command=None
 	theory_level_str = re.sub('[^\w\-_\.]', '_', str(dataset['theory']))
 	theory_level_str = re.sub('__', '_', theory_level_str)
 	dataset_name_str = str(dataset['name'])
-	task_dir = BASE_DIR + '/training/' + dataset_name_str + '-' + theory_level_str + '-' + str(n_train) + ('-gdml' if gdml else '')
+	task_dir = BASE_DIR + '/training/' + dataset_name_str + '-' + theory_level_str + '-' + str(n_train) + ('' if recov_sym else '-gdml')
 	task_reldir = os.path.relpath(task_dir, BASE_DIR)
 
 	if os.path.exists(task_dir):
@@ -424,7 +424,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			elif len(valid_idxs) <= model['n_valid']: # validating on less than the model has been previously validated on
 				model_path = os.path.join(model_dir, model_file_names[i])
 				print ui.warn_str('[WARN]') + ' Model has previously been validated on %d points. Errors for current run with %d points have NOT been recorded in model file.' % (model['n_valid'], len(valid_idxs)) +\
-								  '\n       Run \'python %s -o validate %s %s %s\' to overwrite.\n' % (os.path.basename(__file__), model_path, dataset_path, n_valid)
+								  '\n       Run \'python %s -o validate %s %s %s\' to overwrite.\n' % (os.path.basename(__file__), os.path.relpath(model_path), dataset_path, n_valid)
 			else:
 				print
 		else:
@@ -480,7 +480,10 @@ def select(model_dir, overwrite, command=None, **kwargs):
 	print ' ' + '-'*27
 	format_str = ' {:>3} ' + '{:>5} '*4
 	for row in rows:
-		print format_str.format(*row) + ('*' if row[0] == best_sig else '')
+		row_str = format_str.format(*row)
+		if row[0] != best_sig:
+			row_str = ui.gray_str(row_str)
+		print row_str
 	print ''
 
 	if not os.path.exists(MODEL_DIR):
@@ -498,7 +501,7 @@ def select(model_dir, overwrite, command=None, **kwargs):
 		shutil.copy(os.path.join(model_dir, best_model_file_name), best_model_target_path)
 	else:
 		print ui.warn_str('[WARN]') + ' Model \'%s\' already exists.' % best_model_target_relpath +\
-									  '\n       Run \'python %s -o select %s\' to overwrite.\n' % (os.path.basename(__file__), model_dir)
+									  '\n       Run \'python %s -o select %s\' to overwrite.\n' % (os.path.basename(__file__), os.path.relpath(model_dir))
 	if func_called_directly:
 		print ui.white_back_str(' NEXT STEP ') + ' python %s validate %s %s %s\n' % (os.path.basename(__file__), best_model_target_relpath, '<dataset_file>', '<n_validate>')
 
