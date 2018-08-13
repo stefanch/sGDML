@@ -69,12 +69,9 @@ def _print_model_properties(model):
 #all
 def all(dataset, test_dataset, n_train, n_test, n_valid, gdml, overwrite, **kwargs):
 
-	print '\n' + '-'*100
-	print 'sGDML Model Creation Assistant'
-	print '-'*100
+	print '-'*100 + '\nsGDML Model Creation Assistant\n' + '-'*100
 
-	print '\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)'
-	print '-'*100
+	print '\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-'*100
 
 	print ui.white_bold_str('Properties')
 	_, dataset_extracted = dataset
@@ -85,27 +82,22 @@ def all(dataset, test_dataset, n_train, n_test, n_valid, gdml, overwrite, **kwar
 		_, test_dataset_extracted = test_dataset
 		_print_dataset_properties(test_dataset_extracted)
 
-	print ui.white_back_str(' STEP 1 ') + ' Create cross-validation tasks.'
-	print '-'*100
+	print ui.white_back_str(' STEP 1 ') + ' Create cross-validation tasks.\n' + '-'*100
 	task_dir = create(dataset, test_dataset, n_train, n_test, gdml, overwrite, **kwargs)
 
-	print ui.white_back_str(' STEP 2 ') + ' Train all models.'
-	print '-'*100
+	print ui.white_back_str(' STEP 2 ') + ' Train all models.\n' + '-'*100
 	task_dir_arg = ui.is_dir_with_file_type(task_dir, 'task')
 	model_dir = train(task_dir_arg, overwrite, **kwargs)
 
-	print ui.white_back_str(' STEP 3 ') + ' Test all models.'
-	print '-'*100
+	print ui.white_back_str(' STEP 3 ') + ' Test all models.\n' + '-'*100
 	model_dir_arg = ui.is_dir_with_file_type(model_dir, 'model')
 	if test_dataset is None: test_dataset = dataset
 	test(model_dir_arg, test_dataset, overwrite=False, **kwargs)
 
-	print ui.white_back_str(' STEP 4 ') + ' Select best hyper-parameter combination.'
-	print '-'*100
+	print ui.white_back_str(' STEP 4 ') + ' Select best hyper-parameter combination.\n' + '-'*100
 	best_model_path = select(model_dir_arg, overwrite, **kwargs)
 
-	print ui.white_back_str(' STEP 5 ') + ' Validate selected model.'
-	print '-'*100
+	print ui.white_back_str(' STEP 5 ') + ' Validate selected model.\n' + '-'*100
 	model_dir_arg = ui.is_dir_with_file_type(best_model_path, 'model', or_file=True)
 	validate(model_dir_arg, dataset, n_valid, overwrite=False, **kwargs)
 
@@ -120,9 +112,7 @@ def create(dataset, test_dataset, n_train, n_test, gdml, overwrite, command=None
 
 	func_called_directly = command == 'create' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n TASK CREATION ')
-		print '-'*100
-
+		print ui.white_back_str('\n TASK CREATION \n') + '-'*100
 		print ui.white_bold_str('Dataset properties')
 		_print_dataset_properties(dataset)
 
@@ -146,7 +136,7 @@ def create(dataset, test_dataset, n_train, n_test, gdml, overwrite, command=None
 	theory_level_str = re.sub('[^\w\-_\.]', '_', str(dataset['theory']))
 	theory_level_str = re.sub('__', '_', theory_level_str)
 	dataset_name_str = str(dataset['name'])
-	task_dir = BASE_DIR + '/training/' + dataset_name_str + '-' + theory_level_str + '-' + str(n_train)
+	task_dir = BASE_DIR + '/training/' + dataset_name_str + '-' + theory_level_str + '-' + str(n_train) + ('-gdml' if gdml else '')
 	task_reldir = os.path.relpath(task_dir, BASE_DIR)
 
 	if os.path.exists(task_dir):
@@ -187,46 +177,42 @@ def create(dataset, test_dataset, n_train, n_test, gdml, overwrite, command=None
 # train models
 def train(task_dir, overwrite, command=None, **kwargs):
 
-	task_dir, task_files = task_dir
+	task_dir_path, task_file_names = task_dir
+	n_tasks = len(task_file_names)
 
 	func_called_directly = command == 'train' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n TRAINING ')
-		print '-'*100
-
-	print_verbose = len(task_files) == 1
+		print ui.white_back_str('\n TRAINING \n') + '-'*100
 
 	gdml = GDMLTrain()
-	for i,task_file in enumerate(task_files):
+	for i,task_file_name in enumerate(task_file_names):
+		print ui.white_bold_str('Training task' + ('' if n_tasks == 1 else ' %d of %d' % (i+1, n_tasks)))
 
-		if print_verbose:
-			print ui.white_bold_str('Training task')
-		else:
-			print ui.white_bold_str('Training task %d of %d' % (i+1,len(task_files)))
+		task_file_path = os.path.join(task_dir_path, task_file_name)
+		with np.load(task_file_path) as task:
+			model_file_name = 'model-' + io.task_file_name(task)
+			model_file_path = os.path.join(task_dir_path, model_file_name)
 
-		task_path = os.path.join(task_dir, task_file)
-		_, task = ui.is_file_type(task_path, 'task')
+			if not overwrite and os.path.isfile(model_file_path):
+				print ui.warn_str('[WARN]') + ' Skipping exising model \'%s\'.' % model_file_name
+				if func_called_directly:
+					print '       Run \'python %s -o train %s\' to overwrite.' % (os.path.basename(__file__), task_file_path)
+				print
+				continue
 
-		model_path = os.path.join(task_dir, 'model-' + io.task_file_name(task))
-		if not overwrite and os.path.isfile(model_path):
-			print ui.warn_str('[WARN]') + ' Skipping exising model \'model-' + io.task_file_name(task) + '\'.'
-			if func_called_directly:
-				print '       Run \'python %s -o train %s\' to overwrite.' % (os.path.basename(__file__), task_dir)
+			model = gdml.train(task)
+			model['c'] = gdml.recov_int_const(model, task)
+
+			if n_tasks == 1:
+				print '[DONE] Writing model to file \'%s\'...' % os.path.relpath(model_file_path, BASE_DIR)
+			np.savez_compressed(model_file_path, **model)
 			print
-			continue
 
-		model = gdml.train(task)
-		model['c'] = gdml.recov_int_const(model, task)
-
-		if print_verbose:
-			print '[DONE] Writing model to file \'%s\'...\n' % os.path.relpath(model_path, BASE_DIR)
-		np.savez_compressed(model_path, **model)
-		print
-
+	task_dir_or_file_path = task_file_path if n_tasks == 1 else task_dir_path
 	if func_called_directly:
-		print ui.white_back_str(' NEXT STEP ') + ' python %s test %s %s\n' % (os.path.basename(__file__), task_dir, '<dataset_file>')
+		print ui.white_back_str(' NEXT STEP ') + ' python %s test %s %s\n' % (os.path.basename(__file__), task_dir_or_file_path, '<dataset_file>')
 
-	return task_dir #model directory
+	return task_dir_or_file_path #model directory or file
 
 def _batch(iterable, n=1,first_none=False):	
 	l = len(iterable)
@@ -254,9 +240,7 @@ def test(model_dir, dataset, overwrite, command=None, **kwargs):
 
 	func_called_directly = command == 'test' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n TESTING ')
-		print '-'*100
-
+		print ui.white_back_str('\n TESTING \n') + '-'*100
 		print ui.white_bold_str('Dataset properties')
 		_print_dataset_properties(dataset_extracted)
 
@@ -264,35 +248,36 @@ def test(model_dir, dataset, overwrite, command=None, **kwargs):
 	validate(model_dir, dataset, n_valid, overwrite, command, **kwargs)
 
 	if func_called_directly:
-		model_dir_extracted, model_files = model_dir
-		if len(model_files) == 1:
-			model_path = os.path.join(model_dir_extracted, model_files[0])
-			model_relpath = os.path.relpath(model_path, BASE_DIR)
-			print ui.white_back_str(' NEXT STEP ') + ' python %s validate %s %s %s\n' % (os.path.basename(__file__), model_relpath, dataset_path_extracted, '<n_validate>')
+		model_dir, model_file_names = model_dir
+		n_models = len(model_file_names)
+
+		if n_models == 1:
+			model_file_path = os.path.join(model_dir, model_file_names[0])
+			print ui.white_back_str(' NEXT STEP ') + ' python %s validate %s %s %s\n' % (os.path.basename(__file__), model_file_path, dataset_path_extracted, '<n_validate>')
 		else:
-			print ui.white_back_str(' NEXT STEP ') + ' python %s select %s\n' % (os.path.basename(__file__), model_dir_extracted)
+			print ui.white_back_str(' NEXT STEP ') + ' python %s select %s\n' % (os.path.basename(__file__), model_dir)
 
 
 def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 
-	model_dir, model_files = model_dir
+	model_dir, model_file_names = model_dir
+	n_models = len(model_file_names)
+
 	dataset_path, dataset = dataset
 
 	func_called_directly = command == 'validate' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n VALIDATION ')
-		print '-'*100
-
+		print ui.white_back_str('\n VALIDATION \n') + '-'*100
 		print ui.white_bold_str('Dataset properties')
 		_print_dataset_properties(dataset)
 
 	num_workers, batch_size = 0,0
-	for i,model_file in enumerate(model_files):
+	for i,model_file_name in enumerate(model_file_names):
 
-		model_path = os.path.join(model_dir, model_file)
+		model_path = os.path.join(model_dir, model_file_name)
 		_, model = ui.is_file_type(model_path, 'model')
 
-		if len(model_files) == 1:
+		if n_models == 1:
 			print ui.white_bold_str('Model properties')
 			_print_model_properties(model)
 
@@ -303,15 +288,10 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		needs_test = np.isnan(e_err['mae']) and np.isnan(e_err['rmse']) and np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
 		is_valid = n_valid != 0 and not needs_test
 
-		action_str = 'Validating' if is_valid else 'Testing'
-		if len(model_files) == 1:
-			print ui.white_bold_str('%s model' % action_str)
-		else:
-			print ui.white_bold_str('%s model %d of %d' % (action_str, i+1, len(model_files)))
+		print ui.white_bold_str(('%s model' % ('Validating' if is_valid else 'Testing')) + ('' if n_models == 1 else ' %d of %d' % (i+1, n_models)))
 
 		if not overwrite and not needs_test and not is_valid:
-			model_relpath = os.path.relpath(model_path, BASE_DIR)
-			print ui.warn_str('[WARN]') + ' Skipping already tested model \'%s\'.' % model_relpath
+			print ui.warn_str('[WARN]') + ' Skipping already tested model \'%s\'.' % model_file_name
 			if command == 'test':
 				print '       Run \'python %s -o test %s %s\' to overwrite.' % (os.path.basename(__file__), model_path, dataset_path)
 			print
@@ -346,9 +326,9 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		np.random.shuffle(valid_idxs) # shuffle to improve convergence of online error
 
 		z = dataset['z']
-		R_test = dataset['R'][valid_idxs,:,:]
-		T_test = dataset['E'][valid_idxs]
-		TG_test = dataset['F'][valid_idxs,:,:]
+		R = dataset['R'][valid_idxs,:,:]
+		E = dataset['E'][valid_idxs]
+		F = dataset['F'][valid_idxs,:,:]
 
 		gdml = GDMLPredict(model)
 
@@ -357,8 +337,8 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			sys.stdout.write('\r[' + ui.blink_str(' .. ') + '] Running benchmark...')
 			sys.stdout.flush()
 
-			n_reps = 1000 if len(model_files) > 1 else 100 # do an extensive benchmark, if there is more than one model to test
-			E_bench, F_bench = gdml.set_opt_num_workers_and_batch_size(R=R_test, n_reps=n_reps) #  the benchmark function takes uses real test data and returns part of the result for R_test
+			n_reps = 1000 if n_models > 1 else 100 # do an extensive benchmark, if there is more than one model to test
+			E_bench, F_bench = gdml.set_opt_num_workers_and_batch_size(R=R, n_reps=n_reps, return_when_R_done=True) #  the benchmark function takes uses real test data and returns part of the result for R_test
 			n_bench = len(E_bench)
 			num_workers, batch_size = gdml._num_workers, gdml._batch_size
 
@@ -383,34 +363,34 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			if b_range is None: # first run
 				n_done = n_bench
 
-				e = T_test[:n_bench]
-				f = TG_test[:n_bench].reshape(b_size,-1)
+				e = E[:n_bench]
+				f = F[:n_bench].reshape(b_size,-1)
 
-				E,F = E_bench, F_bench
+				e_pred,f_pred = E_bench, F_bench
 			else:
 				n_done += len(b_range)
 
-				r = R_test[b_range].reshape(b_size,-1)
-				e = T_test[b_range]
-				f = TG_test[b_range].reshape(b_size,-1)
+				r = R[b_range].reshape(b_size,-1)
+				e_pred,f_pred = gdml.predict(r)
 
-				E,F = gdml.predict(r)
+				e = E[b_range]
+				f = F[b_range].reshape(b_size,-1)
 
 			# energy error
-			e_mae, e_mae_sum, e_rmse, e_rmse_sum = _online_err(np.squeeze(e) - E, 1, n_done, e_mae_sum, e_rmse_sum)
+			e_mae, e_mae_sum, e_rmse, e_rmse_sum = _online_err(np.squeeze(e) - e_pred, 1, n_done, e_mae_sum, e_rmse_sum)
 
 			# force component error
-			f_mae, f_mae_sum, f_rmse, f_rmse_sum = _online_err(f.ravel() - F, 3*n_atoms, n_done, f_mae_sum, f_rmse_sum)
+			f_mae, f_mae_sum, f_rmse, f_rmse_sum = _online_err(f.ravel() - f_pred, 3*n_atoms, n_done, f_mae_sum, f_rmse_sum)
 
 			# magnetude error
-			F_mags = np.linalg.norm(F.reshape(-1,3), axis=1)
+			f_pred_mags = np.linalg.norm(f_pred.reshape(-1,3), axis=1)
 			f_mags = np.linalg.norm(f.reshape(-1,3), axis=1)
-			mag_mae, mag_mae_sum, mag_rmse, mag_rmse_sum = _online_err(F_mags - f_mags, n_atoms, n_done, mag_mae_sum, mag_rmse_sum)
+			mag_mae, mag_mae_sum, mag_rmse, mag_rmse_sum = _online_err(f_pred_mags - f_mags, n_atoms, n_done, mag_mae_sum, mag_rmse_sum)
 
 			# normalized cosine error
-			F_norm = F.reshape(-1,3) / F_mags[:,None]
+			f_pred_norm = f_pred.reshape(-1,3) / f_pred_mags[:,None]
 			f_norm = f.reshape(-1,3) / f_mags[:,None]
-			cos_err = np.arccos(np.einsum('ij,ij->i', F_norm, f_norm)) / np.pi
+			cos_err = np.arccos(np.einsum('ij,ij->i', f_pred_norm, f_norm)) / np.pi
 			cos_mae, cos_mae_sum, cos_rmse, cos_rmse_sum = _online_err(cos_err, n_atoms, n_done, cos_mae_sum, cos_rmse_sum)
 
 			progr = float(n_done) / len(valid_idxs)
@@ -425,12 +405,13 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		e_rmse_pct = ((e_rmse/e_err['rmse'] - 1.) * 100)
 		f_rmse_pct = ((f_rmse/f_err['rmse'] - 1.) * 100)
 
-		if func_called_directly and len(model_files) == 1:
+		if func_called_directly and n_models == 1:
 			print ui.white_bold_str('\nMeasured errors (MAE, RMSE):')
-			print ' {:<14} {:>.2e}/{:>.2e} [a.u.] {:<} '.format('Energy', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= e_err['mae'] and e_rmse <= e_err['rmse'] else '!!',e_rmse_pct))
-			print ' {:<14} {:>.2e}/{:>.2e} [a.u.] {:<} '.format('Forces', f_mae, f_rmse, "%s (%+.1f %%)" % ('OK' if f_mae <= f_err['mae'] and f_rmse <= f_err['rmse'] else '!!',f_rmse_pct))
-			print ' {:<14} {:>.2e}/{:>.2e} [a.u.]'.format('Magnitude', mag_mae, mag_rmse)
-			print ' {:<14} {:>.2e}/{:>.2e} [0-1], 0:best'.format('Angle', cos_mae, cos_rmse)
+			format_str = ' {:<14} {:>.2e}/{:>.2e} '
+			print (format_str + '[a.u.] {:<}').format('Energy', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= e_err['mae'] and e_rmse <= e_err['rmse'] else '!!',e_rmse_pct))
+			print (format_str + '[a.u.] {:<}').format('Forces', f_mae, f_rmse, "%s (%+.1f %%)" % ('OK' if f_mae <= f_err['mae'] and f_rmse <= f_err['rmse'] else '!!',f_rmse_pct))
+			print (format_str + '[a.u.]').format('Magnitude', mag_mae, mag_rmse)
+			print (format_str + '[0-1], 0:best').format('Angle', cos_mae, cos_rmse)
 			print
 
 		model_mutable = dict(model)
@@ -441,10 +422,9 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			if overwrite:
 				print ui.info_str('[INFO]') + ' Errors were updated in model file.\n'
 			elif len(valid_idxs) <= model['n_valid']: # validating on less than the model has been previously validated on
-				model_path = os.path.join(model_dir, model_files[i])
-				model_relpath = os.path.relpath(model_path, BASE_DIR)
-				print ui.warn_str('[WARN]') + ' Model has previously been validated on %d points. Errors for current run with just %d points have NOT been recorded in model file.' % (model['n_valid'], len(valid_idxs)) +\
-								  '\n       Run \'python %s -o validate %s %s %s\' to overwrite.\n' % (os.path.basename(__file__), model_relpath, dataset_path, n_valid)
+				model_path = os.path.join(model_dir, model_file_names[i])
+				print ui.warn_str('[WARN]') + ' Model has previously been validated on %d points. Errors for current run with %d points have NOT been recorded in model file.' % (model['n_valid'], len(valid_idxs)) +\
+								  '\n       Run \'python %s -o validate %s %s %s\' to overwrite.\n' % (os.path.basename(__file__), model_path, dataset_path, n_valid)
 			else:
 				print
 		else:
@@ -460,18 +440,14 @@ def select(model_dir, overwrite, command=None, **kwargs):
 
 	func_called_directly = command == 'select' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n MODEL SELECTION ')
-		print '-'*100
+		print ui.white_back_str('\n MODEL SELECTION \n') + '-'*100
 
-	model_dir, model_files = model_dir
-
-	best_i = 0
-	besf_f_rmse = np.inf
+	model_dir, model_file_names = model_dir
 
 	rows = []
 	data_names = ['sig', 'MAE', 'RMSE', 'MAE', 'RMSE']
-	for i,model_file in enumerate(model_files):
-		model = np.load(os.path.join(model_dir, model_file))
+	for i,model_file_name in enumerate(model_file_names):
+		model = np.load(os.path.join(model_dir, model_file_name))
 
 		if i == 0:
 			train_idxs = set(model['train_idxs'])
@@ -488,32 +464,30 @@ def select(model_dir, overwrite, command=None, **kwargs):
 		e_err = model['e_err'].item()
 		f_err = model['f_err'].item()
 
-		if f_err['rmse'] < besf_f_rmse:
-			best_i = i
-			besf_f_rmse = f_err['rmse']
-
 		rows.append([model['sig'],\
 					 '%.2f' % e_err['mae'],\
 					 '%.2f' % e_err['rmse'],\
 					 '%.2f' % f_err['mae'],\
 					 '%.2f' % f_err['rmse']])
 
-	best_sig = rows[best_i][0]
+	best_idx = rows.index(min(rows, key=lambda col: col[4])) # idx of row with lowest f_rmse
+	best_sig = rows[best_idx][0]
+
 	rows = sorted(rows, key=lambda col: col[0]) # sort according to sigma
 	print ui.white_bold_str('Cross-validation errors')
 	print ' '*7 + 'Energy' + ' '*6 + 'Forces'
 	print (' {:>3} ' + '{:>5} '*4).format(*data_names)
 	print ' ' + '-'*27
-	row_format = ' {:>3} ' + '{:>5} '*4
+	format_str = ' {:>3} ' + '{:>5} '*4
 	for row in rows:
-		print row_format.format(*row) + ('*' if row[0] == best_sig else '')
+		print format_str.format(*row) + ('*' if row[0] == best_sig else '')
 	print ''
 
 	if not os.path.exists(MODEL_DIR):
 		os.makedirs(MODEL_DIR)
 
-	best_model_file = model_files[best_i]
-	best_model_target_path = os.path.join(MODEL_DIR, best_model_file)
+	best_model_file_name = model_file_names[best_idx]
+	best_model_target_path = os.path.join(MODEL_DIR, best_model_file_name)
 	best_model_target_relpath = os.path.relpath(best_model_target_path, BASE_DIR)
 
 	model_exists = os.path.isfile(best_model_target_path)
@@ -521,7 +495,7 @@ def select(model_dir, overwrite, command=None, **kwargs):
 		print ui.info_str('[INFO]') + ' Overwriting existing model file.'
 	if not model_exists or overwrite:
 		print '[DONE] Writing model file to \'%s\'...\n' % best_model_target_relpath
-		shutil.copy(os.path.join(model_dir, best_model_file), best_model_target_path)
+		shutil.copy(os.path.join(model_dir, best_model_file_name), best_model_target_path)
 	else:
 		print ui.warn_str('[WARN]') + ' Model \'%s\' already exists.' % best_model_target_relpath +\
 									  '\n       Run \'python %s -o select %s\' to overwrite.\n' % (os.path.basename(__file__), model_dir)
@@ -533,9 +507,14 @@ def select(model_dir, overwrite, command=None, **kwargs):
 
 if __name__ == '__main__':
 
+	#def add_argument_dataset(parser, ):
+
+
+
+
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing files')
-	parser.add_argument('--version', action='version', version='%(prog)s [unknown]')
+	#parser.add_argument('--version', action='version', version='%(prog)s [unknown]')
 	subparsers = parser.add_subparsers(title='commands', dest='command')
 	
 	# all
@@ -576,13 +555,13 @@ if __name__ == '__main__':
 	
 	# train
 	parser_train = subparsers.add_parser('train', help='train model(s) from task(s)')
-	parser_train.add_argument('task_dir', metavar = '<task_dir>',\
-							 	type    = lambda x: ui.is_dir_with_file_type(x, 'task'),\
+	parser_train.add_argument('task_dir', metavar = '<task_dir_or_file>',\
+							 	type    = lambda x: ui.is_dir_with_file_type(x, 'task', or_file=True),\
 							 	help	 = 'path to task directory')
 
 	# test
 	parser_test = subparsers.add_parser('test', help='test model(s)')
-	parser_test.add_argument('model_dir', metavar = '<model_dir>',\
+	parser_test.add_argument('model_dir', metavar = '<model_dir_or_file>',\
 								 	 type    = lambda x: ui.is_dir_with_file_type(x, 'model', or_file=True),\
 								 	 help	 = 'path to model directory')
 	parser_test.add_argument('dataset',   metavar = '<dataset_file>',\
@@ -597,7 +576,7 @@ if __name__ == '__main__':
 
 	# valid
 	parser_valid = subparsers.add_parser('validate', help='validate a model')
-	parser_valid.add_argument('model_dir', metavar='<model_dir>',\
+	parser_valid.add_argument('model_dir', metavar='<model_dir_or_file>',\
 								 	 type    = lambda x: ui.is_dir_with_file_type(x, 'model', or_file=True),\
 								 	 help	 = 'path to model directory')
 	parser_valid.add_argument('dataset',   metavar = '<dataset>',\
@@ -609,6 +588,4 @@ if __name__ == '__main__':
 										 nargs   = '?', default = None)
 
 	args = parser.parse_args()
-	#print args
-
 	getattr(sys.modules[__name__], args.command)(**vars(args))

@@ -36,7 +36,7 @@ def blink_str(str):
 	return '\x1b[5m' + str + '\x1b[0m'
 
 def info_str(str):
-	return str
+	return '\x1b[1;37m' + str + '\x1b[0m'
 
 def pass_str(str):
 	return '\x1b[1;32m' + str + '\x1b[0m'
@@ -49,12 +49,6 @@ def fail_str(str):
 
 
 # USER INPUT VALIDATION
-
-#def is_valid_np_file(parser, arg):
-#	try:
-#		return arg, np.load(arg)
-#	except:
-#		parser.error("Reading '%s' failed." % arg)
 
 def is_file_type(arg, type):
 
@@ -70,19 +64,6 @@ def is_file_type(arg, type):
 		raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg,type))
 
 	return arg, file
-
-
-#def is_valid_mat_file(parser, arg):
-#	try:
-#		return arg, scipy.io.loadmat(arg)
-#	except:
-#		parser.error("Reading '%s' failed." % arg)
-
-#def is_dir(arg):
-#	if not os.path.isdir(arg):
-#		raise argparse.ArgumentTypeError("{0} is not a directory".format(arg))
-#	else:
-#		return arg
 
 # if file is provided, this function acts like its a directory with just one file
 def is_dir_with_file_type(arg, type, or_file=False):
