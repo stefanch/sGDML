@@ -5,6 +5,7 @@ import os
 #sys.path.append(BASE_DIR)
 
 import argparse
+import re
 
 import numpy as np
 import scipy.io
@@ -76,7 +77,7 @@ def is_dir_with_file_type(arg, type, or_file=False):
 	else: # arg: dir
 
 		if not os.path.isdir(arg):
-			raise argparse.ArgumentTypeError("{0} is not a directory".format(arg))
+			raise argparse.ArgumentTypeError('{0} is not a directory'.format(arg))
 
 		file_names = []
 		for file_name in sorted(os.listdir(arg)):
@@ -100,3 +101,25 @@ def is_strict_pos_int(arg):
 	if x <= 0:
 		raise argparse.ArgumentTypeError('Parameter must be >0.')
 	return x
+
+
+def parse_list_or_range(arg):
+
+	if re.match('^\d+:\d+:\d+$', arg) or re.match('^\d+:\d+$', arg):
+		rng_params = map(int, arg.split(':'))
+		
+		step = 1
+		if len(rng_params) == 2: # start, stop
+			start, stop = rng_params
+		else: # start, step, stop
+			start, step, stop = rng_params
+
+		rng = range(start,stop+1,step) # include last stop-element in range
+		if len(rng) == 0:
+			raise argparse.ArgumentTypeError('{0} is an empty range'.format(arg))
+
+		return rng 
+	elif re.match('^\d+$', arg):
+		return int(arg)
+
+	raise argparse.ArgumentTypeError('{0} is neither a integer list, nor valid range in the form <start>:[<step>:]<stop>'.format(arg))
