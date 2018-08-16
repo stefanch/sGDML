@@ -1,4 +1,4 @@
-# (Symmetric) Gradient Domain Machine Learning (sGDML)
+# Symmetric Gradient Domain Machine Learning (sGDML)
 
 #### Requirements:
 - Python 2.7
