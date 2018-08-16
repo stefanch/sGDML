@@ -12,17 +12,36 @@ def z_str_to_z(z_str):
 def z_to_z_str(z):
 	return [_z_to_z_str_dict[int(x)] for x in z]
 
+def train_dir_name(dataset, n_train, is_gdml):
+	
+	theory_level_str = re.sub('[^\w\-_\.]', '.', str(dataset['theory']))
+	theory_level_str = re.sub('\.\.', '.', theory_level_str)
+	#dataset_name_str = str(dataset['name'])
+
+	return 'training/%s-%s-train%d%s' % (dataset['name'], theory_level_str, n_train, '-gdml' if is_gdml else '')
+
+	#return 'training/' + dataset_name_str + '-' + theory_level_str + '-' + str(n_train) + ('-gdml' if is_gdml else '')
+
 def task_file_name(task):
 	
-	n_train = task['R_train'].shape[0]
+	n_train = task['train_idxs'].shape[0]
 	n_perms = task['perms'].shape[0]
-
-	dataset = np.squeeze(task['dataset_name'])
-	theory_level_str = re.sub('[^\w\-_\.]', '_', str(np.squeeze(task['dataset_theory'])))
-	theory_level_str = re.sub('__', '_', theory_level_str)
 	sig = np.squeeze(task['sig'])
 
-	return str(n_train) + '-sym' + str(n_perms) + '-sig' + str(sig) + '-' + str(dataset) + '-' + theory_level_str + '.npz'
+	return 'task-train%d-sym%d-sig%d.npz' % (n_train, n_perms, sig)
+
+def model_file_name(task_or_model, is_extended=False):
+	
+	n_train = task_or_model['train_idxs'].shape[0]
+	n_perms = task_or_model['perms'].shape[0]
+	sig = np.squeeze(task_or_model['sig'])
+
+	if is_extended:
+		dataset = np.squeeze(task_or_model['dataset_name'])
+		theory_level_str = re.sub('[^\w\-_\.]', '.', str(np.squeeze(task_or_model['dataset_theory'])))
+		theory_level_str = re.sub('\.\.', '.', theory_level_str)
+		return '%s-%s-train%d-sym%d.npz' % (dataset, theory_level_str, n_train, n_perms)
+	return 'model-train%d-sym%d-sig%d.npz' % (n_train, n_perms, sig)
 
 def dataset_md5(dataset):
 
@@ -61,50 +80,14 @@ def read_xyz(file_path):
 		f.close()
 	return R,z
 
-# Read geometry file (xyz format).
-# def read_geometry(filename):
-
-# 	try:
-# 		f = open(filename,'r')
-# 	except:
-# 		sys.exit("ERROR: Opening xyz file failed.")
-
-# 	try:
-# 		lines = f.readlines()
-# 		num_lines = len(lines)
-
-# 		num_atoms = int(lines[0])
-# 		num_mols = num_lines / (num_atoms + 2)
-
-# 		R = np.empty([num_atoms, 3, num_mols])
-# 		Z = np.empty([num_atoms, num_mols])
-
-# 		for i in xrange(0, num_mols):
-# 			blk_start_idx = i * (num_atoms + 2)
-# 			blk_stop_idx = (i+1) * (num_atoms + 2)
-
-# 			xyz_atoms = [line.split() for line in lines[(blk_start_idx+2):blk_stop_idx]]
-			
-# 			R[:,:,i] = np.array([map(float,col[1:4]) for col in xyz_atoms])
-# 			Z[:,i] = np.array([_z_str_to_z_dict[x] for x in [col[0] for col in xyz_atoms]])
-# 	except:
-# 		sys.exit("ERROR: Processing xyz file failed.")
-# 	finally:
-# 		f.close()
-
-# 	return (R,Z)
-
 # Write geometry file (xyz format).
 def write_geometry(filename,r,z,comment_str=''):
 
 	r = np.squeeze(r)
-
 	try:
 		with open(filename,'w') as f:
 			f.write(str(len(r)) + '\n' + comment_str)
 			for i,atom in enumerate(r):
-				#print z[i]
-				#print _z_to_z_str_dict[int(z[i])]
 				f.write('\n' + _z_to_z_str_dict[z[i]] + '\t')
 				f.write('\t'.join(str(x) for x in atom))
 	except IOError:

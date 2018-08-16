@@ -140,44 +140,38 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, comman
 		if n_test_data < n_test:
 			raise ValueError('test dataset only contains {} points, can not test on {}'.format(n_data,n_test))
 
-	recov_sym = not gdml
+	gdml_train = GDMLTrain()
 
-	gdml = GDMLTrain()
-
-	theory_level_str = re.sub('[^\w\-_\.]', '_', str(dataset['theory']))
-	theory_level_str = re.sub('__', '_', theory_level_str)
-	dataset_name_str = str(dataset['name'])
-	task_dir = BASE_DIR + '/training/' + dataset_name_str + '-' + theory_level_str + '-' + str(n_train) + ('' if recov_sym else '-gdml')
-	task_reldir = os.path.relpath(task_dir, BASE_DIR)
-
+	task_reldir = io.train_dir_name(dataset, n_train, is_gdml=gdml)
+	task_dir = os.path.join(BASE_DIR, task_reldir)
 	if os.path.exists(task_dir):
 		if args.overwrite:
 			print ui.info_str('[INFO]') + ' Overwriting existing training directory.'
-			for f in os.listdir(task_dir):
-				os.remove(os.path.join(task_dir, f))
+			shutil.rmtree(task_dir)
 		else:
 			print ui.warn_str('[WARN]') + ' Keeping existing task dir \'%s\'. No tasks created!' % task_reldir
 			if func_called_directly:
 				print '       Run \'python %s -o create %s %d %d\' to overwrite.' % (os.path.basename(__file__), dataset_path, n_train, n_test)
 			print
 			return task_dir
-	else:
-		os.makedirs(task_dir)
+	os.makedirs(task_dir)
 
 	lam = 1e-15
 	if sigs is None:
 		print ui.info_str('[INFO]') + ' Kernel hyper-paramter sigma was automatically set to range \'2:10:100\'.'
 		sigs = range(2,100,10) # default range
 
-	task = gdml.create_task(dataset, n_train, test_dataset, n_test, sig=1, lam=lam, recov_sym=recov_sym)
+	task = gdml_train.create_task(dataset, n_train, test_dataset, n_test, sig=1, lam=lam, recov_sym=not gdml)
 
 	print '[DONE] Writing %d tasks with %s training points each.' % (len(sigs), task['R_train'].shape[0])
 	for sig in sigs:
 		task['sig'] = sig
 
-		task_path = task_dir + '/task-' + io.task_file_name(task)
-		if os.path.isfile(task_path + '.npz'):
-			print ui.info_str('[INFO]') + ' Skipping exising task \'task-' + io.task_file_name(task) + '.npz\'.'
+		task_file_name = io.task_file_name(task)
+		task_path = os.path.join(task_dir, task_file_name)
+
+		if os.path.isfile(task_path):
+			print ui.info_str('[INFO]') + ' Skipping exising task \'%s\'.' % task_file_name
 		else:
 			np.savez_compressed(task_path, **task)
 	print ''
@@ -191,7 +185,7 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, comman
 # train models
 def train(task_dir, overwrite, command=None, **kwargs):
 
-	task_dir_path, task_file_names = task_dir
+	task_dir, task_file_names = task_dir
 	n_tasks = len(task_file_names)
 
 	func_called_directly = command == 'train' # has this function been called from command line or from 'all'?
@@ -199,31 +193,33 @@ def train(task_dir, overwrite, command=None, **kwargs):
 		_print_splash()
 		print ui.white_back_str('\n TRAINING \n') + '-'*100
 
-	gdml = GDMLTrain()
+	gdml_train = GDMLTrain()
 	for i,task_file_name in enumerate(task_file_names):
 		print ui.white_bold_str('Training task' + ('' if n_tasks == 1 else ' %d of %d' % (i+1, n_tasks)))
 
-		task_file_path = os.path.join(task_dir_path, task_file_name)
+		task_file_path = os.path.join(task_dir, task_file_name)
 		with np.load(task_file_path) as task:
-			model_file_name = 'model-' + io.task_file_name(task)
-			model_file_path = os.path.join(task_dir_path, model_file_name)
+
+			model_file_name = io.model_file_name(task, is_extended=False)
+			model_file_path = os.path.join(task_dir, model_file_name)
+			model_file_relpath = os.path.relpath(model_file_path, BASE_DIR)
 
 			if not overwrite and os.path.isfile(model_file_path):
 				print ui.warn_str('[WARN]') + ' Skipping exising model \'%s\'.' % model_file_name
 				if func_called_directly:
-					print '       Run \'python %s -o train %s\' to overwrite.' % (os.path.basename(__file__), task_file_path)
+					print '       Run \'python %s -o train %s\' to overwrite.' % (os.path.basename(__file__), model_file_relpath)
 				print
 				continue
 
-			model = gdml.train(task)
-			model['c'] = gdml.recov_int_const(model, task)
+			model = gdml_train.train(task)
+			model['c'] = gdml_train.recov_int_const(model, task)
 
 			if func_called_directly:
-				print '[DONE] Writing model to file \'%s\'...' % os.path.relpath(model_file_path, BASE_DIR)
+				print '[DONE] Writing model to file \'%s\'...' % model_file_relpath
 			np.savez_compressed(model_file_path, **model)
 			print
 
-	model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir_path
+	model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir
 	if func_called_directly:
 		print ui.white_back_str(' NEXT STEP ') + ' python %s test %s %s\n' % (os.path.basename(__file__), model_dir_or_file_path, '<dataset_file>')
 
@@ -347,7 +343,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		E = dataset['E'][valid_idxs]
 		F = dataset['F'][valid_idxs,:,:]
 
-		gdml = GDMLPredict(model)
+		gdml_predict = GDMLPredict(model)
 
 		n_bench = 0
 		if num_workers == 0 or batch_size == 0:
@@ -355,15 +351,15 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			sys.stdout.flush()
 
 			n_reps = 1000 if n_models > 1 else 100 # do an extensive benchmark, if there is more than one model to test
-			E_bench, F_bench = gdml.set_opt_num_workers_and_batch_size(R=R, n_reps=n_reps, return_when_R_done=True) #  the benchmark function takes uses real test data and returns part of the result for R_test
+			E_bench, F_bench = gdml_predict.set_opt_num_workers_and_batch_size(R=R, n_reps=n_reps, return_when_R_done=True) #  the benchmark function takes uses real test data and returns part of the result for R_test
 			n_bench = len(E_bench)
-			num_workers, batch_size = gdml._num_workers, gdml._batch_size
+			num_workers, batch_size = gdml_predict._num_workers, gdml_predict._batch_size
 
 			sys.stdout.write('\r[DONE] Running benchmark... ' + ui.gray_str('(%d workers w/ %d batch size)\n' % (num_workers, batch_size)))
 			sys.stdout.flush()
 		else:
-			gdml.set_num_workers(num_workers)
-			gdml.set_batch_size(batch_size)
+			gdml_predict.set_num_workers(num_workers)
+			gdml_predict.set_batch_size(batch_size)
 
 		n_atoms = z.shape[0]
 
@@ -388,7 +384,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 				n_done += len(b_range)
 
 				r = R[b_range].reshape(b_size,-1)
-				e_pred,f_pred = gdml.predict(r)
+				e_pred,f_pred = gdml_predict.predict(r)
 
 				e = E[b_range]
 				f = F[b_range].reshape(b_size,-1)
@@ -503,7 +499,9 @@ def select(model_dir, overwrite, command=None, **kwargs):
 		os.makedirs(MODEL_DIR)
 
 	best_model_file_name = model_file_names[best_idx]
-	best_model_target_path = os.path.join(MODEL_DIR, best_model_file_name)
+	best_model = np.load(os.path.join(model_dir, best_model_file_name))
+	best_model_file_name_extended = io.model_file_name(best_model, is_extended=True)
+	best_model_target_path = os.path.join(MODEL_DIR, best_model_file_name_extended)
 	best_model_target_relpath = os.path.relpath(best_model_target_path, BASE_DIR)
 
 	model_exists = os.path.isfile(best_model_target_path)
