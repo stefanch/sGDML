@@ -235,28 +235,32 @@ class GDMLTrain:
 
 		# Exlude restricted indices.
 		if excl_idxs is not None:
-			idxs[excl_idxs] = n_bins+1 # impossible bin
+			idxs[excl_idxs] = n_bins+1 # Impossible bin.
 
 		uniq_all,cnts_all = np.unique(idxs, return_counts=True)
 
-		# remove restricted bin
+		# Remove restricted bin.
 		if excl_idxs is not None:
 			excl_bin_idx = np.where(uniq_all == n_bins+1)
 			cnts_all = np.delete(cnts_all, excl_bin_idx)
 			uniq_all = np.delete(uniq_all, excl_bin_idx)
 
-		# Bin counts for sample
-		train_cnts = np.ceil(cnts_all/np.sum(cnts_all, dtype=float) * n).astype(int)
-		train_cnts = np.minimum(train_cnts, cnts_all) # limit train_cnts to what is available in cnts_all
+		# Compute reduced bin counts.
+		reduced_cnts = np.ceil(cnts_all/np.sum(cnts_all, dtype=float) * n).astype(int)
+		reduced_cnts = np.minimum(reduced_cnts, cnts_all) # limit reduced_cnts to what is available in cnts_all
 
 		# Reduce/increase bin counts to desired total number of points.
-		train_cnts_outstanding = n - np.sum(train_cnts)
-		cnts_reduced = np.random.choice(uniq_all, np.abs(train_cnts_outstanding), p=(train_cnts-1)/np.sum(train_cnts-1, dtype=float))
-		uniq,cnts = np.unique(cnts_reduced, return_counts=True)
-		train_cnts[uniq] = train_cnts[uniq] + np.sign(train_cnts_outstanding)*cnts
-		
+		reduced_cnts_delta = n - np.sum(reduced_cnts)
+
+		# Draw additional bin members to fill up/drain bucket counts of subset. This array contains (repeated) bucket IDs.
+		outstanding = np.random.choice(uniq_all, np.abs(reduced_cnts_delta), p=(reduced_cnts-1)/np.sum(reduced_cnts-1, dtype=float))
+		uniq_outstanding,cnts_outstanding = np.unique(outstanding, return_counts=True) # Aggregate bucket IDs.
+
+		outstanding_bucket_idx = np.where(np.in1d(uniq_all, uniq_outstanding))[0] # Bucket IDs to Idxs.
+		reduced_cnts[outstanding_bucket_idx] += np.sign(reduced_cnts_delta)*cnts_outstanding
+
 		train_idxs = np.empty((0,), dtype=int)
-		for uniq_idx, bin_cnt in zip(uniq_all, train_cnts):
+		for uniq_idx, bin_cnt in zip(uniq_all, reduced_cnts):
 			idx_in_bin_all = np.where(idxs.ravel() == uniq_idx)[0]
 			train_idxs = np.append(train_idxs, np.random.choice(idx_in_bin_all, bin_cnt, replace=False))
 		return train_idxs
