@@ -216,6 +216,10 @@ class GDMLTrain:
 
 	def draw_strat_sample(self, T, n, excl_idxs=None):
 
+		train_idxs = np.empty((0,), dtype=int)
+		if n == 0:
+			return train_idxs
+
 		n_train = T.shape[0]
 
 		# Freedman-Diaconis rule
@@ -251,7 +255,6 @@ class GDMLTrain:
 		outstanding_bucket_idx = np.where(np.in1d(uniq_all, uniq_outstanding))[0] # Bucket IDs to Idxs.
 		reduced_cnts[outstanding_bucket_idx] += np.sign(reduced_cnts_delta)*cnts_outstanding
 
-		train_idxs = np.empty((0,), dtype=int)
 		for uniq_idx, bin_cnt in zip(uniq_all, reduced_cnts):
 			idx_in_bin_all = np.where(idxs.ravel() == uniq_idx)[0]
 			train_idxs = np.append(train_idxs, np.random.choice(idx_in_bin_all, bin_cnt, replace=False))

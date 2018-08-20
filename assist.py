@@ -75,8 +75,6 @@ def _print_model_properties(model):
 #all
 def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, **kwargs):
 
-	
-
 	print '\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-'*100
 
 	print ui.white_bold_str('Properties')
