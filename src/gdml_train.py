@@ -181,7 +181,7 @@ class GDMLTrain:
 		E_pred,_ = gdml.predict(R)
 		E_ref = np.squeeze(task['E_train'])
 
-		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref))[0][0]
+		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref)[0][0]
 		if np.abs(e_fact - 1) > tol:
 			raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
 						   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
