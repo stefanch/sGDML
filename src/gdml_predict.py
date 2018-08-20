@@ -8,6 +8,7 @@ import scipy.spatial.distance
 import numpy as np
 
 import time
+import timeit
 import multiprocessing as mp
 from functools import partial
 
@@ -122,16 +123,90 @@ class GDMLPredict:
 	# the model is either tested on a dummy input or geometries from a provided set
 	# note: the optimal parameters are NOT set if this function runs out of geometries (if provided)
 	# return_when_R_done: returns as soons as all geos in R are used up, even before n_reps is done
-	def set_opt_num_workers_and_batch_size(self, R=None, n_reps=100, return_when_R_done=False):
+	# def set_opt_num_workers_and_batch_size(self, R=None, n_reps=100, return_when_R_done=False):
 
-		#done = 0
-		F = np.empty((0,self.n_atoms*3))
-		E = []
+	# 	F = np.empty((0,self.n_atoms*3))
+	# 	E = []
+
+	# 	best_sps = 0
+	# 	best_params = 1,1
+	# 	best_results = []
+	# 	r_dummy = np.random.rand(1,self.n_atoms*3)
+
+	# 	#import timeit
+	# 	#def _dummy_predict():
+	# 	#	self.predict(r_dummy)
+
+	# 	for num_workers in range(1,mp.cpu_count()+1):
+	# 		if self.n_train % num_workers != 0:
+	# 			continue
+	# 		self.set_num_workers(num_workers)
+
+	# 		best_sps = 0
+	# 		for batch_size in range(int(np.ceil(self.n_train/num_workers)), 0, -1):
+	# 			if self.n_train % batch_size != 0:
+	# 				continue
+	# 			self.set_batch_size(batch_size)
+
+	# 			#print 1. / (timeit.timeit(_dummy_predict, number=100) / 100.)
+
+
+	# 			t_elap = 0
+	# 			for i in range(1,n_reps+1):
+	# 				R_done = R is None or len(E) == R.shape[0]
+	# 				if R_done:
+	# 					t = time.time()
+	# 					self.predict(r_dummy)
+
+						
+						
+
+	# 					t_elap += time.time() - t
+	# 				else:
+	# 					r = R[len(E)].reshape(1,-1)
+
+	# 					t = time.time()
+	# 					e,f = self.predict(r)
+	# 					t_elap += time.time() - t
+
+	# 					E.append(e)
+	# 					F = np.vstack((F,f))
+
+	# 					# finished computing geos in R
+	# 					if len(E) == R.shape[0] and return_when_R_done:
+	# 						return np.array(E),F.ravel()
+
+	# 				if t_elap > 1: # don't spend more than 1s on this
+	# 					break
+	# 			sps = i / t_elap
+
+	# 			if sps < best_sps:
+	# 				break
+	# 			else:
+	# 				best_sps = sps
+	# 				best_params = num_workers, batch_size
+
+	# 			print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers,batch_size, sps)
+	# 		best_results.append((best_params, best_sps))
+		
+	# 	num_workers, batch_size = max(best_results, key=lambda x:x[1])[0]
+				
+	# 	self.set_batch_size(batch_size)
+	# 	self.set_num_workers(num_workers)
+
+	# 	return np.array(E),F.ravel()
+
+
+	# sets best level of parallelism (num_workers, batch_size) for model
+	def set_opt_num_workers_and_batch_size_fast(self, n_reps=100):
 
 		best_sps = 0
 		best_params = 1,1
 		best_results = []
 		r_dummy = np.random.rand(1,self.n_atoms*3)
+
+		def _dummy_predict():
+			self.predict(r_dummy)
 
 		for num_workers in range(1,mp.cpu_count()+1):
 			if self.n_train % num_workers != 0:
@@ -143,50 +218,24 @@ class GDMLPredict:
 				if self.n_train % batch_size != 0:
 					continue
 				self.set_batch_size(batch_size)
-
-				t_elap = 0
-				for i in range(1,n_reps+1):
-					R_done = R is None or len(E) == R.shape[0]
-					if R_done:
-						t = time.time()
-						self.predict(r_dummy)
-						t_elap += time.time() - t
-					else:
-						r = R[len(E)].reshape(1,-1)
-
-						t = time.time()
-						e,f = self.predict(r)
-						t_elap += time.time() - t
-
-						E.append(e)
-						F = np.vstack((F,f))
-
-						# finished computing geos in R
-						if len(E) == R.shape[0] and return_when_R_done:
-							return np.array(E),F.ravel()
-
-
-						#done += 1 
-					
-					if t_elap > 1: # don't spend more than 1s on this
-						break
-				sps = i / t_elap
-
+				
+				sps = n_reps / (timeit.timeit(_dummy_predict, number=n_reps))
 				if sps < best_sps:
 					break
 				else:
 					best_sps = sps
 					best_params = num_workers, batch_size
 
-				#print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers,batch_size, sps)
+			#print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers,batch_size, sps)
+			if len(best_results) > 0 and best_sps < best_results[-1][1]:
+				break
+
 			best_results.append((best_params, best_sps))
 		
 		num_workers, batch_size = max(best_results, key=lambda x:x[1])[0]
 				
 		self.set_batch_size(batch_size)
 		self.set_num_workers(num_workers)
-
-		return np.array(E),F.ravel()
 
 	def _predict_bulk(self,R):
 

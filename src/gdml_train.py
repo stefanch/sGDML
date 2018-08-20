@@ -145,7 +145,6 @@ class GDMLTrain:
 		sys.stdout.write('\r[DONE] Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))
 	 	sys.stdout.flush()
 
-		# Do some preprocessing.
 		r_dim = R_d_desc.shape[2]
 		r_d_desc_alpha = [rj_d_desc.dot(alphas[(j * r_dim):((j + 1) * r_dim)]) for j,rj_d_desc in enumerate(R_d_desc)]
 
@@ -168,9 +167,12 @@ class GDMLTrain:
 				 'perms': 			task['perms'],\
 				 'tril_perms_lin':	tril_perms_lin}
 
+		# Recover integration constant.
+	 	model['c'] = self._recov_int_const(model, task)
+
 		return model
 
-	def recov_int_const(self, model, task, tol=1e-7):
+	def _recov_int_const(self, model, task, tol=1e-2):
 
 		gdml = GDMLPredict(model)
 		n_train = task['E_train'].shape[0]
@@ -178,25 +180,15 @@ class GDMLTrain:
 		R = task['R_train'].reshape(n_train,-1)
 		E_pred,_ = gdml.predict(R)
 		E_ref = np.squeeze(task['E_train'])
-		diff = E_ref - E_pred
-		
-		c_range = np.linspace(min(diff), max(diff), num=100)
 
-		curr_mae = np.inf
-		i = 0
-		while True:
-			c = c_range[i]
+		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref)[0][0]
+		if np.abs(e_fact - 1) > tol:
+			raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
+						   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
 
-			last_mae = curr_mae
-			curr_mae = np.sum(abs((E_pred + c) - E_ref)) / diff.shape[0]
-			if curr_mae > last_mae and i > 0:
-				if (curr_mae - last_mae) <= tol:
-					return c
+		# Least squares estimate for integration constant.
+		return np.sum(E_ref - E_pred) / E_ref.shape[0]
 
-				c_range = np.linspace(c_range[i-1], c, num=100)
-				curr_mae = np.inf
-				i = 0
-			i += 1
 
 	def _assemble_kernel_mat(self, R_desc, R_d_desc, tril_perms_lin, n_perms, sig, lam):
 

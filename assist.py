@@ -75,7 +75,7 @@ def _print_model_properties(model):
 #all
 def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, **kwargs):
 
-	_print_splash()
+	
 
 	print '\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-'*100
 
@@ -122,7 +122,6 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, comman
 
 	func_called_directly = command == 'create' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		_print_splash()
 		print ui.white_back_str('\n TASK CREATION \n') + '-'*100
 		print ui.white_bold_str('Dataset properties')
 		_print_dataset_properties(dataset)
@@ -190,7 +189,6 @@ def train(task_dir, overwrite, command=None, **kwargs):
 
 	func_called_directly = command == 'train' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		_print_splash()
 		print ui.white_back_str('\n TRAINING \n') + '-'*100
 
 	gdml_train = GDMLTrain()
@@ -211,8 +209,10 @@ def train(task_dir, overwrite, command=None, **kwargs):
 				print
 				continue
 
-			model = gdml_train.train(task)
-			model['c'] = gdml_train.recov_int_const(model, task)
+			try:
+				model = gdml_train.train(task)
+			except Exception, err:
+				sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
 
 			if func_called_directly:
 				print '[DONE] Writing model to file \'%s\'...' % model_file_relpath
@@ -251,7 +251,6 @@ def test(model_dir, dataset, overwrite, command=None, **kwargs):
 
 	func_called_directly = command == 'test' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		_print_splash()
 		print ui.white_back_str('\n TESTING \n') + '-'*100
 		print ui.white_bold_str('Dataset properties')
 		_print_dataset_properties(dataset_extracted)
@@ -279,7 +278,6 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 
 	func_called_directly = command == 'validate' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		_print_splash()
 		print ui.white_back_str('\n VALIDATION \n') + '-'*100
 		print ui.white_bold_str('Dataset properties')
 		_print_dataset_properties(dataset)
@@ -312,8 +310,6 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 
 		# TODO:
 		# (1) check if user tried to validate an untested model
-		# (2) if test, check if the correct test dataset was provided (done?)
-		# (3) 
 
 		if needs_test and dataset['md5'] != model['test_md5']:
 			raise OSError('fingerprint of provided test dataset does not match the one in model file.')
@@ -350,9 +346,14 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			sys.stdout.write('\r[' + ui.blink_str(' .. ') + '] Running benchmark...')
 			sys.stdout.flush()
 
-			n_reps = 1000 if n_models > 1 else 100 # do an extensive benchmark, if there is more than one model to test
-			E_bench, F_bench = gdml_predict.set_opt_num_workers_and_batch_size(R=R, n_reps=n_reps, return_when_R_done=True) #  the benchmark function takes uses real test data and returns part of the result for R_test
-			n_bench = len(E_bench)
+			#n_reps = 1000 if n_models > 1 else 100 # do an extensive benchmark, if there is more than one model to test
+			n_reps = min(max(int(n_valid*0.1),10),100)
+
+			#E_bench, F_bench = gdml_predict.set_opt_num_workers_and_batch_size(R=R, n_reps=n_reps, return_when_R_done=True) #  the benchmark function takes uses real test data and returns part of the result for R_test
+			#n_bench = len(E_bench)
+			#num_workers, batch_size = gdml_predict._num_workers, gdml_predict._batch_size
+
+			gdml_predict.set_opt_num_workers_and_batch_size_fast(n_reps=n_reps)
 			num_workers, batch_size = gdml_predict._num_workers, gdml_predict._batch_size
 
 			sys.stdout.write('\r[DONE] Running benchmark... ' + ui.gray_str('(%d workers w/ %d batch size)\n' % (num_workers, batch_size)))
@@ -371,7 +372,8 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		b_size = 1
 		n_done = 0
 		t = time.time()
-		for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=n_bench!=0):
+		#for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=n_bench!=0):
+		for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=False):
 
 			if b_range is None: # first run
 				n_done = n_bench
@@ -448,7 +450,6 @@ def select(model_dir, overwrite, command=None, **kwargs):
 
 	func_called_directly = command == 'select' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		_print_splash()
 		print ui.white_back_str('\n MODEL SELECTION \n') + '-'*100
 
 	model_dir, model_file_names = model_dir
@@ -495,6 +496,10 @@ def select(model_dir, overwrite, command=None, **kwargs):
 		print row_str
 	print ''
 
+	if best_idx == 0 or best_idx == len(rows)-1:
+		print ui.warn_str('[WARN]') + ' Optimal sigma lies on boundary of search grid.' +\
+						  '\n       Model performance might improve if search grid is extended in direction sigma %s %d.' % ('<' if best_idx == 0 else '>', best_sig)
+
 	if not os.path.exists(MODEL_DIR):
 		os.makedirs(MODEL_DIR)
 
@@ -508,11 +513,14 @@ def select(model_dir, overwrite, command=None, **kwargs):
 	if model_exists and overwrite:
 		print ui.info_str('[INFO]') + ' Overwriting existing model file.'
 	if not model_exists or overwrite:
-		print '[DONE] Writing model file to \'%s\'...\n' % best_model_target_relpath
+		if func_called_directly:
+			print '[DONE] Writing model file to \'%s\'...' % best_model_target_relpath
 		shutil.copy(os.path.join(model_dir, best_model_file_name), best_model_target_path)
 	else:
 		print ui.warn_str('[WARN]') + ' Model \'%s\' already exists.' % best_model_target_relpath +\
-									  '\n       Run \'python %s -o select %s\' to overwrite.\n' % (os.path.basename(__file__), os.path.relpath(model_dir))
+									  '\n       Run \'python %s -o select %s\' to overwrite.' % (os.path.basename(__file__), os.path.relpath(model_dir))
+	print
+
 	if func_called_directly:
 		print ui.white_back_str(' NEXT STEP ') + ' python %s validate %s %s %s\n' % (os.path.basename(__file__), best_model_target_relpath, '<dataset_file>', '<n_validate>')
 
@@ -611,4 +619,5 @@ if __name__ == '__main__':
 		args.sigs = np.hstack(args.sigs).tolist() # flatten list, if (part of it) was generated using the range syntax
 		args.sigs = sorted(list(set(args.sigs))) # remove potential duplicates
 
+	_print_splash()
 	getattr(sys.modules[__name__], args.command)(**vars(args))

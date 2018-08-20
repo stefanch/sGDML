@@ -48,7 +48,6 @@ def warn_str(str):
 def fail_str(str):
 	return '\x1b[1;31m' + str + '\x1b[0m'
 
-
 # USER INPUT VALIDATION
 
 def is_file_type(arg, type):
