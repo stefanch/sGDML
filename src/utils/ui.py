@@ -98,7 +98,7 @@ def is_dir_with_file_type(arg, type, or_file=False):
 def is_strict_pos_int(arg):
 	x = int(arg)
 	if x <= 0:
-		raise argparse.ArgumentTypeError('Parameter must be >0.')
+		raise argparse.ArgumentTypeError('must be strictly positive')
 	return x
 
 

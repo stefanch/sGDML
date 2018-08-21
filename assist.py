@@ -56,7 +56,7 @@ def _print_model_properties(model):
 
 	n_test = len(model['test_idxs'])
 	is_tested = not np.isnan(e_err['mae']) and not np.isnan(e_err['rmse']) and not np.isnan(f_err['mae']) and not np.isnan(f_err['rmse'])
-	print ' {:<14} {}{:<d} points from \'{:<}\''.format('Tested on:', '' if is_tested else '[pending] ', n_test, model['test_md5'])
+	print ' {:<14} {}{:<d} points from \'{:<}\''.format('Testing:', '' if is_tested else '[pending] ', n_test, model['test_md5'])
 
 	n_valid = int(model['n_valid'])
 	is_valid = n_valid > 0
@@ -64,7 +64,7 @@ def _print_model_properties(model):
 	#	print ' {:<14} {:<d} points from \'{:<}\''.format('Validation:', n_valid, model['valid_md5'])
 	#else:
 	#print ' {:<14} {}'.format('Validation:', '[pending]')
-	print ' {:<14} {}'.format('Validated on:', '{} points'.format(n_valid) if is_valid else '[pending]')
+	print ' {:<14} {}'.format('Validation:', '{} points'.format(n_valid) if is_valid else '[pending]')
 
 	action_str = 'Test' if not is_tested else 'Expected validation'
 	print ' {:<14}'.format('{} errors:'.format(action_str))
@@ -82,7 +82,7 @@ def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, 
 	_print_dataset_properties(dataset_extracted)
 
 	if test_dataset is not None:
-		print ui.underline_str('Properties (test)')
+		print ui.white_bold_str('Properties (test)')
 		_, test_dataset_extracted = test_dataset
 		_print_dataset_properties(test_dataset_extracted)
 
@@ -130,7 +130,7 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, comman
 	if test_dataset is None:
 		test_dataset_path, test_dataset = dataset_path, dataset
 		if n_data - n_train < n_test:
-			raise ValueError('dataset only contains {} points, can not train on {} and test on'.format(n_data,n_train,n_test))
+			raise ValueError('dataset only contains {} points, can not train on {} and test on {}'.format(n_data,n_train,n_test))
 	else:
 		test_dataset_path, test_dataset = test_dataset
 		n_test_data = dataset['E'].shape[0]
@@ -286,7 +286,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		model_path = os.path.join(model_dir, model_file_name)
 		_, model = ui.is_file_type(model_path, 'model')
 
-		if n_models == 1 and command != 'all':
+		if i == 0 and command != 'all':
 			print ui.white_bold_str('Model properties')
 			_print_model_properties(model)
 
@@ -297,7 +297,9 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		needs_test = np.isnan(e_err['mae']) and np.isnan(e_err['rmse']) and np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
 		is_valid = n_valid != 0 and not needs_test
 
-		print ui.white_bold_str(('%s model' % ('Validating' if is_valid else 'Testing')) + ('' if n_models == 1 else ' %d of %d' % (i+1, n_models)))
+		#print ui.white_bold_str(('%s model' % ('Validating' if is_valid else 'Testing')) + ('' if n_models == 1 else ' %d of %d' % (i+1, n_models)))
+		if n_models > 1:
+			print ui.white_bold_str('%s model %d of %d' % ('Validating' if is_valid else 'Testing', i+1, n_models))
 
 		if not overwrite and not needs_test and not is_valid:
 			print ui.warn_str('[WARN]') + ' Skipping already tested model \'%s\'.' % model_file_name
@@ -325,9 +327,18 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			if len(excl_idxs) == 0:
 				excl_idxs = None
 
-			if n_valid is None: # test on all data points that have not been used for training or testing
-				n_valid = len(dataset['E']) - len(excl_idxs)
+			n_data_eff = len(dataset['E']) - len(excl_idxs)
+
+			if n_valid is None and n_data_eff != 0: # test on all data points that have not been used for training or testing
+				n_valid = n_data_eff
 				print ui.info_str('[INFO]') + ' Validation set size was automatically set to %d points.' % n_valid
+
+			if n_valid == 0 or n_data_eff == 0:
+				print ui.warn_str('[WARN]') + ' Skipping! No unused points for validation in provided dataset.\n'
+				return
+			elif n_data_eff < n_valid:
+				n_valid = n_data_eff
+				print ui.warn_str('[WARN]') + ' Validation size reduced to %d. Not enough unused points in provided dataset.\n' % n_valid
 
 			valid_idxs = gdml.draw_strat_sample(dataset['E'], n_valid, excl_idxs=excl_idxs)
 		np.random.shuffle(valid_idxs) # shuffle to improve convergence of online error
