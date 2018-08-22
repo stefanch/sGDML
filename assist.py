@@ -484,12 +484,13 @@ def select(model_dir, overwrite, command=None, **kwargs):
 		f_err = model['f_err'].item()
 
 		rows.append([model['sig'],\
-					 '%.2f' % e_err['mae'],\
-					 '%.2f' % e_err['rmse'],\
-					 '%.2f' % f_err['mae'],\
-					 '%.2f' % f_err['rmse']])
+					 e_err['mae'],\
+					 e_err['rmse'],\
+					 f_err['mae'],\
+					 f_err['rmse']])
 
-	best_idx = rows.index(min(rows, key=lambda col: col[4])) # idx of row with lowest f_rmse
+	f_rmse_col = [row[4] for row in rows]
+	best_idx = f_rmse_col.index(min(f_rmse_col)) # idx of row with lowest f_rmse
 	best_sig = rows[best_idx][0]
 
 	rows = sorted(rows, key=lambda col: col[0]) # sort according to sigma
@@ -497,7 +498,7 @@ def select(model_dir, overwrite, command=None, **kwargs):
 	print ' '*7 + 'Energy' + ' '*6 + 'Forces'
 	print (' {:>3} ' + '{:>5} '*4).format(*data_names)
 	print ' ' + '-'*27
-	format_str = ' {:>3} ' + '{:>5} '*4
+	format_str = ' {:>3} ' + '{:>2.2f} '*4
 	for row in rows:
 		row_str = format_str.format(*row)
 		if row[0] != best_sig:

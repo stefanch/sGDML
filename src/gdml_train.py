@@ -1,6 +1,6 @@
 # GDML Force Field
 # Author: Stefan Chmiela (stefan@chmiela.com)
-VERSION = 180718
+VERSION = 220818
 
 import os, sys
 
@@ -139,7 +139,11 @@ class GDMLTrain:
 		K[np.diag_indices_from(K)] -= lam # regularizer
 		#alphas = np.linalg.solve(K, Ft)
 		
-		alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
+		try:
+			alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
+		except LinAlgWarning:
+			pass
+
 
 		stop = timeit.default_timer()
 		sys.stdout.write('\r[DONE] Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))
@@ -181,10 +185,21 @@ class GDMLTrain:
 		E_pred,_ = gdml.predict(R)
 		E_ref = np.squeeze(task['E_train'])
 
-		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref)[0][0]
-		if np.abs(e_fact - 1) > tol:
-			raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
-						   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
+		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref, rcond=-1)[0][0]
+		#if np.abs(e_fact - 1) > tol:
+		#	raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
+		#				   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
+
+
+		#import matplotlib.pyplot as plt
+		#plt.plot(range(0,E_ref.shape[0]), E_ref)
+
+		#plt.plot(range(0,E_ref.shape[0]), E_pred + (np.sum(E_ref - E_pred) / E_ref.shape[0]), '-g', label='predicted E')
+		#plt.plot(range(0,E_ref.shape[0]), E_ref, ':b', label='reference E')
+
+		#plt.axis('equal')
+		#plt.legend()
+		#plt.show()
 
 		# Least squares estimate for integration constant.
 		return np.sum(E_ref - E_pred) / E_ref.shape[0]
@@ -215,10 +230,6 @@ class GDMLTrain:
 		return np.frombuffer(K).reshape(glob['K_shape'])
 
 	def draw_strat_sample(self, T, n, excl_idxs=None):
-
-		
-		#if len(T) - len(excl_idxs) - n <= 0:
-		#	return train_idxs
 
 		n_train = T.shape[0]
 
