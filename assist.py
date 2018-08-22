@@ -506,7 +506,8 @@ def select(model_dir, overwrite, command=None, **kwargs):
 		print row_str
 	print ''
 
-	if best_idx == 0 or best_idx == len(rows)-1:
+	sig_col = [row[0] for row in rows]
+	if best_sig == min(sig_col) or best_sig == max(sig_col):
 		print ui.warn_str('[WARN]') + ' Optimal sigma lies on boundary of search grid.' +\
 						  '\n       Model performance might improve if search grid is extended in direction sigma %s %d.' % ('<' if best_idx == 0 else '>', best_sig)
 
