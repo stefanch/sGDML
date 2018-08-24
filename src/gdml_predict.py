@@ -214,7 +214,7 @@ class GDMLPredict:
 			self.set_num_workers(num_workers)
 
 			best_sps = 0
-			for batch_size in range(int(np.ceil(self.n_train/num_workers)), 0, -1):
+			for batch_size in range(int(np.ceil(self.n_train/num_workers))+1, 0, -1):
 				if self.n_train % batch_size != 0:
 					continue
 				self.set_batch_size(batch_size)
@@ -226,7 +226,7 @@ class GDMLPredict:
 					best_sps = sps
 					best_params = num_workers, batch_size
 
-			#print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers,batch_size, sps)
+				#print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers,batch_size, sps)
 			if len(best_results) > 0 and best_sps < best_results[-1][1]:
 				break
 

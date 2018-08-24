@@ -560,7 +560,7 @@ if __name__ == '__main__':
 										 type    = ui.is_strict_pos_int,\
 										 help    = 'number of data points to use for validation',\
 										 nargs   = '?', default = None)	
-	parser_all.add_argument('--test_dataset', metavar = '<test_dataset_file>',\
+	parser_all.add_argument('-t', metavar = '<test_dataset_file>', dest='test_dataset',\
 												 type    = lambda x: ui.is_file_type(x, 'dataset'),\
 												 help	   = 'path to test dataset file')
 	parser_all.add_argument('--sig', metavar = ('<sig1>', '<sig2>'), dest='sigs',\
@@ -580,7 +580,7 @@ if __name__ == '__main__':
 	parser_create.add_argument('n_test', metavar = '<n_test>',\
 										 type    = ui.is_strict_pos_int,\
 										 help    = 'number of data points to use for testing')
-	parser_create.add_argument('--test_dataset', metavar = '<test_dataset>',\
+	parser_create.add_argument('-t', metavar = '<test_dataset>', dest='test_dataset',\
 												 type    = lambda x: ui.is_file_type(x, 'dataset'),\
 												 help	   = 'path to test dataset file')
 	parser_create.add_argument('--sig', metavar = ('<sig1>', '<sig2>'), dest='sigs',\
