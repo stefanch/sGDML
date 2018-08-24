@@ -3,6 +3,7 @@
 VERSION = 220818
 
 import os, sys
+import warnings
 
 import scipy as sp
 import numpy as np
@@ -140,8 +141,9 @@ class GDMLTrain:
 		start = timeit.default_timer()
 
 		K[np.diag_indices_from(K)] -= lam # regularizer
-		#alphas = np.linalg.solve(K, Ft)
-		alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
+		with warnings.catch_warnings():
+			warnings.simplefilter('ignore')
+			alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 
 		stop = timeit.default_timer()
 		sys.stdout.write('\r[DONE] Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))

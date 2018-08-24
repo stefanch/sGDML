@@ -64,7 +64,7 @@ def predict_worker_cached(wkr_start_stop, r_desc, r_d_desc):
 
 class GDMLPredict:
 
-	def __init__(self,model,batch_size=250,num_workers=None):
+	def __init__(self, model, batch_size=250, num_workers=None):
 
 		global glob,perms_lin,sig,n_perms
 
@@ -104,9 +104,9 @@ class GDMLPredict:
 		self.pool = mp.Pool(processes=num_workers)
 
 		# Data ranges for processes
-		wkr_starts = range(0,self.n_train,int(np.ceil(float(self.n_train)/self.pool._processes)))
+		wkr_starts = range(0, self.n_train,int(np.ceil(float(self.n_train)/self.pool._processes)))
 		wkr_stops = wkr_starts[1:] + [self.n_train]
-		self.wkr_starts_stops = zip(wkr_starts,wkr_stops)
+		self.wkr_starts_stops = zip(wkr_starts, wkr_stops)
 
 		self._num_workers = num_workers
 
@@ -224,7 +224,7 @@ class GDMLPredict:
 					best_sps = sps
 					best_params = num_workers, batch_size
 
-				#print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers,batch_size, sps)
+				#print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers, batch_size, sps)
 			if len(best_results) > 0 and best_sps < best_results[-1][1]:
 				break
 
@@ -239,26 +239,27 @@ class GDMLPredict:
 
 		n_pred, dim_i = R.shape
 
-		F = np.empty((n_pred,dim_i))
+		F = np.empty((n_pred, dim_i))
 		E = np.empty((n_pred,))
 		for i,r in enumerate(R):
 			E[i],F[i,:] = self.predict(r)
 
-		return (E.ravel(), F.ravel())
+		return E, F
 
-	# input:  r [M,N*3] -> [[x11,y11,z11, ..., x1N,y1N,z1N], ..., [xM1,yM1,zM1, ..., xMN,yMN,zMN]]
-	# return: F [M,N*3] -> [[x11,y11,z11, ..., x1N,y1N,z1N], ..., [xM1,yM1,zM1, ..., xMN,yMN,zMN]]
+	# input:  r (M, N*3) -> [[x11,y11,z11, ..., x1N,y1N,z1N], ..., [xM1,yM1,zM1, ..., xMN,yMN,zMN]]
+	# return: F (M, N*3) -> [[x11,y11,z11, ..., x1N,y1N,z1N], ..., [xM1,yM1,zM1, ..., xMN,yMN,zMN]]
+	#		  E (M,)
 	def predict(self,r):
 
 		if r.ndim == 2 and r.shape[0] > 1:
 			return self._predict_bulk(r)
 
-		r = r.reshape(self.n_atoms,3)
-		pdist = scipy.spatial.distance.pdist(r,'euclidean')
+		r = r.reshape(self.n_atoms, 3)
+		pdist = scipy.spatial.distance.pdist(r, 'euclidean')
 		pdist = scipy.spatial.distance.squareform(pdist)
 
 		r_desc = desc.r_to_desc(r,pdist)
 		r_d_desc = desc.r_to_d_desc(r,pdist)
 
 		res = sum(self.pool.map(partial(predict_worker_cached, r_desc=r_desc, r_d_desc=r_d_desc), self.wkr_starts_stops))
-		return (res[-1]+self.c, res[:-1].reshape(1,-1))
+		return (res[-1]+self.c).reshape(-1), res[:-1].reshape(1,-1)

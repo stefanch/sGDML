@@ -378,7 +378,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		cos_mae_sum, cos_rmse_sum = 0,0
 		mag_mae_sum, mag_rmse_sum = 0,0
 
-		b_size = 100
+		b_size = 1
 		n_done = 0
 		t = time.time()
 		#for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=n_bench!=0):
@@ -396,7 +396,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 
 			r = R[b_range].reshape(b_size,-1)
 			e_pred,f_pred = gdml_predict.predict(r)
-				
+
 			e = E[b_range]
 			f = F[b_range].reshape(b_size,-1)
 
@@ -404,7 +404,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			e_mae, e_mae_sum, e_rmse, e_rmse_sum = _online_err(np.squeeze(e) - e_pred, 1, n_done, e_mae_sum, e_rmse_sum)
 
 			# force component error
-			f_mae, f_mae_sum, f_rmse, f_rmse_sum = _online_err(f.ravel() - f_pred, 3*n_atoms, n_done, f_mae_sum, f_rmse_sum)
+			f_mae, f_mae_sum, f_rmse, f_rmse_sum = _online_err(f - f_pred, 3*n_atoms, n_done, f_mae_sum, f_rmse_sum)
 
 			# magnetude error
 			f_pred_mags = np.linalg.norm(f_pred.reshape(-1,3), axis=1)
