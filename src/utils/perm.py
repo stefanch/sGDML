@@ -55,7 +55,7 @@ def _sync_mat_wkr(i, n_train, same_z_cost):
 	return match_perms
 
 
-def sync_mat(R,z):
+def sync_mat(R,z,max_processes=None):
 
 	global glob
 
@@ -83,7 +83,7 @@ def sync_mat(R,z):
 	glob['v_set'], glob['v_set_shape'] = share_array(v_set, 'd')
 	glob['match_cost'], glob['match_cost_shape'] = share_array(match_cost, 'd')
 
-	pool = mp.Pool()
+	pool = mp.Pool(max_processes)
 	match_perms_all = {}
 	for i,match_perms in enumerate(pool.imap_unordered(partial(_sync_mat_wkr, n_train=n_train, same_z_cost=same_z_cost), range(n_train))):			
 		match_perms_all.update(match_perms)

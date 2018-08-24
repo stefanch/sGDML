@@ -65,6 +65,9 @@ def _assemble_kernel_mat_wkr(j, tril_perms_lin, n_perms, sig, lam):
 
 class GDMLTrain:
 
+	def __init__(self, max_processes=None):
+		self._max_processes = max_processes
+
 	def create_task(self, train_dataset, n_train, test_dataset, n_test, sig, lam=1e-15, recov_sym=True):
 
 		train_md5 = io.dataset_md5(train_dataset)
@@ -91,7 +94,7 @@ class GDMLTrain:
 				'lam':				lam}
 
 		if recov_sym:
-			task['perms'] 		= perm.sync_mat(R_train, train_dataset['z'])
+			task['perms'] 		= perm.sync_mat(R_train, train_dataset['z'], self._max_processes)
 			task['perms'] 		= perm.complete_group(task['perms'])
 		else:
 			task['perms'] 		= np.arange(train_dataset['R'].shape[1])[None,:] # no symmetries
@@ -138,7 +141,6 @@ class GDMLTrain:
 
 		K[np.diag_indices_from(K)] -= lam # regularizer
 		#alphas = np.linalg.solve(K, Ft)
-		
 		alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 
 		stop = timeit.default_timer()
@@ -167,7 +169,6 @@ class GDMLTrain:
 				 'perms': 			task['perms'],\
 				 'tril_perms_lin':	tril_perms_lin}
 
-		# Recover integration constant.
 	 	model['c'] = self._recov_int_const(model, task)
 
 		return model
@@ -182,20 +183,9 @@ class GDMLTrain:
 		E_ref = np.squeeze(task['E_train'])
 
 		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref, rcond=-1)[0][0]
-		#if np.abs(e_fact - 1) > tol:
-		#	raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
-		#				   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
-
-
-		#import matplotlib.pyplot as plt
-		#plt.plot(range(0,E_ref.shape[0]), E_ref)
-
-		#plt.plot(range(0,E_ref.shape[0]), E_pred + (np.sum(E_ref - E_pred) / E_ref.shape[0]), '-g', label='predicted E')
-		#plt.plot(range(0,E_ref.shape[0]), E_ref, ':b', label='reference E')
-
-		#plt.axis('equal')
-		#plt.legend()
-		#plt.show()
+		if np.abs(e_fact - 1) > tol:
+			raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
+						   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
 
 		# Least squares estimate for integration constant.
 		return np.sum(E_ref - E_pred) / E_ref.shape[0]
@@ -213,7 +203,7 @@ class GDMLTrain:
 		glob['R_desc'], glob['R_desc_shape'] = share_array(R_desc, 'd')
 		glob['R_d_desc'], glob['R_d_desc_shape'] = share_array(R_d_desc, 'd')
 
-		pool = mp.Pool()
+		pool = mp.Pool(self._max_processes)
 		done_total = 0
 		for done in pool.imap_unordered(partial(_assemble_kernel_mat_wkr, tril_perms_lin=tril_perms_lin, n_perms=n_perms, sig=sig, lam=lam), range(n_train)):			
 			done_total += done

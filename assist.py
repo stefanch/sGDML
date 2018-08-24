@@ -73,7 +73,7 @@ def _print_model_properties(model):
 	print
 
 #all
-def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, **kwargs):
+def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, max_processes, **kwargs):
 
 	print '\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-'*100
 
@@ -87,11 +87,11 @@ def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, 
 		_print_dataset_properties(test_dataset_extracted)
 
 	print ui.white_back_str(' STEP 1 ') + ' Create cross-validation tasks.\n' + '-'*100
-	task_dir = create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, **kwargs)
+	task_dir = create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_processes, **kwargs)
 
 	print ui.white_back_str(' STEP 2 ') + ' Train all models.\n' + '-'*100
 	task_dir_arg = ui.is_dir_with_file_type(task_dir, 'task')
-	model_dir_or_file_path = train(task_dir_arg, overwrite, **kwargs)
+	model_dir_or_file_path = train(task_dir_arg, overwrite, max_processes, **kwargs)
 
 	print ui.white_back_str(' STEP 3 ') + ' Test all models.\n' + '-'*100
 	model_dir_arg = ui.is_dir_with_file_type(model_dir_or_file_path, 'model', or_file=True)
@@ -113,7 +113,7 @@ def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, 
 	print '       Find your model here: \'%s\'' % os.path.relpath(best_model_path, BASE_DIR)
 
 # create tasks
-def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, command=None, **kwargs):
+def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_processes, command=None, **kwargs):
 
 	dataset_path, dataset = dataset
 	n_data = dataset['E'].shape[0]
@@ -137,7 +137,7 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, comman
 		if n_test_data < n_test:
 			raise ValueError('test dataset only contains {} points, can not test on {}'.format(n_data,n_test))
 
-	gdml_train = GDMLTrain()
+	gdml_train = GDMLTrain(max_processes=max_processes)
 
 	task_reldir = io.train_dir_name(dataset, n_train, is_gdml=gdml)
 	task_dir = os.path.join(BASE_DIR, task_reldir)
@@ -180,7 +180,7 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, comman
 
 
 # train models
-def train(task_dir, overwrite, command=None, **kwargs):
+def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 
 	task_dir, task_file_names = task_dir
 	n_tasks = len(task_file_names)
@@ -189,7 +189,7 @@ def train(task_dir, overwrite, command=None, **kwargs):
 	if func_called_directly:
 		print ui.white_back_str('\n TRAINING \n') + '-'*100
 
-	gdml_train = GDMLTrain()
+	gdml_train = GDMLTrain(max_processes=max_processes)
 	for i,task_file_name in enumerate(task_file_names):
 		print ui.white_bold_str('Training task' + ('' if n_tasks == 1 else ' %d of %d' % (i+1, n_tasks)))
 
@@ -378,27 +378,27 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		cos_mae_sum, cos_rmse_sum = 0,0
 		mag_mae_sum, mag_rmse_sum = 0,0
 
-		b_size = 1
+		b_size = 100
 		n_done = 0
 		t = time.time()
 		#for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=n_bench!=0):
 		for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=False):
 
-			if b_range is None: # first run
-				n_done = n_bench
+			#if b_range is None: # first run
+			#	n_done = n_bench
 
-				e = E[:n_bench]
-				f = F[:n_bench].reshape(b_size,-1)
+			#	e = E[:n_bench]
+			#	f = F[:n_bench].reshape(b_size,-1)
 
-				e_pred,f_pred = E_bench, F_bench
-			else:
-				n_done += len(b_range)
+			#	e_pred,f_pred = E_bench, F_bench
+			#else:
+			n_done += len(b_range)
 
-				r = R[b_range].reshape(b_size,-1)
-				e_pred,f_pred = gdml_predict.predict(r)
-
-				e = E[b_range]
-				f = F[b_range].reshape(b_size,-1)
+			r = R[b_range].reshape(b_size,-1)
+			e_pred,f_pred = gdml_predict.predict(r)
+				
+			e = E[b_range]
+			f = F[b_range].reshape(b_size,-1)
 
 			# energy error
 			e_mae, e_mae_sum, e_rmse, e_rmse_sum = _online_err(np.squeeze(e) - e_pred, 1, n_done, e_mae_sum, e_rmse_sum)
@@ -542,7 +542,6 @@ if __name__ == '__main__':
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing files')
-	#parser.add_argument('--version', action='version', version='%(prog)s [unknown]')
 	subparsers = parser.add_subparsers(title='commands', dest='command')
 	
 	# all
@@ -568,6 +567,10 @@ if __name__ == '__main__':
 									help    = 'specify a integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-paramter sigma',\
 									nargs='+')
 	parser_all.add_argument('--gdml', action='store_true', help = 'don\'t include symmetries in the model')
+	parser_all.add_argument('--max_processes', metavar = '<max_processes>',\
+										 type    = ui.is_strict_pos_int,\
+										 help    = 'limit the number of processes for this application',\
+										 nargs   = '?', default = None)	
 
 	# create
 	parser_create = subparsers.add_parser('create', help='create training task(s)')
@@ -588,12 +591,20 @@ if __name__ == '__main__':
 									help    = 'specify a integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-paramter sigma',\
 									nargs='+')
 	parser_create.add_argument('--gdml', action='store_true', help = 'don\'t include symmetries in the model')
+	parser_create.add_argument('--max_processes', metavar = '<max_processes>',\
+										 type    = ui.is_strict_pos_int,\
+										 help    = 'limit the number of processes for this application',\
+										 nargs   = '?', default = None)	
 	
 	# train
 	parser_train = subparsers.add_parser('train', help='train model(s) from task(s)')
 	parser_train.add_argument('task_dir', metavar = '<task_dir_or_file>',\
 							 	type    = lambda x: ui.is_dir_with_file_type(x, 'task', or_file=True),\
 							 	help	 = 'path to task directory')
+	parser_train.add_argument('--max_processes', metavar = '<max_processes>',\
+										 type    = ui.is_strict_pos_int,\
+										 help    = 'limit the number of processes for this application',\
+										 nargs   = '?', default = None)	
 
 	# test
 	parser_test = subparsers.add_parser('test', help='test model(s)')

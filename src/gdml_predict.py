@@ -51,11 +51,9 @@ def predict_worker_cached(wkr_start_stop, r_desc, r_d_desc):
 		mat52_base = np.exp(-norm_ab_perms / sig) * mat52_base_fact
 		a_x2 = np.einsum('ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms) # colum wise dot product
 
-		#F += np.einsum('ji,j', diff_ab_perms.dot(r_d_desc), a_x2) * diag_scale_fact # correct
 		F += np.linalg.multi_dot([a_x2 * mat52_base, diff_ab_perms, r_d_desc]) * diag_scale_fact
 		mat52_base *= norm_ab_perms + sig
 
-		#F += np.einsum('ji,j', rj_d_desc_alpha_perms.dot(r_d_desc), -mat52_base) #correct
 		F -= np.linalg.multi_dot([mat52_base, rj_d_desc_alpha_perms, r_d_desc])
 		E += a_x2.dot(mat52_base)
 
