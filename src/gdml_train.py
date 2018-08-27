@@ -185,9 +185,12 @@ class GDMLTrain:
 		E_ref = np.squeeze(task['E_train'])
 
 		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref, rcond=-1)[0][0]
+
 		if np.abs(e_fact - 1) > tol:
-			raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
-						   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
+			print ui.warn_str('[WARN]') + ' Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact +\
+							  '\n       This can have several reasons: wrong unit conversion, inaccurate force labels (e.g. numerical, wrong sign), etc.'
+		#	raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
+		#				   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
 
 		# Least squares estimate for integration constant.
 		return np.sum(E_ref - E_pred) / E_ref.shape[0]
