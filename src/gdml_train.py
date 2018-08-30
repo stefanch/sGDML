@@ -1,6 +1,6 @@
 # GDML Force Field
 # Author: Stefan Chmiela (stefan@chmiela.com)
-VERSION = 220818
+VERSION = 300818
 
 import os, sys
 import warnings
@@ -145,6 +145,8 @@ class GDMLTrain:
 			warnings.simplefilter('ignore')
 			alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 
+		#print sys.getrefcount(K)
+
 		stop = timeit.default_timer()
 		sys.stdout.write('\r[DONE] Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))
 	 	sys.stdout.flush()
@@ -192,6 +194,13 @@ class GDMLTrain:
 		#	raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
 		#				   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
 
+
+		#c22 = np.sum(E_ref - E_pred) / E_ref.shape[0]
+		#import matplotlib.pyplot as plt
+	 	#plt.plot(range(len(E_pred)), E_pred+c22, 'b')
+	 	#plt.plot(range(len(E_pred)), E_ref, 'g')
+	 	#plt.show()
+
 		# Least squares estimate for integration constant.
 		return np.sum(E_ref - E_pred) / E_ref.shape[0]
 
@@ -217,6 +226,11 @@ class GDMLTrain:
 	 		sys.stdout.write('\r[%3d%%] Assembling kernel matrix...' % (progr * 100))
 	 		sys.stdout.flush()
 	 	pool.close()
+
+	 	# Release some memory.
+	 	glob.pop('K', None)
+	 	glob.pop('R_desc', None)
+	 	glob.pop('R_d_desc', None)
 
 		return np.frombuffer(K).reshape(glob['K_shape'])
 
