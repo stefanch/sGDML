@@ -21,6 +21,10 @@ from src.utils import io,ui
 
 MODEL_DIR = BASE_DIR + '/models/assist/'
 
+
+class AssistantError(Exception):
+    pass
+
 def _print_splash():
 	print """         __________  __  _____ 
    _____/ ____/ __ \/  |/  / / 
@@ -73,7 +77,7 @@ def _print_model_properties(model):
 	print
 
 #all
-def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, max_processes, **kwargs):
+def all(dataset, valid_dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, max_processes, **kwargs):
 
 	print '\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-'*100
 
@@ -85,6 +89,17 @@ def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, 
 		print ui.white_bold_str('Properties (test)')
 		_, test_dataset_extracted = test_dataset
 		_print_dataset_properties(test_dataset_extracted)
+
+		if not np.array_equal(dataset_extracted['z'], test_dataset_extracted['z']):
+			raise AssistantError('Atom composition or order in test dataset does not match the one in bulk dataset.')
+
+	if valid_dataset is not None:
+		print ui.white_bold_str('Properties (validate)')
+		_, valid_dataset_extracted = valid_dataset
+		_print_dataset_properties(valid_dataset_extracted)
+
+		if not np.array_equal(dataset_extracted['z'], valid_dataset_extracted['z']):
+			raise AssistantError('Atom composition or order in validation dataset does not match the one in bulk dataset.')
 
 	print ui.white_back_str(' STEP 1 ') + ' Create cross-validation tasks.\n' + '-'*100
 	task_dir = create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_processes, **kwargs)
@@ -107,7 +122,8 @@ def all(dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, 
 
 	print ui.white_back_str(' STEP 5 ') + ' Validate selected model.\n' + '-'*100
 	model_dir_arg = ui.is_dir_with_file_type(best_model_path, 'model', or_file=True)
-	validate(model_dir_arg, dataset, n_valid, overwrite=False, **kwargs)
+	if valid_dataset is None: valid_dataset = dataset
+	validate(model_dir_arg, valid_dataset, n_valid, overwrite=False, **kwargs)
 
 	print ui.pass_str('[DONE]') + ' Training assistant finished sucessfully.'
 	print '       Find your model here: \'%s\'' % os.path.relpath(best_model_path, BASE_DIR)
@@ -125,17 +141,17 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_pr
 		_print_dataset_properties(dataset)
 
 	if n_data < n_train:
-		raise ValueError('dataset only contains {} points, can not train on {}'.format(n_data,n_train))
+		raise AssistantError('Dataset only contains {} points, can not train on {}.'.format(n_data,n_train))
 
 	if test_dataset is None:
 		test_dataset_path, test_dataset = dataset_path, dataset
 		if n_data - n_train < n_test:
-			raise ValueError('dataset only contains {} points, can not train on {} and test on {}'.format(n_data,n_train,n_test))
+			raise AssistantError('Dataset only contains {} points, can not train on {} and test on {}.'.format(n_data,n_train,n_test))
 	else:
 		test_dataset_path, test_dataset = test_dataset
 		n_test_data = dataset['E'].shape[0]
 		if n_test_data < n_test:
-			raise ValueError('test dataset only contains {} points, can not test on {}'.format(n_data,n_test))
+			raise AssistantError('Test dataset only contains {} points, can not test on {}.'.format(n_data,n_test))
 
 	gdml_train = GDMLTrain(max_processes=max_processes)
 
@@ -290,6 +306,9 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			print ui.white_bold_str('Model properties')
 			_print_model_properties(model)
 
+		if not np.array_equal(model['z'], dataset['z']):
+			raise AssistantError('Atom composition or order in dataset does not match the one in model.')
+
 		e_err = model['e_err'].item()
 		f_err = model['f_err'].item()
 	
@@ -312,7 +331,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		# (1) check if user tried to validate an untested model
 
 		if needs_test and dataset['md5'] != model['test_md5']:
-			raise OSError('fingerprint of provided test dataset does not match the one in model file.')
+			raise AssistantError('Fingerprint of provided test dataset does not match the one in model file.')
 
 		valid_idxs = model['test_idxs']
 		if is_valid:
@@ -378,7 +397,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		cos_mae_sum, cos_rmse_sum = 0,0
 		mag_mae_sum, mag_rmse_sum = 0,0
 
-		b_size = 1
+		b_size = min(100, len(valid_idxs))
 		n_done = 0
 		t = time.time()
 		#for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=n_bench!=0):
@@ -392,13 +411,14 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 
 			#	e_pred,f_pred = E_bench, F_bench
 			#else:
-			n_done += len(b_range)
+			n_done_step = len(b_range)
+			n_done += n_done_step
 
-			r = R[b_range].reshape(b_size,-1)
+			r = R[b_range].reshape(n_done_step,-1)
 			e_pred,f_pred = gdml_predict.predict(r)
 
 			e = E[b_range]
-			f = F[b_range].reshape(b_size,-1)
+			f = F[b_range].reshape(n_done_step,-1)
 
 			# energy error
 			e_mae, e_mae_sum, e_rmse, e_rmse_sum = _online_err(np.squeeze(e) - e_pred, 1, n_done, e_mae_sum, e_rmse_sum)
@@ -478,7 +498,7 @@ def select(model_dir, overwrite, command=None, **kwargs):
 			or test_md5 != model['test_md5']
 			or train_idxs != set(model['train_idxs'])
 			or test_idxs != set(model['test_idxs'])):
-				raise OSError('{} contains models trained or tested on different datasets'.format(model_dir))
+				raise AssistantError('{} contains models trained or tested on different datasets.'.format(model_dir))
 
 		e_err = model['e_err'].item()
 		f_err = model['f_err'].item()
@@ -498,7 +518,7 @@ def select(model_dir, overwrite, command=None, **kwargs):
 	print ' '*7 + 'Energy' + ' '*6 + 'Forces'
 	print (' {:>3} ' + '{:>5} '*4).format(*data_names)
 	print ' ' + '-'*27
-	format_str = ' {:>3} ' + '{:>2.2f} '*4
+	format_str = ' {:>3} ' + '{:>5.2f} '*4
 	for row in rows:
 		row_str = format_str.format(*row)
 		if row[0] != best_sig:
@@ -540,99 +560,85 @@ def select(model_dir, overwrite, command=None, **kwargs):
 
 if __name__ == '__main__':
 
+	def _add_argument_dataset(parser, help='path to dataset file'):
+		parser.add_argument('dataset',\
+							metavar 	= '<dataset_file>',\
+							type    	= lambda x: ui.is_file_type(x, 'dataset'),\
+							help 		= help)
+
+	def _add_argument_sample_size(parser, subset_str):
+		subparser.add_argument('n_%s' % subset_str,\
+								metavar	= '<n_%s>' % subset_str,\
+								type 	= ui.is_strict_pos_int,\
+								help	= '%s sample size' % subset_str)
+
+	def _add_argument_dir_with_file_type(parser, type, or_file=False):
+		parser.add_argument('%s_dir' % type,\
+							metavar 	= '<%s_dir%s>' % (type, '_or_file' if or_file else ''),\
+							type 		= lambda x: ui.is_dir_with_file_type(x, type, or_file=or_file),\
+							help 		= 'path to %s directory%s' % (type, ' or file' if or_file else ''))
+
 	parser = argparse.ArgumentParser()
-	parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing files')
-	subparsers = parser.add_subparsers(title='commands', dest='command')
 	
-	# all
-	parser_all = subparsers.add_parser('all', help='create model from beginning to end')
-	parser_all.add_argument('dataset', metavar = '<dataset_file>',\
-										  type    = lambda x: ui.is_file_type(x, 'dataset'),\
-										  help	   = 'path to dataset file (train and test data are both sampled from here, if no separate test set is specified)')
-	parser_all.add_argument('n_train', metavar = '<n_train>',\
-										  type    = ui.is_strict_pos_int,\
-										  help    = 'number of data points to use for training')
-	parser_all.add_argument('n_test', metavar = '<n_test>',\
-										 type    = ui.is_strict_pos_int,\
-										 help    = 'number of data points to use for testing')
-	parser_all.add_argument('n_valid', metavar = '<n_validate>',\
-										 type    = ui.is_strict_pos_int,\
-										 help    = 'number of data points to use for validation',\
-										 nargs   = '?', default = None)	
-	parser_all.add_argument('-t', metavar = '<test_dataset_file>', dest='test_dataset',\
-												 type    = lambda x: ui.is_file_type(x, 'dataset'),\
-												 help	   = 'path to test dataset file')
-	parser_all.add_argument('--sig', metavar = ('<sig1>', '<sig2>'), dest='sigs',\
-									type=ui.parse_list_or_range,\
-									help    = 'specify a integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-paramter sigma',\
-									nargs='+')
-	parser_all.add_argument('--gdml', action='store_true', help = 'don\'t include symmetries in the model')
-	parser_all.add_argument('--max_processes', metavar = '<max_processes>',\
-										 type    = ui.is_strict_pos_int,\
-										 help    = 'limit the number of processes for this application',\
-										 nargs   = '?', default = None)	
+	parent_parser 	= argparse.ArgumentParser(add_help=False)                                 
+	parent_parser.add_argument('-o','--overwrite', dest = 'overwrite', action = 'store_true', help = 'overwrite existing files')
+	
+	subparsers 		= parser.add_subparsers(title='commands', dest='command')
+	parser_all 		= subparsers.add_parser('all', help='create model from beginning to end', parents = [parent_parser])
+	parser_create 	= subparsers.add_parser('create', help='create training task(s)', parents = [parent_parser])
+	parser_train 	= subparsers.add_parser('train', help='train model(s) from task(s)', parents = [parent_parser])
+	parser_test 	= subparsers.add_parser('test', help='test model(s)', parents = [parent_parser])
+	parser_select 	= subparsers.add_parser('select', help='select best performing model', parents = [parent_parser])
+	parser_valid 	= subparsers.add_parser('validate', help='validate a model', parents = [parent_parser])
 
-	# create
-	parser_create = subparsers.add_parser('create', help='create training task(s)')
-	parser_create.add_argument('dataset', metavar = '<dataset_file>',\
-										  type    = lambda x: ui.is_file_type(x, 'dataset'),\
-										  help	   = 'path to dataset file (train and test data are both sampled from here, if no separate test set is specified)')
-	parser_create.add_argument('n_train', metavar = '<n_train>',\
-										  type    = ui.is_strict_pos_int,\
-										  help    = 'number of data points to use for training')
-	parser_create.add_argument('n_test', metavar = '<n_test>',\
-										 type    = ui.is_strict_pos_int,\
-										 help    = 'number of data points to use for testing')
-	parser_create.add_argument('-t', metavar = '<test_dataset>', dest='test_dataset',\
-												 type    = lambda x: ui.is_file_type(x, 'dataset'),\
-												 help	   = 'path to test dataset file')
-	parser_create.add_argument('--sig', metavar = ('<sig1>', '<sig2>'), dest='sigs',\
-									type=ui.parse_list_or_range,\
-									help    = 'specify a integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-paramter sigma',\
-									nargs='+')
-	parser_create.add_argument('--gdml', action='store_true', help = 'don\'t include symmetries in the model')
-	parser_create.add_argument('--max_processes', metavar = '<max_processes>',\
-										 type    = ui.is_strict_pos_int,\
-										 help    = 'limit the number of processes for this application',\
-										 nargs   = '?', default = None)	
-	
+	for subparser in [parser_all, parser_create]:
+		_add_argument_dataset(subparser, help='path to dataset file (train/validation/test subsets are sampled from here if no seperate dataset are specified)')
+		_add_argument_sample_size(subparser, 'train')
+		_add_argument_sample_size(subparser, 'test')
+		subparser.add_argument('-v', '--validation_dataset',\
+								metavar = '<validation_dataset_file>',\
+								dest 	= 'valid_dataset',\
+								type    = lambda x: ui.is_file_type(x, 'dataset'),\
+								help 	= 'path to validation dataset file')
+		subparser.add_argument('-t', '--test_dataset',\
+								metavar = '<test_dataset_file>',\
+								dest 	= 'test_dataset',\
+								type    = lambda x: ui.is_file_type(x, 'dataset'),\
+								help 	= 'path to test dataset file')
+		subparser.add_argument('-s', '--sig',\
+								metavar = ('<s1>', '<s2>'),\
+								dest 	= 'sigs',\
+								type 	= ui.parse_list_or_range,\
+								help 	= 'integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-parameter sigma',\
+								nargs 	= '+')
+		subparser.add_argument('--gdml',\
+								action 	= 'store_true',\
+								help 	= 'don\'t include symmetries in the model')
+
+	for subparser in [parser_test, parser_valid]:
+		_add_argument_dataset(subparser)
+		_add_argument_dir_with_file_type(subparser, 'model', or_file=True)
+
+	for subparser in [parser_all, parser_valid]:
+		subparser.add_argument('n_valid',
+								metavar	= '<n_validate>',\
+								type	= ui.is_strict_pos_int,\
+								help	= 'validation sample size',\
+								nargs 	= '?',\
+								default = None)
+
+	for subparser in [parser_all, parser_create, parser_train]:
+		subparser.add_argument('-p', '--max_processes',\
+								metavar = '<max_processes>',\
+								type 	= ui.is_strict_pos_int,\
+								help 	= 'limit the number of processes for this application')
+
 	# train
-	parser_train = subparsers.add_parser('train', help='train model(s) from task(s)')
-	parser_train.add_argument('task_dir', metavar = '<task_dir_or_file>',\
-							 	type    = lambda x: ui.is_dir_with_file_type(x, 'task', or_file=True),\
-							 	help	 = 'path to task directory')
-	parser_train.add_argument('--max_processes', metavar = '<max_processes>',\
-										 type    = ui.is_strict_pos_int,\
-										 help    = 'limit the number of processes for this application',\
-										 nargs   = '?', default = None)	
-
-	# test
-	parser_test = subparsers.add_parser('test', help='test model(s)')
-	parser_test.add_argument('model_dir', metavar = '<model_dir_or_file>',\
-								 	 type    = lambda x: ui.is_dir_with_file_type(x, 'model', or_file=True),\
-								 	 help	 = 'path to model directory')
-	parser_test.add_argument('dataset',   metavar = '<dataset_file>',\
-								     type    = lambda x: ui.is_file_type(x, 'dataset'),\
-								     help	= 'path to dataset file')
+	_add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
 
 	# select
-	parser_select = subparsers.add_parser('select', help='select best performing model')
-	parser_select.add_argument('model_dir', metavar='<model_dir>',\
-								 	 type    = lambda x: ui.is_dir_with_file_type(x, 'model'),\
-								 	 help	 = 'path to model directory')
+	_add_argument_dir_with_file_type(parser_select, 'model')
 
-	# valid
-	parser_valid = subparsers.add_parser('validate', help='validate a model')
-	parser_valid.add_argument('model_dir', metavar='<model_file_or_dir>',\
-								 	 type    = lambda x: ui.is_dir_with_file_type(x, 'model', or_file=True),\
-								 	 help	 = 'path to model directory')
-	parser_valid.add_argument('dataset',   metavar = '<dataset>',\
-								     type    = lambda x: ui.is_file_type(x, 'dataset'),\
-								     help	= 'path to dataset file')
-	parser_valid.add_argument('n_valid', metavar = '<n_validate>',\
-										 type    = ui.is_strict_pos_int,\
-										 help    = 'number of data points to use for validation',\
-										 nargs   = '?', default = None)
 
 	args = parser.parse_args()
 
@@ -642,4 +648,8 @@ if __name__ == '__main__':
 		args.sigs = sorted(list(set(args.sigs))) # remove potential duplicates
 
 	_print_splash()
-	getattr(sys.modules[__name__], args.command)(**vars(args))
+
+	try:
+		getattr(sys.modules[__name__], args.command)(**vars(args))
+	except AssistantError, err:
+		sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)

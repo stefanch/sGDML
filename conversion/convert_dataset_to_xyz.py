@@ -46,6 +46,7 @@ n = R.shape[0]
 try:
 	with open(dataset_path,'w') as f:
 		for i,r in enumerate(R):
+
 			f.write(str(len(r)) + '\n' + str(np.squeeze(E[i])))
 			for j,atom in enumerate(r):
 				f.write('\n' + io._z_to_z_str_dict[z[j]] + '\t')

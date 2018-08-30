@@ -190,10 +190,12 @@ class GDMLTrain:
 
 		if np.abs(e_fact - 1) > tol:
 			print ui.warn_str('[WARN]') + ' Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact +\
-							  '\n       This can have several reasons: wrong unit conversion, inaccurate force labels (e.g. numerical, wrong sign), etc.'
-		#	raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
-		#				   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
+							  '\n       This can have several reasons: wrong unit conversion, inaccurate force labels, etc.'
+			#raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
+			#			   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
 
+		if np.sign(e_fact) == -1:
+			raise ValueError('Provided dataset contains gradients instead of force labels (flipped sign).')
 
 		#c22 = np.sum(E_ref - E_pred) / E_ref.shape[0]
 		#import matplotlib.pyplot as plt
