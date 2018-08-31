@@ -346,7 +346,9 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			if len(excl_idxs) == 0:
 				excl_idxs = None
 
-			n_data_eff = len(dataset['E']) - len(excl_idxs)
+			n_data_eff = len(dataset['E'])
+			if excl_idxs is not None:
+				n_data_eff -= len(excl_idxs)
 
 			if n_valid is None and n_data_eff != 0: # test on all data points that have not been used for training or testing
 				n_valid = n_data_eff
