@@ -1,6 +1,30 @@
-# GDML Force Field
-# Author: Stefan Chmiela (stefan@chmiela.com)
-VERSION = 300818
+"""
+This module contains all routines for training sGDML and GDML models.
+"""
+
+# MIT License
+# 
+# Copyright (c) 2018 Stefan Chmiela
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+VERSION = 30918
 
 import os, sys
 import warnings
@@ -19,11 +43,55 @@ import timeit
 
 glob = {}
 
-def share_array(arr_np, typecode):
-	arr = mp.RawArray(typecode, arr_np.ravel())
+def share_array(arr_np, typecode_or_type):
+	"""
+	Return a ctypes array allocated from shared memory with data from a
+	NumPy array.
+
+	Parameters
+	----------
+		arr_np : numpy.ndarray
+			NumPy array.
+		typecode_or_type : char or ctypes
+			Either a ctypes type or a one character typecode of the
+			kind used by the Python array module.
+
+	Returns
+	-------
+		out : array of ctype
+	"""
+
+	arr = mp.RawArray(typecode_or_type, arr_np.ravel())
 	return arr, arr_np.shape
 
-def _assemble_kernel_mat_wkr(j, tril_perms_lin, n_perms, sig, lam):
+def _assemble_kernel_mat_wkr(j, tril_perms_lin, n_perms, sig):
+	"""
+	Compute one row and column of the force field kernel matrix.
+
+	The Hessian of the Matern kernel is used with n = 2 (twice
+	differentiable). Each row and column consists of matrix-valued
+	blocks, which encode the interaction of one training point with all
+	others. The result is stored in shared memory (a global variable).
+
+	Parameters
+	----------
+		j : int
+			Index of training point.
+		tril_perms_lin : numpy.ndarray
+			1D array (int) containing all recovered permutations
+			expanded as one large permutation to be applied to a tiled
+			copy of the object to be permuted.
+		n_perms : int
+			Number of individual permutations encoded in 'tril_perms_lin'.
+		sig : int
+			Hyper-parameter sigma.
+
+	Returns
+	-------
+		out : int
+			Number of kernel matrix blocks created, divided by 2
+			(symmetric blocks are always created at together).
+	"""
 		
 	global glob
 
@@ -39,7 +107,6 @@ def _assemble_kernel_mat_wkr(j, tril_perms_lin, n_perms, sig, lam):
 	sig_pow2 = sig**2
 
 	base = np.arange(dim_i) # base set of indices
-
 	blk_j = base + j * dim_i
 
 	# Create permutated variants of 'rj_desc' and 'rj_d_desc'.
@@ -53,9 +120,7 @@ def _assemble_kernel_mat_wkr(j, tril_perms_lin, n_perms, sig, lam):
 		diff_ab_perms = R_desc[i,:] - rj_desc_perms
 		norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
 
-		#diff_ab_rj_d_desc_perms = np.einsum('ik,jki -> ij', diff_ab_perms, rj_d_desc_perms)
 		mat52_base_perms = np.exp(-norm_ab_perms / sig) / mat52_base_div * 5.
-		#diff_ab_outer_perms = 5 * np.einsum('ki,kj->ij', diff_ab_perms * mat52_base_perms[:,None], diff_ab_rj_d_desc_perms)
 		diff_ab_outer_perms = 5. * np.einsum('ki,kj->ij', diff_ab_perms * mat52_base_perms[:,None], np.einsum('ik,jki -> ij', diff_ab_perms, rj_d_desc_perms))
 		diff_ab_outer_perms -= np.einsum('ijk,k->ji', rj_d_desc_perms, ((sig_pow2 + sig * norm_ab_perms) * mat52_base_perms))
 
@@ -70,6 +135,40 @@ class GDMLTrain:
 		self._max_processes = max_processes
 
 	def create_task(self, train_dataset, n_train, test_dataset, n_test, sig, lam=1e-15, recov_sym=True):
+		"""
+		Create a data structure of custom type 'task'.
+
+		These data structures serve as recipes for model creation, summarizing
+		the configuration of one particular training run. Training and test
+		points are sampled from the provided dataset, without replacement. If
+		the same dataset if given for training and testing, the subsets are
+		drawn without overlap.
+		
+		Each task also contains a choice for the hyper-parameters of the
+		training process and the MD5 fingerprints of the used datasets.
+
+		Parameters
+		----------
+			train_dataset : dict
+				Data structure of custom type 'dataset' containing train dataset.
+			n_train : int
+				Number of training points to sample.
+			test_dataset : dict
+				Data structure of custom type 'dataset' containing test dataset.
+			n_test : int
+				Number of training points to sample.
+			sig : int
+				Hyper-parameter (kernel length scale).
+			lam : float, optional
+				Hyper-parameter lambda (regularization strength).
+			recov_sym : bool, optional
+				True: include symmetries (sGDML), False: GDML
+
+		Returns
+		-------
+			out : dict
+				Data structure of custom type 'task'.
+		"""
 
 		train_md5 = io.dataset_md5(train_dataset)
 		test_md5 = io.dataset_md5(test_dataset)
@@ -103,6 +202,19 @@ class GDMLTrain:
 		return task
 
 	def train(self, task):
+		"""
+		Train a model based on a training task.
+
+		Parameters
+		----------
+			task : dict
+				Data structure of custom type 'task'.
+
+		Returns
+		-------
+			out : dict
+				Data structure of custom type 'model'.
+		"""
 
 		sig = np.squeeze(task['sig'])
 		lam = np.squeeze(task['lam'])
@@ -116,8 +228,8 @@ class GDMLTrain:
 		dim_i = n_atoms * 3
 		dim_d = (n_atoms**2 - n_atoms) / 2
 
-		R_desc = np.empty([n_train, dim_d]) # TODO
-		R_d_desc = np.empty([n_train, dim_d, dim_i]) # TODO
+		R_desc = np.empty([n_train, dim_d])
+		R_d_desc = np.empty([n_train, dim_d, dim_i])
 
 		for i in range(n_train):
 			r = task['R_train'][i]
@@ -131,7 +243,7 @@ class GDMLTrain:
 		Ft = task['F_train'].ravel()
 
 		start = timeit.default_timer()
-		K = self._assemble_kernel_mat(R_desc, R_d_desc, tril_perms_lin, n_perms, sig, lam)
+		K = self._assemble_kernel_mat(R_desc, R_d_desc, tril_perms_lin, n_perms, sig)
 		stop = timeit.default_timer()
 		print " \x1b[90m(%.1f s)\x1b[0m" % ((stop - start) / 2)
 
@@ -144,8 +256,6 @@ class GDMLTrain:
 		with warnings.catch_warnings():
 			warnings.simplefilter('ignore')
 			alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
-
-		#print sys.getrefcount(K)
 
 		stop = timeit.default_timer()
 		sys.stdout.write('\r[DONE] Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))
@@ -177,7 +287,34 @@ class GDMLTrain:
 
 		return model
 
-	def _recov_int_const(self, model, task, tol=1e-1):
+	def _recov_int_const(self, model, task):
+		"""
+		Estimate the integration constant for a force field model.
+
+		The offset between the energies predicted for the original training
+		data and the true energy labels is computed in the least square sense.
+		Furthermore, common issues with the user-provided datasets are self
+		diagnosed here.
+
+		Parameters
+		----------
+			model : dict
+				Data structure of custom type 'model'.
+			task : dict
+				Data structure of custom type 'task'.
+
+		Returns
+		-------
+			out : float
+				Estimate for the integration constant.
+
+		Raises
+		------
+			ValueError
+				If the sign of the force labels in the dataset from
+				which the model emerged is switched (e.g. gradients
+				instead of forces).
+		"""
 
 		gdml = GDMLPredict(model)
 		n_train = task['E_train'].shape[0]
@@ -188,7 +325,7 @@ class GDMLTrain:
 
 		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref, rcond=-1)[0][0]
 
-		if np.abs(e_fact - 1) > tol:
+		if np.abs(e_fact - 1) > 1e-1:
 			print ui.warn_str('[WARN]') + ' Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact +\
 							  '\n       This can have several reasons: wrong unit conversion, inaccurate force labels, etc.'
 			#raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
@@ -206,8 +343,37 @@ class GDMLTrain:
 		# Least squares estimate for integration constant.
 		return np.sum(E_ref - E_pred) / E_ref.shape[0]
 
+	def _assemble_kernel_mat(self, R_desc, R_d_desc, tril_perms_lin, n_perms, sig):
+		"""
+		Compute force field kernel matrix.
 
-	def _assemble_kernel_mat(self, R_desc, R_d_desc, tril_perms_lin, n_perms, sig, lam):
+		The Hessian of the Matern kernel is used with n = 2 (twice
+		differentiable). Each row and column consists of matrix-valued blocks,
+		which encode the interaction of one training point with all others. The
+		result is stored in shared memory (a global variable).
+
+		Parameters
+		----------
+			R_desc : numpy.ndarray
+				Array containing the descriptor for each training point.
+			R_d_desc : numpy.ndarray
+				Array containing the gradient of the descriptor for
+				each training point.
+			tril_perms_lin : numpy.ndarray
+				1D array containing all recovered permutations
+				expanded as one large permutation to be applied to a
+				tiled copy of the object to be permuted.
+			n_perms : int
+				Number of individual permutations encoded in
+				'tril_perms_lin'.
+			sig : int
+				Hyper-parameter (kernel length scale).
+
+		Returns
+		-------
+			out : numpy.ndarray
+				Force field kernel matrix.
+		"""
 
 		global glob
 
@@ -221,7 +387,7 @@ class GDMLTrain:
 
 		pool = mp.Pool(self._max_processes)
 		done_total = 0
-		for done in pool.imap_unordered(partial(_assemble_kernel_mat_wkr, tril_perms_lin=tril_perms_lin, n_perms=n_perms, sig=sig, lam=lam), range(n_train)):			
+		for done in pool.imap_unordered(partial(_assemble_kernel_mat_wkr, tril_perms_lin=tril_perms_lin, n_perms=n_perms, sig=sig), range(n_train)):			
 			done_total += done
 
 	 		progr = float(done_total) / ((n_train**2 - n_train) / 2 + n_train)
@@ -237,6 +403,32 @@ class GDMLTrain:
 		return np.frombuffer(K).reshape(glob['K_shape'])
 
 	def draw_strat_sample(self, T, n, excl_idxs=None):
+		"""
+		Draw sample from dataset that preserves its original distribution.
+
+		The distribution is estimated from a histogram were the bin size is
+		determined using the Freedman-Diaconis rule. This rule is designed to
+		minimize the difference between the area under the empirical
+		probability distribution and the area under the theoretical
+		probability distribution. A reduced histogram is then constructed by
+		sampling uniformly in each bin. It is intended to populate all bins
+		with at least one sample in the reduced histogram, even for small
+		training sizes.
+
+		Parameters
+		----------
+			T : numpy.ndarray
+				Dataset to sample from.
+			n : int
+				Number of samples.
+			excl_idxs : numpy.ndarray, optional
+				Array of indices to exclude from sample.
+
+		Returns
+		-------
+			out : numpy.ndarray
+				Array of indices that form the sample.
+		"""
 
 		n_train = T.shape[0]
 
@@ -247,7 +439,7 @@ class GDMLTrain:
 		bins = np.linspace(np.min(T), np.max(T), n_bins, endpoint=False)
 		idxs = np.digitize(T, bins)
 
-		# Exlude restricted indices.
+		# Exclude restricted indices.
 		if excl_idxs is not None:
 			idxs[excl_idxs] = n_bins+1 # Impossible bin.
 

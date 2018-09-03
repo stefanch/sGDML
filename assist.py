@@ -618,8 +618,8 @@ if __name__ == '__main__':
 								help 	= 'don\'t include symmetries in the model')
 
 	for subparser in [parser_test, parser_valid]:
-		_add_argument_dataset(subparser)
 		_add_argument_dir_with_file_type(subparser, 'model', or_file=True)
+		_add_argument_dataset(subparser)
 
 	for subparser in [parser_all, parser_valid]:
 		subparser.add_argument('n_valid',

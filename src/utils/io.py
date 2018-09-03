@@ -16,11 +16,7 @@ def train_dir_name(dataset, n_train, is_gdml):
 	
 	theory_level_str = re.sub('[^\w\-_\.]', '.', str(dataset['theory']))
 	theory_level_str = re.sub('\.\.', '.', theory_level_str)
-	#dataset_name_str = str(dataset['name'])
-
 	return 'training/%s-%s-train%d%s' % (dataset['name'], theory_level_str, n_train, '-gdml' if is_gdml else '')
-
-	#return 'training/' + dataset_name_str + '-' + theory_level_str + '-' + str(n_train) + ('-gdml' if is_gdml else '')
 
 def task_file_name(task):
 	

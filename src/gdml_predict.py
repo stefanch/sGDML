@@ -1,5 +1,29 @@
-# GDML Force Field
-# Author: Stefan Chmiela (stefan@chmiela.com)
+"""
+This module contains all routines for evaluating sGDML and GDML models.
+"""
+
+# MIT License
+# 
+# Copyright (c) 2018 Stefan Chmiela
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 VERSION = 310702
 
 import sys
@@ -18,10 +42,45 @@ from utils import desc
 glob = {}
 
 def share_array(arr_np):
+	"""
+	Return a ctypes array allocated from shared memory with data from
+	a NumPy array of type 'float'.
+
+	Parameters
+	----------
+		arr_np : numpy.ndarray
+			NumPy array.
+
+	Returns
+	-------
+		out : array of ctype
+	"""
+
 	arr = mp.RawArray('d', arr_np.ravel())
 	return arr, arr_np.shape
 
 def predict_worker_cached(wkr_start_stop, r_desc, r_d_desc):
+	"""
+	Compute part of a prediction.
+
+	The workload will be processed in 'b_size' chunks.
+
+	Parameters
+	----------
+		wkr_start_stop : tuple of int
+			Indices of first and last (exclusive) sum element.
+		r_desc : numpy.ndarray
+			1D array containing the descriptor for the query geometry.
+		r_d_desc : numpy.ndarray
+			2D array containing the gradient of the descriptor for the
+			query geometry.
+
+	Returns
+	-------
+		out : numpy.ndarray
+			Partial prediction of all force components and energy
+			(appended to array as last element).
+	"""
 
 	global glob,sig,n_perms,b_size
 	R_desc_perms = np.frombuffer(glob['R_desc_perms']).reshape(glob['R_desc_perms_shape'])
@@ -78,7 +137,7 @@ class GDMLPredict:
 		sig = model['sig']
 		self.c = model['c']
 
-		# Precompute permutated training descriptors and its first derivatives multiplied with the coefficients (only needed for cached variant).
+		# Precompute permuted training descriptors and its first derivatives multiplied with the coefficients (only needed for cached variant).
 		n_perms = model['tril_perms_lin'].shape[0] / n_tril
 		
 		R_desc_perms = np.reshape(np.tile(model['R_desc'].T, n_perms)[:,model['tril_perms_lin']], (self.n_train*n_perms,-1), order='F')
@@ -96,9 +155,26 @@ class GDMLPredict:
 	def version(self):
 		return VERSION
 
+
 	## Public ##
 
 	def set_num_workers(self, num_workers):
+		"""
+		Set number of processes to use during prediction.
+
+		This number should not exceed the number of available CPU cores.
+
+		Note
+		----
+			This parameter can be optimally determined using
+			'set_opt_num_workers_and_batch_size_fast'.
+
+		Parameters
+		----------
+			num_workers : int
+				Number of processes.
+		"""
+
 		if self.pool is not None:
 			self.pool.close()
 		self.pool = mp.Pool(processes=num_workers)
@@ -111,92 +187,52 @@ class GDMLPredict:
 		self._num_workers = num_workers
 
 	def set_batch_size(self, batch_size):
+		"""
+		Set chunk size for each process.
+
+		The chunk size determines how much of a processes workload
+		will be passed to Python's underlying low-level routines at
+		once. This parameter is highly hardware dependent.
+		A chunk is a subset of the training set of the model.
+
+		Note
+		----
+			This parameter can be optimally determined using
+			'set_opt_num_workers_and_batch_size_fast'.
+
+		Parameters
+		----------
+			batch_size : int
+				Chunk size.
+		"""
 
 		global b_size
 
 		b_size = batch_size
 		self._batch_size = batch_size
 
-	# sets best (num_workers, batch_size) for model
-	# the model is either tested on a dummy input or geometries from a provided set
-	# note: the optimal parameters are NOT set if this function runs out of geometries (if provided)
-	# return_when_R_done: returns as soons as all geos in R are used up, even before n_reps is done
-	# def set_opt_num_workers_and_batch_size(self, R=None, n_reps=100, return_when_R_done=False):
-
-	# 	F = np.empty((0,self.n_atoms*3))
-	# 	E = []
-
-	# 	best_sps = 0
-	# 	best_params = 1,1
-	# 	best_results = []
-	# 	r_dummy = np.random.rand(1,self.n_atoms*3)
-
-	# 	#import timeit
-	# 	#def _dummy_predict():
-	# 	#	self.predict(r_dummy)
-
-	# 	for num_workers in range(1,mp.cpu_count()+1):
-	# 		if self.n_train % num_workers != 0:
-	# 			continue
-	# 		self.set_num_workers(num_workers)
-
-	# 		best_sps = 0
-	# 		for batch_size in range(int(np.ceil(self.n_train/num_workers)), 0, -1):
-	# 			if self.n_train % batch_size != 0:
-	# 				continue
-	# 			self.set_batch_size(batch_size)
-
-	# 			#print 1. / (timeit.timeit(_dummy_predict, number=100) / 100.)
-
-
-	# 			t_elap = 0
-	# 			for i in range(1,n_reps+1):
-	# 				R_done = R is None or len(E) == R.shape[0]
-	# 				if R_done:
-	# 					t = time.time()
-	# 					self.predict(r_dummy)
-
-						
-						
-
-	# 					t_elap += time.time() - t
-	# 				else:
-	# 					r = R[len(E)].reshape(1,-1)
-
-	# 					t = time.time()
-	# 					e,f = self.predict(r)
-	# 					t_elap += time.time() - t
-
-	# 					E.append(e)
-	# 					F = np.vstack((F,f))
-
-	# 					# finished computing geos in R
-	# 					if len(E) == R.shape[0] and return_when_R_done:
-	# 						return np.array(E),F.ravel()
-
-	# 				if t_elap > 1: # don't spend more than 1s on this
-	# 					break
-	# 			sps = i / t_elap
-
-	# 			if sps < best_sps:
-	# 				break
-	# 			else:
-	# 				best_sps = sps
-	# 				best_params = num_workers, batch_size
-
-	# 			print '{:2d}@{:d} | {:7.2f} sps'.format(num_workers,batch_size, sps)
-	# 		best_results.append((best_params, best_sps))
-		
-	# 	num_workers, batch_size = max(best_results, key=lambda x:x[1])[0]
-				
-	# 	self.set_batch_size(batch_size)
-	# 	self.set_num_workers(num_workers)
-
-	# 	return np.array(E),F.ravel()
-
-
-	# sets best level of parallelism (num_workers, batch_size) for model
 	def set_opt_num_workers_and_batch_size_fast(self, n_reps=100):
+		"""
+		Determine the optimal number of processes and chunk size to
+		use when evaluating the loaded model.
+
+		This routine runs a benchmark in which the prediction routine
+		in repeatedly called 'n_reps'-times with varying parameter
+		configurations, while the runtime is measured for each one.
+		The optimal parameters are then automatically set.
+
+		Note
+		----
+			Depending on the parameter 'n_reps', this routine takes
+			some seconds to complete, which is why it only makes sense
+			to call it before running a large number of predictions.
+
+		Parameters
+		----------
+			n_reps : int
+				Number of repetitions (bigger value: more accurate,
+				but also slower).
+		"""
 
 		best_sps = 0
 		best_params = 1,1
@@ -236,6 +272,20 @@ class GDMLPredict:
 		self.set_num_workers(num_workers)
 
 	def _predict_bulk(self,R):
+		"""
+		Predict energy and forces for multiple geometries.
+
+		Parameters
+		----------
+			R : numpy.ndarray (M,3N)
+				2D array containing the Cartesian coordinates of each
+				atom of multiple molecules.
+
+		Returns
+		-------
+			out : tuple of numpy.ndarray ((M,), (M,3N))
+				Energies and forces.
+		"""
 
 		n_pred, dim_i = R.shape
 
@@ -246,10 +296,26 @@ class GDMLPredict:
 
 		return E, F
 
-	# input:  r (M, N*3) -> [[x11,y11,z11, ..., x1N,y1N,z1N], ..., [xM1,yM1,zM1, ..., xMN,yMN,zMN]]
-	# return: F (M, N*3) -> [[x11,y11,z11, ..., x1N,y1N,z1N], ..., [xM1,yM1,zM1, ..., xMN,yMN,zMN]]
-	#		  E (M,)
 	def predict(self,r):
+		"""
+		Predict energy and forces for multiple geometries.
+
+		Note
+		----
+			The order of the atoms in 'r' is not arbitrary and must be
+			the same as used for training the model.
+
+		Parameters
+		----------
+			R : numpy.ndarray (M,3N)
+				2D array containing the Cartesian coordinates of each
+				atom of multiple molecules.
+
+		Returns
+		-------
+			out : tuple of numpy.ndarray ((M,), (M,3N))
+				Energies and forces.
+		"""
 
 		if r.ndim == 2 and r.shape[0] > 1:
 			return self._predict_bulk(r)
