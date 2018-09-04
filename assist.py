@@ -205,6 +205,8 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 	if func_called_directly:
 		print ui.white_back_str('\n TRAINING \n') + '-'*100
 
+	n_failed = 0
+
 	gdml_train = GDMLTrain(max_processes=max_processes)
 	for i,task_file_name in enumerate(task_file_names):
 		print ui.white_bold_str('Training task' + ('' if n_tasks == 1 else ' %d of %d' % (i+1, n_tasks)))
@@ -227,11 +229,18 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 				model = gdml_train.train(task)
 			except Exception, err:
 				sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
-
-			if func_called_directly:
-				print '[DONE] Writing model to file \'%s\'...' % model_file_relpath
-			np.savez_compressed(model_file_path, **model)
+				n_failed += 1
+			else:
+				if func_called_directly:
+					print '[DONE] Writing model to file \'%s\'...' % model_file_relpath
+				np.savez_compressed(model_file_path, **model)
 			print
+
+	# Not even one model was trained: there is no way to continue.
+	#if n_failed == len(task_file_names):
+	#	sys.exit(ui.fail_str('[FAIL]') + ' All model trainig tasks failed!')
+	#elif n_failed > 0:
+	#	print ui.warn_str('[WARN]') + ' Some training tasks failed!'
 
 	model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir
 	if func_called_directly:

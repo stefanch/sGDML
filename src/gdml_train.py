@@ -314,6 +314,12 @@ class GDMLTrain:
 				If the sign of the force labels in the dataset from
 				which the model emerged is switched (e.g. gradients
 				instead of forces).
+			ValueError
+				If inconsistent/corrupted energy labels are detected
+				in the provided dataset.
+			ValueError
+				If different scales in energy vs. force labels are
+				detected in the provided dataset.
 		"""
 
 		gdml = GDMLPredict(model)
@@ -324,15 +330,36 @@ class GDMLTrain:
 		E_ref = np.squeeze(task['E_train'])
 
 		e_fact = np.linalg.lstsq(np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref, rcond=-1)[0][0]
-
-		if np.abs(e_fact - 1) > 1e-1:
-			print ui.warn_str('[WARN]') + ' Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact +\
-							  '\n       This can have several reasons: wrong unit conversion, inaccurate force labels, etc.'
-			#raise ValueError('Provided dataset uses inconsistent energy units! Integrated forces differ from energy labels by factor ~%.2E.' % e_fact\
-			#			   + '\n       A variation of this factor over different training sets indicates a problem with the force labels instead.')
+		corrcoef = np.corrcoef(E_ref, E_pred)[0,1]
 
 		if np.sign(e_fact) == -1:
-			raise ValueError('Provided dataset contains gradients instead of force labels (flipped sign).')
+			raise ValueError('Provided dataset contains gradients instead of force labels (flipped sign). Please correct!')
+
+		if corrcoef < 0.95:
+			raise ValueError('Inconsistent energy labels detected!'\
+						   + '\n       The predicted energies for the training data are only weakly correlated'\
+						   + '\n       with the reference labels (correlation coefficient %.2f) which indicates' % corrcoef
+						   + '\n       that the issue is most likely NOT just a unit conversion error.\n'\
+						   + '\n       Troubleshooting tips:'\
+						   + '\n         (1) Verify correct correspondence between geometries and labels in'\
+						   + '\n             the provided dataset.'\
+						   + '\n         (2) Verify consistency between energy and force labels.'\
+						   + '\n               - Correspondence correct?'\
+						   + '\n               - Same level of theory?'\
+						   + '\n               - Accuracy of forces (if numerical)?'\
+						   + '\n         (3) Is the training data spread too broadly (i.e. weakly sampled'\
+						   + '\n             transitions between example clusters)?'\
+						   + '\n         (4) Are there duplicate geometries in the training data?'\
+						   + '\n         (5) Are there any corrupted data points (e.g. parsing errors)?\n')
+
+		if np.abs(e_fact - 1) > 1e-1:
+			raise ValueError('Different scales in energy vs. force labels detected!'\
+							+ '\n       The integrated forces differ from energy labels by factor ~%.2E.\n' % e_fact\
+							+ '\n       Troubleshooting tips:'\
+							+ '\n         (1) Verify consistency of units in energy and force labels.'\
+						    + '\n         (2) Is the training data spread too broadly (i.e. weakly sampled'\
+						    + '\n             transitions between example clusters)?\n')
+
 
 		#c22 = np.sum(E_ref - E_pred) / E_ref.shape[0]
 		#import matplotlib.pyplot as plt
@@ -420,7 +447,7 @@ class GDMLTrain:
 			T : numpy.ndarray
 				Dataset to sample from.
 			n : int
-				Number of samples.
+				Number of examples.
 			excl_idxs : numpy.ndarray, optional
 				Array of indices to exclude from sample.
 
