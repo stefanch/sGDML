@@ -1,4 +1,4 @@
-import os
+import os, sys
 
 #import os, sys
 #BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
@@ -17,6 +17,23 @@ def yes_or_no(question):
 		return False
 	else:
 		return True
+
+def progr_bar(current, total, duration_s=None, disp_str=''):
+	progr = float(current) / total
+	sys.stdout.write('\r[%3d%%] %s' % (progr * 100, disp_str))
+	sys.stdout.flush()
+
+	if duration_s is not None:
+		print ' \x1b[90m(%.1f s)\x1b[0m' % duration_s
+
+def progr_toggle(done, duration_s=None, disp_str=''):
+
+	sys.stdout.write('\r[%s] ' % ('DONE' if done else blink_str(' .. ')))
+	sys.stdout.write(disp_str)
+
+	if duration_s is not None:
+			sys.stdout.write(' \x1b[90m(%.1f s)\x1b[0m\n' % duration_s)
+	sys.stdout.flush()
 
 
 # COLORS

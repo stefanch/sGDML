@@ -33,7 +33,7 @@ import scipy as sp
 import numpy as np
 
 from gdml_predict import GDMLPredict
-from utils import desc,perm,io,ui
+from utils import desc,perm,io
 
 import multiprocessing as mp
 from functools import partial
@@ -201,7 +201,7 @@ class GDMLTrain:
 
 		return task
 
-	def train(self, task):
+	def train(self, task, ker_progr_callback = None, solve_callback = None):
 		"""
 		Train a model based on a training task.
 
@@ -209,6 +209,23 @@ class GDMLTrain:
 		----------
 			task : dict
 				Data structure of custom type 'task'.
+			ker_progr_callback : callable, optional
+				Kernel assembly progress function that takes three
+				arguments:
+					current : int
+						Current progress (number of completed entries).
+					total : int
+						Task size (total number of entries to create).
+					duration_s : float or None, optional
+						Once complete, this parameter contains the
+						time it took to assemble the kernel (seconds). 
+			solve_callback : callable, optional
+				Linear system solver status.
+					done : bool
+						False when solver starts, True when it finishes.
+					duration_s : float or None, optional
+						Once done, this parameter contains the runtime
+						of the solver (seconds).
 
 		Returns
 		-------
@@ -243,23 +260,18 @@ class GDMLTrain:
 		Ft = task['F_train'].ravel()
 
 		start = timeit.default_timer()
-		K = self._assemble_kernel_mat(R_desc, R_d_desc, tril_perms_lin, n_perms, sig)
+		K = self._assemble_kernel_mat(R_desc, R_d_desc, tril_perms_lin, n_perms, sig, ker_progr_callback)
 		stop = timeit.default_timer()
-		print " \x1b[90m(%.1f s)\x1b[0m" % ((stop - start) / 2)
+		ker_progr_callback(1, 1, (stop - start)/2) # callback one last time with 100% and measured duration
 
-		sys.stdout.write('\r[' + ui.blink_str(' .. ') + '] Solving linear system...')
-	 	sys.stdout.flush()
-
+	 	solve_callback(done=False)
 		start = timeit.default_timer()
-
 		K[np.diag_indices_from(K)] -= lam # regularizer
 		with warnings.catch_warnings():
 			warnings.simplefilter('ignore')
 			alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
-
 		stop = timeit.default_timer()
-		sys.stdout.write('\r[DONE] Solving linear system...    \x1b[90m(%.1f s)\x1b[0m\n' % ((stop - start) / 2))
-	 	sys.stdout.flush()
+		solve_callback(done=True, duration_s=(stop - start)/2)
 
 		r_dim = R_d_desc.shape[2]
 		r_d_desc_alpha = [rj_d_desc.dot(alphas[(j * r_dim):((j + 1) * r_dim)]) for j,rj_d_desc in enumerate(R_d_desc)]
@@ -370,7 +382,7 @@ class GDMLTrain:
 		# Least squares estimate for integration constant.
 		return np.sum(E_ref - E_pred) / E_ref.shape[0]
 
-	def _assemble_kernel_mat(self, R_desc, R_d_desc, tril_perms_lin, n_perms, sig):
+	def _assemble_kernel_mat(self, R_desc, R_d_desc, tril_perms_lin, n_perms, sig, progr_callback=None):
 		"""
 		Compute force field kernel matrix.
 
@@ -395,6 +407,16 @@ class GDMLTrain:
 				'tril_perms_lin'.
 			sig : int
 				Hyper-parameter (kernel length scale).
+			progress_callback : callable, optional
+				Kernel assembly progress function that takes three
+				arguments:
+					current : int
+						Current progress (number of completed entries).
+					total : int
+						Task size (total number of entries to create).
+					duration_s : float or None, optional
+						Once complete, this parameter contains the
+						time it took to assemble the kernel (seconds). 
 
 		Returns
 		-------
@@ -413,13 +435,14 @@ class GDMLTrain:
 		glob['R_d_desc'], glob['R_d_desc_shape'] = share_array(R_d_desc, 'd')
 
 		pool = mp.Pool(self._max_processes)
+
+		todo = (n_train**2 - n_train) / 2 + n_train
 		done_total = 0
 		for done in pool.imap_unordered(partial(_assemble_kernel_mat_wkr, tril_perms_lin=tril_perms_lin, n_perms=n_perms, sig=sig), range(n_train)):			
 			done_total += done
 
-	 		progr = float(done_total) / ((n_train**2 - n_train) / 2 + n_train)
-	 		sys.stdout.write('\r[%3d%%] Assembling kernel matrix...' % (progr * 100))
-	 		sys.stdout.flush()
+			if progr_callback is not None:
+				progr_callback(done_total, todo)
 	 	pool.close()
 
 	 	# Release some memory.

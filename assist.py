@@ -1,7 +1,26 @@
 #!/usr/bin/python
 
-# GDML Force Field
-# Author: Stefan Chmiela (stefan@chmiela.com)
+# MIT License
+# 
+# Copyright (c) 2018 Stefan Chmiela
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 import os, sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -10,7 +29,7 @@ sys.path.append(BASE_DIR)
 import argparse
 import time
 import shutil
-import re # task filename generation
+from functools import partial
 
 import numpy as np
 
@@ -104,11 +123,11 @@ def all(dataset, valid_dataset, test_dataset, n_train, n_test, n_valid, sigs, gd
 	print ui.white_back_str(' STEP 1 ') + ' Create cross-validation tasks.\n' + '-'*100
 	task_dir = create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_processes, **kwargs)
 
-	print ui.white_back_str(' STEP 2 ') + ' Train all models.\n' + '-'*100
+	print ui.white_back_str(' STEP 2 ') + ' Train.\n' + '-'*100
 	task_dir_arg = ui.is_dir_with_file_type(task_dir, 'task')
 	model_dir_or_file_path = train(task_dir_arg, overwrite, max_processes, **kwargs)
 
-	print ui.white_back_str(' STEP 3 ') + ' Test all models.\n' + '-'*100
+	print ui.white_back_str(' STEP 3 ') + ' Test.\n' + '-'*100
 	model_dir_arg = ui.is_dir_with_file_type(model_dir_or_file_path, 'model', or_file=True)
 	if test_dataset is None: test_dataset = dataset
 	test(model_dir_arg, test_dataset, overwrite=False, **kwargs)
@@ -205,11 +224,15 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 	if func_called_directly:
 		print ui.white_back_str('\n TRAINING \n') + '-'*100
 
+	ker_progr_callback = partial(ui.progr_bar, disp_str='Assembling kernel matrix...')
+	solve_callback = partial(ui.progr_toggle, disp_str='Solving linear system...   ')
+
 	n_failed = 0
 
 	gdml_train = GDMLTrain(max_processes=max_processes)
 	for i,task_file_name in enumerate(task_file_names):
-		print ui.white_bold_str('Training task' + ('' if n_tasks == 1 else ' %d of %d' % (i+1, n_tasks)))
+		if n_tasks > 1:
+			print ui.white_bold_str('Training task %d of %d' % (i+1, n_tasks))
 
 		task_file_path = os.path.join(task_dir, task_file_name)
 		with np.load(task_file_path) as task:
@@ -226,21 +249,14 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 				continue
 
 			try:
-				model = gdml_train.train(task)
+				model = gdml_train.train(task, ker_progr_callback, solve_callback)
 			except Exception, err:
 				sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
-				n_failed += 1
 			else:
 				if func_called_directly:
 					print '[DONE] Writing model to file \'%s\'...' % model_file_relpath
 				np.savez_compressed(model_file_path, **model)
 			print
-
-	# Not even one model was trained: there is no way to continue.
-	#if n_failed == len(task_file_names):
-	#	sys.exit(ui.fail_str('[FAIL]') + ' All model trainig tasks failed!')
-	#elif n_failed > 0:
-	#	print ui.warn_str('[WARN]') + ' Some training tasks failed!'
 
 	model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir
 	if func_called_directly:
@@ -248,10 +264,10 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 
 	return model_dir_or_file_path #model directory or file
 
-def _batch(iterable, n=1,first_none=False):	
+def _batch(iterable, n=1):	
 	l = len(iterable)
-	if first_none:
-		yield None
+	#if first_none:
+	#	yield None
 	for ndx in range(0, l, n):
 		yield iterable[ndx:min(ndx + n, l)]
 
@@ -380,22 +396,16 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 
 		gdml_predict = GDMLPredict(model)
 
-		n_bench = 0
 		if num_workers == 0 or batch_size == 0:
 			sys.stdout.write('\r[' + ui.blink_str(' .. ') + '] Running benchmark...')
 			sys.stdout.flush()
 
-			#n_reps = 1000 if n_models > 1 else 100 # do an extensive benchmark, if there is more than one model to test
 			n_reps = min(max(int(n_valid*0.1),10),100)
-
-			#E_bench, F_bench = gdml_predict.set_opt_num_workers_and_batch_size(R=R, n_reps=n_reps, return_when_R_done=True) #  the benchmark function takes uses real test data and returns part of the result for R_test
-			#n_bench = len(E_bench)
-			#num_workers, batch_size = gdml_predict._num_workers, gdml_predict._batch_size
 
 			gdml_predict.set_opt_num_workers_and_batch_size_fast(n_reps=n_reps)
 			num_workers, batch_size = gdml_predict._num_workers, gdml_predict._batch_size
 
-			sys.stdout.write('\r[DONE] Running benchmark... ' + ui.gray_str('(%d workers w/ %d batch size)\n' % (num_workers, batch_size)))
+			sys.stdout.write('\r[DONE] Running benchmark... ' + ui.gray_str('(%d processes w/ chunk size %d)\n' % (num_workers, batch_size)))
 			sys.stdout.flush()
 		else:
 			gdml_predict.set_num_workers(num_workers)
@@ -411,17 +421,8 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 		b_size = min(100, len(valid_idxs))
 		n_done = 0
 		t = time.time()
-		#for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=n_bench!=0):
-		for b_range in _batch(range(n_bench,len(valid_idxs)), b_size, first_none=False):
+		for b_range in _batch(range(len(valid_idxs)), b_size):
 
-			#if b_range is None: # first run
-			#	n_done = n_bench
-
-			#	e = E[:n_bench]
-			#	f = F[:n_bench].reshape(b_size,-1)
-
-			#	e_pred,f_pred = E_bench, F_bench
-			#else:
 			n_done_step = len(b_range)
 			n_done += n_done_step
 
@@ -449,7 +450,7 @@ def validate(model_dir, dataset, n_valid, overwrite, command=None, **kwargs):
 			cos_mae, cos_mae_sum, cos_rmse, cos_rmse_sum = _online_err(cos_err, n_atoms, n_done, cos_mae_sum, cos_rmse_sum)
 
 			progr = float(n_done) / len(valid_idxs)
-			sps = (n_done - n_bench) / (time.time() - t) # samples per second (don't time the benchmark predictions)
+			sps = n_done / (time.time() - t) # samples per second (don't time the benchmark predictions)
 			
 			sys.stdout.write('\r[%3d%%] >> Energy: %.3f/%.3f - Forces: %.3f/%.3f (MAE, RMSE)' % (progr * 100,e_mae,e_rmse,f_mae,f_rmse))
 			if b_range is not None:

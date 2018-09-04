@@ -128,7 +128,7 @@ def complete_group(perms):
 					perm_added = True
 					perms = np.vstack((perms, new_perm))
 
-	print ' (Found ' + str(perms.shape[0]) + '.)'
+	print ui.gray_str(' (%d symmetries)' % perms.shape[0])
 	return perms
 
 def inv_perm(perm):
