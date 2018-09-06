@@ -95,38 +95,6 @@ def _print_model_properties(model):
 	print '  {:<13} {:>.2e}/{:>.2e} [a.u.]'.format('Forces', f_err['mae'], f_err['rmse'])
 	print
 
-def _verify_task_dir_for_config(task_dir, dataset, test_dataset, n_train, n_test, sigs, gdml):
-
-	for file_name in sorted(os.listdir(task_dir)):
-		if file_name.endswith('.npz'):
-			file_path = os.path.join(task_dir, file_name)
-			file = np.load(file_path)
-
-			if 'type' not in file:
-				continue
-			elif file['type'] == 't' or file['type'] == 'm':
-
-				if file['train_md5'] != dataset['md5']:
-					return False
-
-				if file['test_md5'] != test_dataset['md5']:
-					return False
-
-				if len(file['train_idxs']) != n_train:
-					return False
-
-				if len(file['test_idxs']) != n_test:
-					return False
-
-				n_perms = file['perms'].shape[0]
-				if gdml and n_perms > 1:
-					return False
-
-				if file['sig'] not in sigs:
-					return False
-
-	return True
-
 #all
 def all(dataset, valid_dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, max_processes, **kwargs):
 
@@ -222,7 +190,7 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_pr
 			shutil.rmtree(task_dir)
 			os.makedirs(task_dir)
 		else:
-			if _verify_task_dir_for_config(task_dir, dataset, test_dataset, n_train, n_test, sigs, gdml):
+			if ui.is_task_dir_resumeable(task_dir, dataset, test_dataset, n_train, n_test, sigs, gdml):
 				print ui.info_str('[INFO]') + ' Resuming existing hyper-parameter search in \'%s\'.' % task_reldir
 				
 				# Get all task file names.

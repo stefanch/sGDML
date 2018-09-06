@@ -139,3 +139,25 @@ def parse_list_or_range(arg):
 		return int(arg)
 
 	raise argparse.ArgumentTypeError('{0} is neither a integer list, nor valid range in the form <start>:[<step>:]<stop>'.format(arg))
+
+
+def is_task_dir_resumeable(task_dir, dataset, test_dataset, n_train, n_test, sigs, gdml):
+
+	for file_name in sorted(os.listdir(task_dir)):
+		if file_name.endswith('.npz'):
+			file_path = os.path.join(task_dir, file_name)
+			file = np.load(file_path)
+
+			if 'type' not in file:
+				continue
+			elif file['type'] == 't' or file['type'] == 'm':
+
+				if file['train_md5'] != dataset['md5']\
+				or file['test_md5'] != test_dataset['md5']\
+				or len(file['train_idxs']) != n_train\
+				or len(file['test_idxs']) != n_test\
+				or gdml and file['perms'].shape[0] > 1\
+				or file['sig'] not in sigs:
+					return False
+
+	return True
