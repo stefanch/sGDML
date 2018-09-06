@@ -58,7 +58,7 @@ def share_array(arr_np, typecode_or_type):
 
 	Returns
 	-------
-		out : array of ctype
+		ctype array
 	"""
 
 	arr = mp.RawArray(typecode_or_type, arr_np.ravel())
@@ -82,13 +82,13 @@ def _assemble_kernel_mat_wkr(j, tril_perms_lin, n_perms, sig):
 			expanded as one large permutation to be applied to a tiled
 			copy of the object to be permuted.
 		n_perms : int
-			Number of individual permutations encoded in 'tril_perms_lin'.
+			Number of individual permutations encoded in `tril_perms_lin`.
 		sig : int
-			Hyper-parameter sigma.
+			Hyper-parameter :math:`\sigma`.
 
 	Returns
 	-------
-		out : int
+		int
 			Number of kernel matrix blocks created, divided by 2
 			(symmetric blocks are always created at together).
 	"""
@@ -136,7 +136,7 @@ class GDMLTrain:
 
 	def create_task(self, train_dataset, n_train, test_dataset, n_test, sig, lam=1e-15, recov_sym=True):
 		"""
-		Create a data structure of custom type 'task'.
+		Create a data structure of custom type `task`.
 
 		These data structures serve as recipes for model creation, summarizing
 		the configuration of one particular training run. Training and test
@@ -150,11 +150,11 @@ class GDMLTrain:
 		Parameters
 		----------
 			train_dataset : dict
-				Data structure of custom type 'dataset' containing train dataset.
+				Data structure of custom type :obj:`dataset` containing train dataset.
 			n_train : int
 				Number of training points to sample.
 			test_dataset : dict
-				Data structure of custom type 'dataset' containing test dataset.
+				Data structure of custom type :obj:`dataset` containing test dataset.
 			n_test : int
 				Number of training points to sample.
 			sig : int
@@ -166,8 +166,8 @@ class GDMLTrain:
 
 		Returns
 		-------
-			out : dict
-				Data structure of custom type 'task'.
+			dict
+				Data structure of custom type :obj:`task`.
 		"""
 
 		train_md5 = io.dataset_md5(train_dataset)
@@ -208,7 +208,7 @@ class GDMLTrain:
 		Parameters
 		----------
 			task : dict
-				Data structure of custom type 'task'.
+				Data structure of custom type :obj:`task`.
 			ker_progr_callback : callable, optional
 				Kernel assembly progress function that takes three
 				arguments:
@@ -229,8 +229,8 @@ class GDMLTrain:
 
 		Returns
 		-------
-			out : dict
-				Data structure of custom type 'model'.
+			dict
+				Data structure of custom type :obj:`model`.
 		"""
 
 		sig = np.squeeze(task['sig'])
@@ -264,7 +264,7 @@ class GDMLTrain:
 		stop = timeit.default_timer()
 		ker_progr_callback(1, 1, (stop - start)/2) # callback one last time with 100% and measured duration
 
-	 	solve_callback(done=False)
+		solve_callback(done=False)
 		start = timeit.default_timer()
 		K[np.diag_indices_from(K)] -= lam # regularizer
 		with warnings.catch_warnings():
@@ -295,7 +295,7 @@ class GDMLTrain:
 				 'perms': 			task['perms'],\
 				 'tril_perms_lin':	tril_perms_lin}
 
-	 	model['c'] = self._recov_int_const(model, task)
+		model['c'] = self._recov_int_const(model, task)
 
 		return model
 
@@ -311,13 +311,13 @@ class GDMLTrain:
 		Parameters
 		----------
 			model : dict
-				Data structure of custom type 'model'.
+				Data structure of custom type :obj:`model`.
 			task : dict
-				Data structure of custom type 'task'.
+				Data structure of custom type :obj:`task`.
 
 		Returns
 		-------
-			out : float
+			float
 				Estimate for the integration constant.
 
 		Raises
@@ -404,9 +404,9 @@ class GDMLTrain:
 				tiled copy of the object to be permuted.
 			n_perms : int
 				Number of individual permutations encoded in
-				'tril_perms_lin'.
+				`tril_perms_lin`.
 			sig : int
-				Hyper-parameter (kernel length scale).
+				Hyper-parameter :math:`\sigma`(kernel length scale).
 			progress_callback : callable, optional
 				Kernel assembly progress function that takes three
 				arguments:
@@ -420,7 +420,7 @@ class GDMLTrain:
 
 		Returns
 		-------
-			out : numpy.ndarray
+			numpy.ndarray
 				Force field kernel matrix.
 		"""
 
@@ -476,7 +476,7 @@ class GDMLTrain:
 
 		Returns
 		-------
-			out : numpy.ndarray
+			numpy.ndarray
 				Array of indices that form the sample.
 		"""
 

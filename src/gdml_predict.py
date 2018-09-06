@@ -44,7 +44,7 @@ glob = {}
 def share_array(arr_np):
 	"""
 	Return a ctypes array allocated from shared memory with data from
-	a NumPy array of type 'float'.
+	a NumPy array of type `float`.
 
 	Parameters
 	----------
@@ -53,7 +53,7 @@ def share_array(arr_np):
 
 	Returns
 	-------
-		out : array of ctype
+		array of ctype
 	"""
 
 	arr = mp.RawArray('d', arr_np.ravel())
@@ -63,7 +63,7 @@ def predict_worker_cached(wkr_start_stop, r_desc, r_d_desc):
 	"""
 	Compute part of a prediction.
 
-	The workload will be processed in 'b_size' chunks.
+	The workload will be processed in `b_size` chunks.
 
 	Parameters
 	----------
@@ -77,7 +77,7 @@ def predict_worker_cached(wkr_start_stop, r_desc, r_d_desc):
 
 	Returns
 	-------
-		out : numpy.ndarray
+		numpy.ndarray
 			Partial prediction of all force components and energy
 			(appended to array as last element).
 	"""
@@ -122,6 +122,33 @@ def predict_worker_cached(wkr_start_stop, r_desc, r_d_desc):
 
 
 class GDMLPredict:
+	"""Exceptions are documented in the same way as classes.
+
+	The __init__ method may be documented in either the class level
+	docstring, or as a docstring on the __init__ method itself.
+
+	Either form is acceptable, but the two should not be mixed. Choose one
+	convention to document the __init__ method and be consistent with it.
+
+	Note
+	----
+	Do not include the `self` parameter in the ``Parameters`` section.
+
+	Parameters
+	----------
+	msg : str
+		Human readable string describing the exception.
+	code : :obj:`int`, optional
+		Numeric error code.
+
+	Attributes
+	----------
+	msg : str
+		Human readable string describing the exception.
+	code : int
+		Numeric error code.
+
+	"""
 
 	def __init__(self, model, batch_size=250, num_workers=None):
 
@@ -167,7 +194,7 @@ class GDMLPredict:
 		Note
 		----
 			This parameter can be optimally determined using
-			'set_opt_num_workers_and_batch_size_fast'.
+			`set_opt_num_workers_and_batch_size_fast`.
 
 		Parameters
 		----------
@@ -198,7 +225,7 @@ class GDMLPredict:
 		Note
 		----
 			This parameter can be optimally determined using
-			'set_opt_num_workers_and_batch_size_fast'.
+			`set_opt_num_workers_and_batch_size_fast`.
 
 		Parameters
 		----------
@@ -217,13 +244,13 @@ class GDMLPredict:
 		use when evaluating the loaded model.
 
 		This routine runs a benchmark in which the prediction routine
-		in repeatedly called 'n_reps'-times with varying parameter
+		in repeatedly called `n_reps`-times with varying parameter
 		configurations, while the runtime is measured for each one.
 		The optimal parameters are then automatically set.
 
 		Note
 		----
-			Depending on the parameter 'n_reps', this routine takes
+			Depending on the parameter `n_reps`, this routine takes
 			some seconds to complete, which is why it only makes sense
 			to call it before running a large number of predictions.
 
@@ -283,8 +310,8 @@ class GDMLPredict:
 
 		Returns
 		-------
-			out : tuple of numpy.ndarray ((M,), (M,3N))
-				Energies and forces.
+			out : tuple of numpy.ndarray
+				Energies and forces. ((M,), (M,3N))
 		"""
 
 		n_pred, dim_i = R.shape
@@ -302,7 +329,7 @@ class GDMLPredict:
 
 		Note
 		----
-			The order of the atoms in 'r' is not arbitrary and must be
+			The order of the atoms in `r` is not arbitrary and must be
 			the same as used for training the model.
 
 		Parameters

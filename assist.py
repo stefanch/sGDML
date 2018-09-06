@@ -95,6 +95,38 @@ def _print_model_properties(model):
 	print '  {:<13} {:>.2e}/{:>.2e} [a.u.]'.format('Forces', f_err['mae'], f_err['rmse'])
 	print
 
+def _verify_task_dir_for_config(task_dir, dataset, test_dataset, n_train, n_test, sigs, gdml):
+
+	for file_name in sorted(os.listdir(task_dir)):
+		if file_name.endswith('.npz'):
+			file_path = os.path.join(task_dir, file_name)
+			file = np.load(file_path)
+
+			if 'type' not in file:
+				continue
+			elif file['type'] == 't' or file['type'] == 'm':
+
+				if file['train_md5'] != dataset['md5']:
+					return False
+
+				if file['test_md5'] != test_dataset['md5']:
+					return False
+
+				if len(file['train_idxs']) != n_train:
+					return False
+
+				if len(file['test_idxs']) != n_test:
+					return False
+
+				n_perms = file['perms'].shape[0]
+				if gdml and n_perms > 1:
+					return False
+
+				if file['sig'] not in sigs:
+					return False
+
+	return True
+
 #all
 def all(dataset, valid_dataset, test_dataset, n_train, n_test, n_valid, sigs, gdml, overwrite, max_processes, **kwargs):
 
@@ -148,6 +180,8 @@ def all(dataset, valid_dataset, test_dataset, n_train, n_test, n_valid, sigs, gd
 	print '       Find your model here: \'%s\'' % os.path.relpath(best_model_path, BASE_DIR)
 
 # create tasks
+# if training job exists and is a subset of the requested cv range, add new tasks
+# otherwise, if new range is different or smaller, fail
 def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_processes, command=None, **kwargs):
 
 	dataset_path, dataset = dataset
@@ -172,40 +206,54 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_pr
 		if n_test_data < n_test:
 			raise AssistantError('Test dataset only contains {} points, can not test on {}.'.format(n_data,n_test))
 
-	gdml_train = GDMLTrain(max_processes=max_processes)
-
-	task_reldir = io.train_dir_name(dataset, n_train, is_gdml=gdml)
-	task_dir = os.path.join(BASE_DIR, task_reldir)
-	if os.path.exists(task_dir):
-		if args.overwrite:
-			print ui.info_str('[INFO]') + ' Overwriting existing training directory.'
-			shutil.rmtree(task_dir)
-		else:
-			print ui.warn_str('[WARN]') + ' Keeping existing task dir \'%s\'. No tasks created!' % task_reldir
-			if func_called_directly:
-				print '       Run \'python %s -o create %s %d %d\' to overwrite.' % (os.path.basename(__file__), dataset_path, n_train, n_test)
-			print
-			return task_dir
-	os.makedirs(task_dir)
-
 	lam = 1e-15
 	if sigs is None:
 		print ui.info_str('[INFO]') + ' Kernel hyper-paramter sigma was automatically set to range \'2:10:100\'.'
 		sigs = range(2,100,10) # default range
 
-	task = gdml_train.create_task(dataset, n_train, test_dataset, n_test, sig=1, lam=lam, recov_sym=not gdml)
+	gdml_train = GDMLTrain(max_processes=max_processes)
 
-	print '[DONE] Writing %d tasks with %s training points each.' % (len(sigs), task['R_train'].shape[0])
+	task_reldir = io.train_dir_name(dataset, n_train, is_gdml=gdml)
+	task_dir = os.path.join(BASE_DIR, task_reldir)
+	task_file_names = []
+	if os.path.exists(task_dir):
+		if args.overwrite:
+			print ui.info_str('[INFO]') + ' Overwriting existing training directory.'
+			shutil.rmtree(task_dir)
+			os.makedirs(task_dir)
+		else:
+			if _verify_task_dir_for_config(task_dir, dataset, test_dataset, n_train, n_test, sigs, gdml):
+				print ui.info_str('[INFO]') + ' Resuming existing hyper-parameter search in \'%s\'.' % task_reldir
+				
+				# Get all task file names.
+				try:
+					_, task_file_names = ui.is_dir_with_file_type(task_dir, 'task')
+				except:
+   					pass
+			else:
+				raise AssistantError('Unfinished hyper-parameter search found in \'%s\'.' % task_reldir\
+					+ '\n       Run \'python %s -o %s %s %d %d -s %s\' to overwrite.' % (os.path.basename(__file__), command, dataset_path, n_train, n_test, ' '.join(str(s) for s in sigs)))
+	else:
+		os.makedirs(task_dir)
+	
+	if task_file_names:
+		tmpl_task = dict(np.load(os.path.join(task_dir, task_file_names[0])))
+	else:
+		tmpl_task = gdml_train.create_task(dataset, n_train, test_dataset, n_test, sig=1, lam=lam, recov_sym=not gdml) # template task
+
+	n_written = 0
 	for sig in sigs:
-		task['sig'] = sig
-
-		task_file_name = io.task_file_name(task)
+		tmpl_task['sig'] = sig
+		task_file_name = io.task_file_name(tmpl_task)
 		task_path = os.path.join(task_dir, task_file_name)
 
 		if os.path.isfile(task_path):
-			print ui.info_str('[INFO]') + ' Skipping exising task \'%s\'.' % task_file_name
+			print ui.warn_str('[WARN]') + ' Skipping existing task \'%s\'.' % task_file_name
 		else:
-			np.savez_compressed(task_path, **task)
+			np.savez_compressed(task_path, **tmpl_task)
+			n_written += 1
+	if n_written > 0:
+		print '[DONE] Writing %d/%d tasks with %s training points each.' % (n_written,len(sigs), tmpl_task['R_train'].shape[0])
 	print ''
 
 	if func_called_directly:
@@ -266,8 +314,6 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 
 def _batch(iterable, n=1):	
 	l = len(iterable)
-	#if first_none:
-	#	yield None
 	for ndx in range(0, l, n):
 		yield iterable[ndx:min(ndx + n, l)]
 
