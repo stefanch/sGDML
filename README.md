@@ -17,18 +17,22 @@
 
 `git pull origin master`
 
-#### Reconstruct your first force field
+#### Install
 
-`python tools/download_datasets.py`
+`pip install -e .`
 
-`python assist.py all datasets/npz/ethanol.npz 200 1000 5000`
+## Reconstruct your first force field
 
-#### Query a force field
+`sgdml_get.py dataset ethanol`
+
+`sgdml all ethanol.npz 200 1000 5000`
+
+## Query a force field
 
 ```python
 import numpy as np
-from src.gdml_predict import GDMLPredict
-from src.utils import io
+from sgdml.predict import GDMLPredict
+from sgdml.utils import io
 
 r,_ = io.read_xyz('examples/geometries/ethanol.xyz') # 9 atoms
 print r.shape # (1,27)
