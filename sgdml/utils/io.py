@@ -3,7 +3,7 @@ import re
 import hashlib
 import numpy as np
 
-_z_str_to_z_dict = {'Al':13,'O':8,'N':7,'C':6,'B':5,'H':1}
+_z_str_to_z_dict = {'Au':79,'S':16,'Al':13,'O':8,'N':7,'C':6,'B':5,'H':1}
 _z_to_z_str_dict = {v: k for k, v in _z_str_to_z_dict.iteritems()}
 
 def z_str_to_z(z_str):
