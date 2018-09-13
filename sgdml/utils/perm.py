@@ -14,9 +14,11 @@ import ui
 
 glob = {}
 
+
 def share_array(arr_np, typecode):
 	arr = mp.RawArray(typecode, arr_np.ravel())
 	return arr, arr_np.shape
+
 
 def _sync_mat_wkr(i, n_train, same_z_cost):
 
@@ -36,7 +38,7 @@ def _sync_mat_wkr(i, n_train, same_z_cost):
 		v_j = v_set[j,:,:]
 
 		cost = -np.fabs(v_i).dot(np.fabs(v_j).T)
-		cost -= same_z_cost * np.max(cost)
+		cost += same_z_cost * np.max(np.abs(cost))
 
 		_,perm = scipy.optimize.linear_sum_assignment(cost)
 
@@ -47,7 +49,7 @@ def _sync_mat_wkr(i, n_train, same_z_cost):
 		score = np.linalg.norm(adj_i_perm - adj_j)
 
 		match_cost[i,j] = score
-		if score - score_before > 0:
+		if score >= score_before:
 			match_cost[i,j] = score_before
 		elif not np.isclose(score_before, score): # otherwise perm is identity
 			match_perms[i,j] = perm
@@ -73,8 +75,10 @@ def sync_mat(R,z,max_processes=None):
 	v_set = np.empty((n_train,n_atoms,n_atoms))
 	for i in range(n_train):
 		r = np.squeeze(R[i,:,:])
+
 		adj = scipy.spatial.distance.pdist(r,'euclidean')
-		_,v = np.linalg.eig(scipy.spatial.distance.squareform(adj))
+		w,v = np.linalg.eig(scipy.spatial.distance.squareform(adj))
+		v = v[:,w.argsort()[::-1]]
 
 		adj_set[i,:] = adj
 		v_set[i,:,:] = v
@@ -113,6 +117,7 @@ def sync_mat(R,z,max_processes=None):
 
 	return perms
 
+
 def complete_group(perms):
 
 	perm_added = True
@@ -131,12 +136,14 @@ def complete_group(perms):
 	print ui.gray_str(' (%d symmetries)' % perms.shape[0])
 	return perms
 
+
 def inv_perm(perm):
 
     inv_perm = np.empty(perm.size, perm.dtype)
     inv_perm[perm] = np.arange(perm.size)
 
     return inv_perm
+
 
 def to_tril_perm(perm):
 

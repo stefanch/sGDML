@@ -14,7 +14,7 @@ for dirname, dirnames, filenames in os.walk('scripts'):
 			scripts.append(os.path.join(dirname, filename))
 
 setup(name = 'sgdml',
-			version = '0.7.0.dev0',
+			version = '0.1.0.dev0',
 			description = 'Reference implementation of the GDML and sGDML force field models.',
 			long_description = long_description,
 			long_description_content_type = 'text/markdown',

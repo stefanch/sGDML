@@ -32,7 +32,6 @@ from sgdml.utils import io, ui
 def download(command,file_name):
 
 	base_url = 'http://www.quantum-machine.org/gdml/' + ('data/npz/' if command == 'dataset' else 'models/')
-	print "Contacting server (%s)..." % (base_url)
  	request = urllib2.urlopen(base_url + file_name)
 	file = open(file_name, 'wb')
 	filesize = int(request.info().getheaders("Content-Length")[0])
@@ -76,6 +75,7 @@ def main():
 	if args.name is not None:
 
 		url = '%sget.php?%s=%s' % (base_url,args.command,args.name)
+		print "Contacting server (%s)..." % base_url
 		response = urllib2.urlopen(url)
 		match, score = response.read().split(',')
 		response.close()
@@ -85,9 +85,10 @@ def main():
 
 	else:
 
-		print "Contacting server (%s)..." % (base_url)
-		response = urllib2.urlopen('%slist.php?%s' % (base_url,args.command))
+		print "Contacting server (%s)..." % base_url
+		response = urllib2.urlopen('%sget.php?%s' % (base_url,args.command))
 		line = response.readlines()
+		response.close()
 
 		print ''
 		print 'Available %ss:' % args.command
