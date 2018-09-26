@@ -262,16 +262,21 @@ class GDMLTrain:
 		start = timeit.default_timer()
 		K = self._assemble_kernel_mat(R_desc, R_d_desc, tril_perms_lin, n_perms, sig, ker_progr_callback)
 		stop = timeit.default_timer()
-		ker_progr_callback(1, 1, (stop - start)/2) # callback one last time with 100% and measured duration
+		if ker_progr_callback is not None:
+			ker_progr_callback(1, 1, (stop - start)/2) # callback one last time with 100% and measured duration
 
-		solve_callback(done=False)
+		if solve_callback is not None:
+			solve_callback(done=False)
+
 		start = timeit.default_timer()
 		K[np.diag_indices_from(K)] -= lam # regularizer
 		with warnings.catch_warnings():
 			warnings.simplefilter('ignore')
 			alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 		stop = timeit.default_timer()
-		solve_callback(done=True, duration_s=(stop - start)/2)
+		
+		if solve_callback is not None:
+			solve_callback(done=True, duration_s=(stop - start)/2)
 
 		r_dim = R_d_desc.shape[2]
 		r_d_desc_alpha = [rj_d_desc.dot(alphas[(j * r_dim):((j + 1) * r_dim)]) for j,rj_d_desc in enumerate(R_d_desc)]
