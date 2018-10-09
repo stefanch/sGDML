@@ -170,7 +170,7 @@ def create(dataset, test_dataset, n_train, n_test, sigs, gdml, overwrite, max_pr
 			raise AssistantError('Dataset only contains {} points, can not train on {} and test on {}.'.format(n_data,n_train,n_test))
 	else:
 		test_dataset_path, test_dataset = test_dataset
-		n_test_data = dataset['E'].shape[0]
+		n_test_data = test_dataset['E'].shape[0]
 		if n_test_data < n_test:
 			raise AssistantError('Test dataset only contains {} points, can not test on {}.'.format(n_data,n_test))
 
