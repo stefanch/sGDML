@@ -301,6 +301,7 @@ class GDMLTrain:
 				 'tril_perms_lin':	tril_perms_lin}
 
 		model['c'] = self._recov_int_const(model, task)
+		#model['c'] = 0
 
 		return model
 
@@ -489,7 +490,7 @@ class GDMLTrain:
 
 		# Freedman-Diaconis rule
 		h = 2*np.subtract(*np.percentile(T, [75, 25])) / np.cbrt(n)
-		n_bins = int(np.ceil((np.max(T)-np.min(T)) / h))
+		n_bins = int(np.ceil((np.max(T)-np.min(T)) / h)) if h > 0 else 1
 
 		bins = np.linspace(np.min(T), np.max(T), n_bins, endpoint=False)
 		idxs = np.digitize(T, bins)
