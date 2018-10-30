@@ -272,7 +272,7 @@ class GDMLTrain:
 		start = timeit.default_timer()
 		K[np.diag_indices_from(K)] -= lam # regularizer
 		with warnings.catch_warnings():
-			warnings.simplefilter('ignore')xw
+			warnings.simplefilter('ignore')
 
 			L, lower = sp.linalg.cho_factor(-K, overwrite_a=True, check_finite=False)
 			alphas = -sp.linalg.cho_solve((L, lower), Ft, overwrite_b=True, check_finite=False)
