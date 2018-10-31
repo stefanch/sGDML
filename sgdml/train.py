@@ -274,8 +274,12 @@ class GDMLTrain:
 		with warnings.catch_warnings():
 			warnings.simplefilter('ignore')
 
-			L, lower = sp.linalg.cho_factor(-K, overwrite_a=True, check_finite=False)
-			alphas = -sp.linalg.cho_solve((L, lower), Ft, overwrite_b=True, check_finite=False)
+			# Cholesky
+			#L, lower = sp.linalg.cho_factor(-K, overwrite_a=True, check_finite=False)
+			#alphas = -sp.linalg.cho_solve((L, lower), Ft, overwrite_b=True, check_finite=False)
+
+			# LU
+			alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 			
 		stop = timeit.default_timer()
 		
@@ -305,7 +309,6 @@ class GDMLTrain:
 				 'tril_perms_lin':	tril_perms_lin}
 
 		model['c'] = self._recov_int_const(model, task)
-		#model['c'] = 0
 
 		return model
 
