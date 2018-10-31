@@ -274,12 +274,13 @@ class GDMLTrain:
 		with warnings.catch_warnings():
 			warnings.simplefilter('ignore')
 
-			# Cholesky
-			#L, lower = sp.linalg.cho_factor(-K, overwrite_a=True, check_finite=False)
-			#alphas = -sp.linalg.cho_solve((L, lower), Ft, overwrite_b=True, check_finite=False)
-
-			# LU
-			alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
+			try:
+				# Cholesky
+				L, lower = sp.linalg.cho_factor(-K, overwrite_a=True, check_finite=False)
+				alphas = -sp.linalg.cho_solve((L, lower), Ft, overwrite_b=True, check_finite=False)
+			except:
+				# LU
+				alphas = sp.linalg.solve(K, Ft, overwrite_a=True, overwrite_b=True, check_finite=False)
 			
 		stop = timeit.default_timer()
 		
