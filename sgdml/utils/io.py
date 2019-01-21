@@ -12,23 +12,29 @@ def z_str_to_z(z_str):
 def z_to_z_str(z):
 	return [_z_to_z_str_dict[int(x)] for x in z]
 
-def train_dir_name(dataset, n_train, is_gdml):
+def train_dir_name(dataset, n_train, use_sym, use_cprsn, use_E, use_E_cstr):
 	
 	theory_level_str = re.sub('[^\w\-_\.]', '.', str(dataset['theory']))
 	theory_level_str = re.sub('\.\.', '.', theory_level_str)
-	return 'tmp/%s-%s-train%d%s' % (dataset['name'], theory_level_str, n_train, '-gdml' if is_gdml else '')
+
+	sym_str = '-sym' if use_sym else ''
+	cprsn_str = '-cprsn' if use_cprsn else ''
+	noE_str = '-noE' if not use_E else ''
+	Ecstr_str = '-Ecstr' if use_E_cstr else ''
+
+	return 'sgdml_cv_%s-%s-train%d%s%s%s%s' % (dataset['name'], theory_level_str, n_train, sym_str, cprsn_str, noE_str, Ecstr_str)
 
 def task_file_name(task):
 	
-	n_train = task['train_idxs'].shape[0]
+	n_train = task['idxs_train'].shape[0]
 	n_perms = task['perms'].shape[0]
 	sig = np.squeeze(task['sig'])
 
-	return 'task-train%d-sym%d-sig%d.npz' % (n_train, n_perms, sig)
+	return 'task-train%d-sym%d-sig%04d.npz' % (n_train, n_perms, sig)
 
 def model_file_name(task_or_model, is_extended=False):
 	
-	n_train = task_or_model['train_idxs'].shape[0]
+	n_train = task_or_model['idxs_train'].shape[0]
 	n_perms = task_or_model['perms'].shape[0]
 	sig = np.squeeze(task_or_model['sig'])
 
@@ -37,12 +43,18 @@ def model_file_name(task_or_model, is_extended=False):
 		theory_level_str = re.sub('[^\w\-_\.]', '.', str(np.squeeze(task_or_model['dataset_theory'])))
 		theory_level_str = re.sub('\.\.', '.', theory_level_str)
 		return '%s-%s-train%d-sym%d.npz' % (dataset, theory_level_str, n_train, n_perms)
-	return 'model-train%d-sym%d-sig%d.npz' % (n_train, n_perms, sig)
+	return 'model-train%d-sym%d-sig%04d.npz' % (n_train, n_perms, sig)
 
 def dataset_md5(dataset):
 
 	md5_hash = hashlib.md5()
-	for key in ['z', 'R', 'E', 'F']:
+
+	keys = ['z', 'R']
+	if 'E' in dataset:
+		keys.append('E')
+	keys.append('F')
+
+	for key in keys:
 		md5_hash.update(hashlib.md5(dataset[key].ravel()).digest())
 
 	return md5_hash.hexdigest()

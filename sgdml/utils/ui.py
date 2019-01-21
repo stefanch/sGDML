@@ -1,9 +1,5 @@
 import os, sys
 
-#import os, sys
-#BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
-#sys.path.append(BASE_DIR)
-
 import argparse
 import re
 
@@ -150,6 +146,44 @@ def is_file_type(arg, type):
 	if 'type' not in file or file['type'] != type[0]:
 		raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg,type))
 
+	# Legacy support
+	#if type == 'task':
+	#	file = dict(file)
+	#	file['use_E'] = file['use_E'] if 'use_E' in file else True
+	#	file['use_E_cstr'] = file['use_E_cstr'] if 'use_E_cstr' in file else False
+	#	file['use_cprsn'] = file['use_cprsn'] if 'use_cprsn' in file else False
+		
+	#if type == 'model':
+	#	file = dict(file)
+	#	file['use_E'] = file['use_E'] if 'use_E' in file else True
+	#	file['use_cprsn'] = file['use_cprsn'] if 'use_cprsn' in file else False
+
+	return arg, file
+
+def is_valid_file_type(arg_in):
+
+	arg, file = None, None
+	try:
+		arg, file = is_file_type(arg_in, 'dataset')
+	except argparse.ArgumentTypeError:
+		print 'dataset raise'
+		pass
+
+	if file is None:
+		try:
+			arg, file = is_file_type(arg_in, 'task')
+		except argparse.ArgumentTypeError:
+			pass
+
+	if file is None:
+		try:
+			arg, file = is_file_type(arg_in, 'model')
+		except argparse.ArgumentTypeError:
+			pass
+
+	if file is None:
+		raise argparse.ArgumentTypeError('{0} is neither a dataset, task, nor model file'.format(arg))
+
 	return arg, file
 
 # if file is provided, this function acts like its a directory with just one file
@@ -185,7 +219,8 @@ def is_dir_with_file_type(arg, type, or_file=False):
 
 
 	if or_file and os.path.isfile(arg): # arg: file path
-		is_file_type(arg, type) # raises exception if there is a problem with file
+		_, file = is_file_type(arg, type) # raises exception if there is a problem with file
+		file.close()
 		file_name = os.path.basename(arg)
 		file_dir = os.path.dirname(arg)
 		return file_dir, [file_name]
@@ -205,6 +240,8 @@ def is_dir_with_file_type(arg, type, or_file=False):
 					
 				if 'type' in file and file['type'] == type[0]:
 					file_names.append(file_name)
+
+				file.close()
 
 		if not len(file_names):
 			raise argparse.ArgumentTypeError('{0} contains no {1} files'.format(arg, type))
@@ -327,10 +364,10 @@ def is_task_dir_resumeable(train_dir, train_dataset, test_dataset, n_train, n_te
 				continue
 			elif file['type'] == 't' or file['type'] == 'm':
 
-				if file['train_md5'] != train_dataset['md5']\
-				or file['test_md5'] != test_dataset['md5']\
-				or len(file['train_idxs']) != n_train\
-				or len(file['test_idxs']) != n_test\
+				if file['md5_train'] != train_dataset['md5']\
+				or file['md5_valid'] != test_dataset['md5']\
+				or len(file['idxs_train']) != n_train\
+				or len(file['idxs_valid']) != n_test\
 				or gdml and file['perms'].shape[0] > 1\
 				or file['sig'] not in sigs:
 					return False

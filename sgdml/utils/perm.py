@@ -61,8 +61,6 @@ def sync_mat(R,z,max_processes=None):
 
 	global glob
 
-	print ui.white_bold_str('Recovering symmetries...')
-
 	n_train,n_atoms,_ = R.shape
 	
 	# penalty matrix for mixing atom species
@@ -123,7 +121,6 @@ def complete_group(perms):
 	perm_added = True
 	while perm_added:
 		perm_added = False
-
 		n_perms = perms.shape[0]
 		for i in range(n_perms):
 			for j in range(n_perms):
@@ -145,15 +142,15 @@ def inv_perm(perm):
     return inv_perm
 
 
-def to_tril_perm(perm):
+# def to_tril_perm(perm):
 
-	n = len(perm)
-	perm = perm # - 1 # MATLAB is 1-dominant (legacy reasons)
+# 	n = len(perm)
+# 	perm = perm # - 1 # MATLAB is 1-dominant (legacy reasons)
 
-	rest = np.zeros((n,n))
-	rest[np.tril_indices(n,-1)] = range(0,(n**2-n)/2)
-	rest = rest + rest.T
-	rest = rest[perm, :]
-	rest = rest[:, perm]
+# 	rest = np.zeros((n,n))
+# 	rest[np.tril_indices(n,-1)] = range(0,(n**2-n)/2)
+# 	rest = rest + rest.T
+# 	rest = rest[perm, :]
+# 	rest = rest[:, perm]
 	
-	return rest[np.tril_indices(n,-1)].astype(int)
+# 	return rest[np.tril_indices(n,-1)].astype(int)

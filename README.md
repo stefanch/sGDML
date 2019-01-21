@@ -23,7 +23,7 @@
 
 ## Reconstruct your first force field
 
-`sgdml_get.py dataset ethanol`
+`sgdml-get dataset ethanol`
 
 `sgdml all ethanol.npz 200 1000 5000`
 
@@ -51,7 +51,11 @@ print f.shape # (1,27)
 Science Advances, 3(5), e1603015 (2017)   
 [10.1126/sciadv.1603015](http://dx.doi.org/10.1126/sciadv.1603015)
 
-* [2] Chmiela, S., Sauceda, H., Müller, K.-R., & Tkatchenko, A.,
+* [2] Chmiela, S., Sauceda, H. E., Müller, K.-R., & Tkatchenko, A.,
 *Towards Exact Molecular Dynamics Simulations with Machine-Learned Force Fields.*
-arXiv preprint, 1802.09238 (2018)   
-[arXiv:1802.09238](https://arxiv.org/abs/1802.09238)
+Nature Communications, 9(1), 3887 (2018)   
+[10.1038/s41467-018-06169-2](https://doi.org/10.1038/s41467-018-06169-2)
+
+* [3] Chmiela, S., Sauceda, H. E., Poltavsky, Igor, Müller, K.-R., & Tkatchenko, A.,
+*sGDML: Constructing Accurate and Data Efficient Molecular Force Fields Using Machine Learning.*
+[arXiv:1812.04986](https://arxiv.org/abs/1812.04986)
