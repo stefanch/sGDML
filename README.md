@@ -46,7 +46,7 @@ print f.shape # (1,27)
 
 ## References
 
-* [1] Chmiela, S., Tkatchenko, A., Sauceda, H. E., Poltavsky, Igor, Schütt, K. T., Müller, K.-R.,
+* [1] Chmiela, S., Tkatchenko, A., Sauceda, H. E., Poltavsky, I., Schütt, K. T., Müller, K.-R.,
 *Machine Learning of Accurate Energy-conserving Molecular Force Fields.*
 Science Advances, 3(5), e1603015 (2017)   
 [10.1126/sciadv.1603015](http://dx.doi.org/10.1126/sciadv.1603015)
@@ -56,6 +56,6 @@ Science Advances, 3(5), e1603015 (2017)
 Nature Communications, 9(1), 3887 (2018)   
 [10.1038/s41467-018-06169-2](https://doi.org/10.1038/s41467-018-06169-2)
 
-* [3] Chmiela, S., Sauceda, H. E., Poltavsky, Igor, Müller, K.-R., & Tkatchenko, A.,
+* [3] Chmiela, S., Sauceda, H. E., Poltavsky, I., Müller, K.-R., & Tkatchenko, A.,
 *sGDML: Constructing Accurate and Data Efficient Molecular Force Fields Using Machine Learning.*
 [arXiv:1812.04986](https://arxiv.org/abs/1812.04986)
