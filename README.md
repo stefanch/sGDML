@@ -35,7 +35,11 @@ Using the flag ``--user``, we can tell ``pip`` to install the package to the cur
 
 ## Reconstruct your first force field
 
+Download one of the example datasets:
+
 `sgdml-get dataset ethanol`
+
+Train a force field model:
 
 `sgdml all ethanol.npz 200 1000 5000`
 
@@ -55,6 +59,8 @@ e,f = gdml.predict(r)
 print e.shape # (1,)
 print f.shape # (1,27)
 ```
+
+For more details visit: [http://quantum-machine.org/gdml/doc/](http://quantum-machine.org/gdml/doc/)
 
 ## References
 
