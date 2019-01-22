@@ -26,12 +26,12 @@ setup(name = 'sgdml',
 			classifiers=[
 					'Development Status :: 4 - Beta',
 					'Environment :: Console',
-					'Intended Audience :: Science/Research'
-					'Intended Audience :: Education'
-					'Intended Audience :: Developers'  
-					'License :: OSI Approved :: MIT License'
+					'Intended Audience :: Science/Research',
+					'Intended Audience :: Education',
+					'Intended Audience :: Developers'  ,
+					'License :: OSI Approved :: MIT License',
 					'Operating System :: MacOS :: MacOS X',
-					'Operating System :: POSIX',
+					'Operating System :: POSIX :: Linux',
 					'Programming Language :: Python :: 2 :: Only',
 					'Topic :: Scientific/Engineering :: Chemistry',
 					'Topic :: Scientific/Engineering :: Physics',

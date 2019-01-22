@@ -7,19 +7,31 @@
 
 ## Getting started
 
+### Stable release
+
+Most systems come with the default package manager for Python ``pip`` already preinstalled. We install ``sgdml`` by simply calling:
+
+`pip install sgdml`
+
+The ``sgdml`` command-line interface and the corresponding Python API can now be used from anywhere on the system.
+
+### Development version
+
 #### Clone the repository
 
 `git clone https://github.com/stefanch/sGDML.git`
 
 `cd sGDML`
 
-##### ...or update your local copy
+...or update your existing local copy with
 
 `git pull origin master`
 
-#### Install
+##### Install
 
 `pip install -e .`
+
+Using the flag ``--user``, we can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
 
 ## Reconstruct your first force field
 
