@@ -1,5 +1,7 @@
 # Symmetric Gradient Domain Machine Learning (sGDML)
 
+For more details visit: [http://quantum-machine.org/gdml/doc/](http://quantum-machine.org/gdml/doc/)
+
 #### Requirements:
 - Python 2.7
 - NumPy (>=1.13.0)
@@ -59,8 +61,6 @@ e,f = gdml.predict(r)
 print e.shape # (1,)
 print f.shape # (1,27)
 ```
-
-For more details visit: [http://quantum-machine.org/gdml/doc/](http://quantum-machine.org/gdml/doc/)
 
 ## References
 
