@@ -8,7 +8,7 @@ import scipy.io
 
 
 def yes_or_no(question):
-	"""
+    """
 	Ask for yes/no user input on a question.
 
 	Any response besides ``y`` yields a negative answer.
@@ -18,14 +18,15 @@ def yes_or_no(question):
 		question : :obj:`str`
 			User question.
 	"""
-	reply = str(input(question+' (y/n): ')).lower().strip()
-	if not reply or reply[0] != 'y':
-		return False
-	else:
-		return True
+    reply = str(input(question + ' (y/n): ')).lower().strip()
+    if not reply or reply[0] != 'y':
+        return False
+    else:
+        return True
+
 
 def progr_bar(current, total, duration_s=None, disp_str=''):
-	"""
+    """
 	Print progress bar.
 
 	Example:
@@ -42,15 +43,16 @@ def progr_bar(current, total, duration_s=None, disp_str=''):
 		disp_str : :obj:`str`, optional
 			Task description.
 	"""
-	progr = float(current) / total
-	sys.stdout.write('\r[%3d%%] %s' % (progr * 100, disp_str))
-	sys.stdout.flush()
+    progr = float(current) / total
+    sys.stdout.write('\r[%3d%%] %s' % (progr * 100, disp_str))
+    sys.stdout.flush()
 
-	if duration_s is not None:
-		print(' \x1b[90m(%.1f s)\x1b[0m' % duration_s)
+    if duration_s is not None:
+        print(' \x1b[90m(%.1f s)\x1b[0m' % duration_s)
+
 
 def progr_toggle(done, duration_s=None, disp_str=''):
-	"""
+    """
 	Print progress toggle.
 
 	Example (not done):
@@ -68,47 +70,58 @@ def progr_toggle(done, duration_s=None, disp_str=''):
 		disp_str : :obj:`str`, optional
 			Task description.
 	"""
-	sys.stdout.write('\r[%s] ' % ('DONE' if done else blink_str(' .. ')))
-	sys.stdout.write(disp_str)
+    sys.stdout.write('\r[%s] ' % ('DONE' if done else blink_str(' .. ')))
+    sys.stdout.write(disp_str)
 
-	if duration_s is not None:
-			sys.stdout.write(' \x1b[90m(%.1f s)\x1b[0m\n' % duration_s)
-	sys.stdout.flush()
+    if duration_s is not None:
+        sys.stdout.write(' \x1b[90m(%.1f s)\x1b[0m\n' % duration_s)
+    sys.stdout.flush()
 
 
 # COLORS
 
+
 def white_back_str(str):
-	return '\x1b[1;7m' + str + '\x1b[0m'
+    return '\x1b[1;7m' + str + '\x1b[0m'
+
 
 def white_bold_str(str):
-	return '\x1b[1;37m' + str + '\x1b[0m'
+    return '\x1b[1;37m' + str + '\x1b[0m'
+
 
 def gray_str(str):
-	return '\x1b[90m' + str + '\x1b[0m'
+    return '\x1b[90m' + str + '\x1b[0m'
+
 
 def underline_str(str):
-	return '\x1b[4m' + str + '\x1b[0m'
+    return '\x1b[4m' + str + '\x1b[0m'
+
 
 def blink_str(str):
-	return '\x1b[5m' + str + '\x1b[0m'
+    return '\x1b[5m' + str + '\x1b[0m'
+
 
 def info_str(str):
-	return '\x1b[1;37m' + str + '\x1b[0m'
+    return '\x1b[1;37m' + str + '\x1b[0m'
+
 
 def pass_str(str):
-	return '\x1b[1;32m' + str + '\x1b[0m'
+    return '\x1b[1;32m' + str + '\x1b[0m'
+
 
 def warn_str(str):
-	return '\x1b[1;33m' + str + '\x1b[0m'
+    return '\x1b[1;33m' + str + '\x1b[0m'
+
 
 def fail_str(str):
-	return '\x1b[1;31m' + str + '\x1b[0m'
+    return '\x1b[1;31m' + str + '\x1b[0m'
+
 
 # USER INPUT VALIDATION
 
+
 def is_file_type(arg, type):
-	"""
+    """
 	Validate file path and check if the file is of the specified type.
 
 	Parameters
@@ -135,60 +148,64 @@ def is_file_type(arg, type):
 			If the file is of wrong type.
 	"""
 
-	if not arg.endswith('.npz'):
-		argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
+    if not arg.endswith('.npz'):
+        argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
 
-	try:
-		file = np.load(arg)
-	except:
-		raise argparse.ArgumentTypeError('{0} is not readable'.format(arg))
-			
-	if 'type' not in file or file['type'] != type[0]:
-		raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg,type))
+    try:
+        file = np.load(arg)
+    except:
+        raise argparse.ArgumentTypeError('{0} is not readable'.format(arg))
 
-	# Legacy support
-	#if type == 'task':
-	#	file = dict(file)
-	#	file['use_E'] = file['use_E'] if 'use_E' in file else True
-	#	file['use_E_cstr'] = file['use_E_cstr'] if 'use_E_cstr' in file else False
-	#	file['use_cprsn'] = file['use_cprsn'] if 'use_cprsn' in file else False
-		
-	#if type == 'model':
-	#	file = dict(file)
-	#	file['use_E'] = file['use_E'] if 'use_E' in file else True
-	#	file['use_cprsn'] = file['use_cprsn'] if 'use_cprsn' in file else False
+    if 'type' not in file or file['type'] != type[0]:
+        raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg, type))
 
-	return arg, file
+        # Legacy support
+        # if type == 'task':
+        # 	file = dict(file)
+        # 	file['use_E'] = file['use_E'] if 'use_E' in file else True
+        # 	file['use_E_cstr'] = file['use_E_cstr'] if 'use_E_cstr' in file else False
+        # 	file['use_cprsn'] = file['use_cprsn'] if 'use_cprsn' in file else False
+
+        # if type == 'model':
+        # 	file = dict(file)
+        # 	file['use_E'] = file['use_E'] if 'use_E' in file else True
+        # 	file['use_cprsn'] = file['use_cprsn'] if 'use_cprsn' in file else False
+
+    return arg, file
+
 
 def is_valid_file_type(arg_in):
 
-	arg, file = None, None
-	try:
-		arg, file = is_file_type(arg_in, 'dataset')
-	except argparse.ArgumentTypeError:
-		print('dataset raise')
-		pass
+    arg, file = None, None
+    try:
+        arg, file = is_file_type(arg_in, 'dataset')
+    except argparse.ArgumentTypeError:
+        print('dataset raise')
+        pass
 
-	if file is None:
-		try:
-			arg, file = is_file_type(arg_in, 'task')
-		except argparse.ArgumentTypeError:
-			pass
+    if file is None:
+        try:
+            arg, file = is_file_type(arg_in, 'task')
+        except argparse.ArgumentTypeError:
+            pass
 
-	if file is None:
-		try:
-			arg, file = is_file_type(arg_in, 'model')
-		except argparse.ArgumentTypeError:
-			pass
+    if file is None:
+        try:
+            arg, file = is_file_type(arg_in, 'model')
+        except argparse.ArgumentTypeError:
+            pass
 
-	if file is None:
-		raise argparse.ArgumentTypeError('{0} is neither a dataset, task, nor model file'.format(arg))
+    if file is None:
+        raise argparse.ArgumentTypeError(
+            '{0} is neither a dataset, task, nor model file'.format(arg)
+        )
 
-	return arg, file
+    return arg, file
+
 
 # if file is provided, this function acts like its a directory with just one file
 def is_dir_with_file_type(arg, type, or_file=False):
-	"""
+    """
 	Validate directory path and check if it contains files of the specified type.
 
 	Parameters
@@ -217,39 +234,45 @@ def is_dir_with_file_type(arg, type, or_file=False):
 			If directory contains no files of the specified type.
 	"""
 
+    if or_file and os.path.isfile(arg):  # arg: file path
+        _, file = is_file_type(
+            arg, type
+        )  # raises exception if there is a problem with file
+        file.close()
+        file_name = os.path.basename(arg)
+        file_dir = os.path.dirname(arg)
+        return file_dir, [file_name]
+    else:  # arg: dir
 
-	if or_file and os.path.isfile(arg): # arg: file path
-		_, file = is_file_type(arg, type) # raises exception if there is a problem with file
-		file.close()
-		file_name = os.path.basename(arg)
-		file_dir = os.path.dirname(arg)
-		return file_dir, [file_name]
-	else: # arg: dir
+        if not os.path.isdir(arg):
+            raise argparse.ArgumentTypeError('{0} is not a directory'.format(arg))
 
-		if not os.path.isdir(arg):
-			raise argparse.ArgumentTypeError('{0} is not a directory'.format(arg))
+        file_names = []
+        for file_name in sorted(os.listdir(arg)):
+            if file_name.endswith('.npz'):
+                file_path = os.path.join(arg, file_name)
+                try:
+                    file = np.load(file_path)
+                except:
+                    raise argparse.ArgumentTypeError(
+                        '{0} contains unreadable .npz files'.format(arg)
+                    )
 
-		file_names = []
-		for file_name in sorted(os.listdir(arg)):
-			if file_name.endswith('.npz'):
-				file_path = os.path.join(arg, file_name)
-				try:
-					file = np.load(file_path)
-				except:
-					raise argparse.ArgumentTypeError('{0} contains unreadable .npz files'.format(arg))
-					
-				if 'type' in file and file['type'] == type[0]:
-					file_names.append(file_name)
+                if 'type' in file and file['type'] == type[0]:
+                    file_names.append(file_name)
 
-				file.close()
+                file.close()
 
-		if not len(file_names):
-			raise argparse.ArgumentTypeError('{0} contains no {1} files'.format(arg, type))
+        if not len(file_names):
+            raise argparse.ArgumentTypeError(
+                '{0} contains no {1} files'.format(arg, type)
+            )
 
-		return arg, file_names
+        return arg, file_names
+
 
 def is_strict_pos_int(arg):
-	"""
+    """
 	Validate strictly positive integer input.
 
 	Parameters
@@ -267,13 +290,14 @@ def is_strict_pos_int(arg):
 		ArgumentTypeError
 			If integer is not > 0.
 	"""
-	x = int(arg)
-	if x <= 0:
-		raise argparse.ArgumentTypeError('must be strictly positive')
-	return x
+    x = int(arg)
+    if x <= 0:
+        raise argparse.ArgumentTypeError('must be strictly positive')
+    return x
+
 
 def parse_list_or_range(arg):
-	"""
+    """
 	Parses a string that represents either an integer or a range in
 	the notation ``<start>:<step>:<stop>``.
 
@@ -292,28 +316,34 @@ def parse_list_or_range(arg):
 			If input can neither be interpreted as an integer nor a valid range.
 	"""
 
-	if re.match('^\d+:\d+:\d+$', arg) or re.match('^\d+:\d+$', arg):
-		rng_params = list(map(int, arg.split(':')))
-		
-		step = 1
-		if len(rng_params) == 2: # start, stop
-			start, stop = rng_params
-		else: # start, step, stop
-			start, step, stop = rng_params
+    if re.match('^\d+:\d+:\d+$', arg) or re.match('^\d+:\d+$', arg):
+        rng_params = list(map(int, arg.split(':')))
 
-		rng = list(range(start,stop+1,step)) # include last stop-element in range
-		if len(rng) == 0:
-			raise argparse.ArgumentTypeError('{0} is an empty range'.format(arg))
+        step = 1
+        if len(rng_params) == 2:  # start, stop
+            start, stop = rng_params
+        else:  # start, step, stop
+            start, step, stop = rng_params
 
-		return rng 
-	elif re.match('^\d+$', arg):
-		return int(arg)
+        rng = list(range(start, stop + 1, step))  # include last stop-element in range
+        if len(rng) == 0:
+            raise argparse.ArgumentTypeError('{0} is an empty range'.format(arg))
 
-	raise argparse.ArgumentTypeError('{0} is neither a integer list, nor valid range in the form <start>:[<step>:]<stop>'.format(arg))
+        return rng
+    elif re.match('^\d+$', arg):
+        return int(arg)
+
+    raise argparse.ArgumentTypeError(
+        '{0} is neither a integer list, nor valid range in the form <start>:[<step>:]<stop>'.format(
+            arg
+        )
+    )
 
 
-def is_task_dir_resumeable(train_dir, train_dataset, test_dataset, n_train, n_test, sigs, gdml):
-	"""
+def is_task_dir_resumeable(
+    train_dir, train_dataset, test_dataset, n_train, n_test, sigs, gdml
+):
+    """
 	Check if a directory contains `task` and/or `model` files that
 	match the configuration of a training process specified in the
 	remaining arguments.
@@ -354,22 +384,24 @@ def is_task_dir_resumeable(train_dir, train_dataset, test_dataset, n_train, n_te
 			the training configuration.
 	"""
 
+    for file_name in sorted(os.listdir(train_dir)):
+        if file_name.endswith('.npz'):
+            file_path = os.path.join(train_dir, file_name)
+            file = np.load(file_path)
 
-	for file_name in sorted(os.listdir(train_dir)):
-		if file_name.endswith('.npz'):
-			file_path = os.path.join(train_dir, file_name)
-			file = np.load(file_path)
+            if 'type' not in file:
+                continue
+            elif file['type'] == 't' or file['type'] == 'm':
 
-			if 'type' not in file:
-				continue
-			elif file['type'] == 't' or file['type'] == 'm':
+                if (
+                    file['md5_train'] != train_dataset['md5']
+                    or file['md5_valid'] != test_dataset['md5']
+                    or len(file['idxs_train']) != n_train
+                    or len(file['idxs_valid']) != n_test
+                    or gdml
+                    and file['perms'].shape[0] > 1
+                    or file['sig'] not in sigs
+                ):
+                    return False
 
-				if file['md5_train'] != train_dataset['md5']\
-				or file['md5_valid'] != test_dataset['md5']\
-				or len(file['idxs_train']) != n_train\
-				or len(file['idxs_valid']) != n_test\
-				or gdml and file['perms'].shape[0] > 1\
-				or file['sig'] not in sigs:
-					return False
-
-	return True
+    return True
