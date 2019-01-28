@@ -43,9 +43,9 @@ dataset_file_name = name + '.xyz'
 
 xyz_exists = os.path.isfile(dataset_file_name)
 if xyz_exists and args.overwrite:	
-	print ui.info_str('[INFO]') + ' Overwriting existing xyz dataset file.'
+	print(ui.info_str('[INFO]') + ' Overwriting existing xyz dataset file.')
 if not xyz_exists or args.overwrite:
-	print 'Writing dataset to \'%s\'...' % dataset_file_name
+	print('Writing dataset to \'%s\'...' % dataset_file_name)
 else:
 	sys.exit(ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name)
 
@@ -71,4 +71,4 @@ try:
 except IOError:
 	sys.exit("ERROR: Writing xyz file failed.")
 
-print '\n' + ui.pass_str('DONE')
+print('\n' + ui.pass_str('DONE'))

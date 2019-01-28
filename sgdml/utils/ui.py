@@ -18,7 +18,7 @@ def yes_or_no(question):
 		question : :obj:`str`
 			User question.
 	"""
-	reply = str(raw_input(question+' (y/n): ')).lower().strip()
+	reply = str(input(question+' (y/n): ')).lower().strip()
 	if not reply or reply[0] != 'y':
 		return False
 	else:
@@ -47,7 +47,7 @@ def progr_bar(current, total, duration_s=None, disp_str=''):
 	sys.stdout.flush()
 
 	if duration_s is not None:
-		print ' \x1b[90m(%.1f s)\x1b[0m' % duration_s
+		print(' \x1b[90m(%.1f s)\x1b[0m' % duration_s)
 
 def progr_toggle(done, duration_s=None, disp_str=''):
 	"""
@@ -166,7 +166,7 @@ def is_valid_file_type(arg_in):
 	try:
 		arg, file = is_file_type(arg_in, 'dataset')
 	except argparse.ArgumentTypeError:
-		print 'dataset raise'
+		print('dataset raise')
 		pass
 
 	if file is None:
@@ -293,7 +293,7 @@ def parse_list_or_range(arg):
 	"""
 
 	if re.match('^\d+:\d+:\d+$', arg) or re.match('^\d+:\d+$', arg):
-		rng_params = map(int, arg.split(':'))
+		rng_params = list(map(int, arg.split(':')))
 		
 		step = 1
 		if len(rng_params) == 2: # start, stop
@@ -301,7 +301,7 @@ def parse_list_or_range(arg):
 		else: # start, step, stop
 			start, step, stop = rng_params
 
-		rng = range(start,stop+1,step) # include last stop-element in range
+		rng = list(range(start,stop+1,step)) # include last stop-element in range
 		if len(rng) == 0:
 			raise argparse.ArgumentTypeError('{0} is an empty range'.format(arg))
 

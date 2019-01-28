@@ -33,10 +33,10 @@ from functools import partial
 import numpy as np
 
 from sgdml import __version__
-from train import GDMLTrain
-from predict import GDMLPredict
+from .train import GDMLTrain
+from .predict import GDMLPredict
 
-from utils import io,ui
+from .utils import io,ui
 
 PACKAGE_NAME = 'sgdml'
 
@@ -45,47 +45,47 @@ class AssistantError(Exception):
     pass
 
 def _print_splash():
-	print """         __________  __  _____ 
+	print("""         __________  __  _____ 
    _____/ ____/ __ \/  |/  / / 
   / ___/ / __/ / / / /|_/ / /  
  (__  ) /_/ / /_/ / /  / / /___
-/____/\____/_____/_/  /_/_____/  """ + __version__
+/____/\____/_____/_/  /_/_____/  """ + __version__)
 
 def _print_dataset_properties(dataset):
 
 	n_mols, n_atoms, _ = dataset['R'].shape
-	print ' {:<16} {:<} ({:<d} atoms)'.format('Name:', dataset['name'], n_atoms)
-	print ' {:<16} {:<}'.format('Theory:', dataset['theory'])
-	print ' {:<16} {:<d}'.format('Size:', n_mols)
+	print(' {:<16} {:<} ({:<d} atoms)'.format('Name:', dataset['name'], n_atoms))
+	print(' {:<16} {:<}'.format('Theory:', dataset['theory']))
+	print(' {:<16} {:<d}'.format('Size:', n_mols))
 
 	if 'E' in dataset:
 		T_min, T_max = np.min(dataset['E']), np.max(dataset['E'])
-		print ' {:<16} {:<.3} '.format('Energies:', T_min) + '|--' + ' {:^8.3} '.format(T_max-T_min) + '--|' + ' {:>9.3} [a.u.]'.format(T_max)
+		print(' {:<16} {:<.3} '.format('Energies:', T_min) + '|--' + ' {:^8.3} '.format(T_max-T_min) + '--|' + ' {:>9.3} [a.u.]'.format(T_max))
 	else:
-		print ' {:<16} {:<}'.format('Energies:', 'n/a')
+		print(' {:<16} {:<}'.format('Energies:', 'n/a'))
 
 	TG_min, TG_max = np.min(dataset['F'].ravel()), np.max(dataset['F'].ravel())
-	print ' {:<16} {:<.3} '.format('Forces:', TG_min) + '|--' + ' {:.3} '.format(TG_max-TG_min) + '--|' + ' {:>9.3} [a.u.]'.format(TG_max)
+	print(' {:<16} {:<.3} '.format('Forces:', TG_min) + '|--' + ' {:.3} '.format(TG_max-TG_min) + '--|' + ' {:>9.3} [a.u.]'.format(TG_max))
 
-	print ' {:<16} {:<}'.format('Fingerprint:', dataset['md5'])
-	print
+	print(' {:<16} {:<}'.format('Fingerprint:', dataset['md5']))
+	print()
 
 def _print_task_properties(use_sym, use_cprsn, use_E, use_E_cstr):
 
 	energy_fix_str = ('kernel constraints (+E)' if use_E_cstr else 'global integration constant recovery') if use_E else 'none'
-	print ' {:<16} {:<}'.format('Energy handling:', energy_fix_str)
+	print(' {:<16} {:<}'.format('Energy handling:', energy_fix_str))
 
-	print ' {:<16} {:<}'.format('Symmetries:', 'include (sGDML)' if use_sym else 'ignore (GDML)')
-	print ' {:<16} {:<}'.format('Compression:', 'requested' if use_cprsn else 'not requested')
+	print(' {:<16} {:<}'.format('Symmetries:', 'include (sGDML)' if use_sym else 'ignore (GDML)'))
+	print(' {:<16} {:<}'.format('Compression:', 'requested' if use_cprsn else 'not requested'))
 
-	print
+	print()
 
 def _print_model_properties(model):
 	
-	print ' {:<16} {:<d}'.format('Symmetries:', len(model['perms']))
+	print(' {:<16} {:<d}'.format('Symmetries:', len(model['perms'])))
 
 	n_train = len(model['idxs_train'])
-	print ' {:<16} {:<d} points from \'{:<}\''.format('Trained on:', n_train, model['md5_train'])
+	print(' {:<16} {:<d} points from \'{:<}\''.format('Trained on:', n_train, model['md5_train']))
 
 	if model['use_E']:
 		e_err = model['e_err'].item()
@@ -94,35 +94,35 @@ def _print_model_properties(model):
 	n_valid = len(model['idxs_valid'])
 	#is_tested = not np.isnan(e_err['mae']) and not np.isnan(e_err['rmse']) and not np.isnan(f_err['mae']) and not np.isnan(f_err['rmse'])
 	is_valid = not np.isnan(f_err['mae']) and not np.isnan(f_err['rmse'])
-	print ' {:<16} {}{:<d} points from \'{:<}\''.format('Validated on:', '' if is_valid else '[pending] ', n_valid, model['md5_valid'])
+	print(' {:<16} {}{:<d} points from \'{:<}\''.format('Validated on:', '' if is_valid else '[pending] ', n_valid, model['md5_valid']))
 
 	n_test = int(model['n_test'])
 	is_test = n_test > 0
 	if is_test:
-		print ' {:<16} {:<d} points from \'{:<}\''.format('Tested on:', n_test, model['md5_test'])
+		print(' {:<16} {:<d} points from \'{:<}\''.format('Tested on:', n_test, model['md5_test']))
 	else:
-		print ' {:<16} {}'.format('Test:', '[pending]')
+		print(' {:<16} {}'.format('Test:', '[pending]'))
 	#print ' {:<14} {}'.format('Test:', '{} points'.format(n_valid) if is_valid else '[pending]')
 
 	if is_valid:
 		action_str = 'Validation' if not is_valid else 'Expected test'
-		print ' {:<16}'.format('{} errors:'.format(action_str))
+		print(' {:<16}'.format('{} errors:'.format(action_str)))
 		if model['use_E']:
-			print '  {:<15} {:>.2e}/{:>.2e} [a.u.]'.format('Energy:', e_err['mae'], e_err['rmse'])
-		print '  {:<15} {:>.2e}/{:>.2e} [a.u.]'.format('Forces:', f_err['mae'], f_err['rmse'])
-	print
+			print('  {:<15} {:>.2e}/{:>.2e} [a.u.]'.format('Energy:', e_err['mae'], e_err['rmse']))
+		print('  {:<15} {:>.2e}/{:>.2e} [a.u.]'.format('Forces:', f_err['mae'], f_err['rmse']))
+	print()
 
 
 def all(dataset, valid_dataset, test_dataset, n_train, n_valid, n_test, sigs, gdml, use_E, use_E_cstr, use_cprsn, overwrite, max_processes, **kwargs):
 
-	print '\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-'*100
+	print('\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-'*100)
 
-	print ui.white_bold_str('Properties')
+	print(ui.white_bold_str('Properties'))
 	_, dataset_extracted = dataset
 	_print_dataset_properties(dataset_extracted)
 
 	if valid_dataset is not None:
-		print ui.white_bold_str('Properties (validation)')
+		print(ui.white_bold_str('Properties (validation)'))
 		_, valid_dataset_extracted = valid_dataset
 		_print_dataset_properties(valid_dataset_extracted)
 
@@ -130,39 +130,39 @@ def all(dataset, valid_dataset, test_dataset, n_train, n_valid, n_test, sigs, gd
 			raise AssistantError('Atom composition or order in validation dataset does not match the one in bulk dataset.')
 
 	if test_dataset is not None:
-		print ui.white_bold_str('Properties (test)')
+		print(ui.white_bold_str('Properties (test)'))
 		_, test_dataset_extracted = test_dataset
 		_print_dataset_properties(test_dataset_extracted)
 
 		if not np.array_equal(dataset_extracted['z'], test_dataset_extracted['z']):
 			raise AssistantError('Atom composition or order in test dataset does not match the one in bulk dataset.')
 
-	print ui.white_back_str(' STEP 1 ') + ' Cross-validation task creation\n' + '-'*100
+	print(ui.white_back_str(' STEP 1 ') + ' Cross-validation task creation\n' + '-'*100)
 	task_dir = create(dataset, test_dataset, n_train, n_valid, sigs, gdml, use_E, use_E_cstr, use_cprsn, overwrite, max_processes, **kwargs)
 
-	print ui.white_back_str(' STEP 2 ') + ' Training\n' + '-'*100
+	print(ui.white_back_str(' STEP 2 ') + ' Training\n' + '-'*100)
 	task_dir_arg = ui.is_dir_with_file_type(task_dir, 'task')
 	model_dir_or_file_path = train(task_dir_arg, overwrite, max_processes, **kwargs)
 
-	print ui.white_back_str(' STEP 3 ') + ' Validation\n' + '-'*100
+	print(ui.white_back_str(' STEP 3 ') + ' Validation\n' + '-'*100)
 	model_dir_arg = ui.is_dir_with_file_type(model_dir_or_file_path, 'model', or_file=True)
 	if valid_dataset is None: valid_dataset = dataset
 	validate(model_dir_arg, valid_dataset, overwrite=False,max_processes=max_processes, **kwargs)
 
-	print ui.white_back_str(' STEP 4 ') + ' Hyper-parameter selection\n' + '-'*100
+	print(ui.white_back_str(' STEP 4 ') + ' Hyper-parameter selection\n' + '-'*100)
 	#if sigs is None or len(sigs) > 1: # Skip testing and selection, if only one model was trained.
 	model_file_name = select(model_dir_arg, overwrite, max_processes, **kwargs)
 	#else:
 	#	best_model_path = model_dir_or_file_path # model_dir_or_file_path = model_path, if single model is being trained
 	#	print ui.info_str('[INFO]') + ' Skipping step because only one model is being trained.\n'
 
-	print ui.white_back_str(' STEP 5 ') + ' Test.\n' + '-'*100
+	print(ui.white_back_str(' STEP 5 ') + ' Test.\n' + '-'*100)
 	model_dir_arg = ui.is_dir_with_file_type(model_file_name, 'model', or_file=True)
 	if test_dataset is None: test_dataset = dataset
 	test(model_dir_arg, test_dataset, n_test, overwrite=False, max_processes=max_processes, **kwargs)
 
-	print ui.pass_str('[DONE]') + ' Training assistant finished sucessfully.'
-	print '       Here is your model: \'%s\'' % model_file_name
+	print(ui.pass_str('[DONE]') + ' Training assistant finished sucessfully.')
+	print('       Here is your model: \'%s\'' % model_file_name)
 
 
 # if training job exists and is a subset of the requested cv range, add new tasks
@@ -174,11 +174,11 @@ def create(dataset, valid_dataset, n_train, n_valid, sigs, gdml, use_E, use_E_cs
 
 	func_called_directly = command == 'create' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n TASK CREATION \n') + '-'*100
-		print ui.white_bold_str('Dataset properties')
+		print(ui.white_back_str('\n TASK CREATION \n') + '-'*100)
+		print(ui.white_bold_str('Dataset properties'))
 		_print_dataset_properties(dataset)
 
-	print ui.white_bold_str('Properties')
+	print(ui.white_bold_str('Properties'))
 	_print_task_properties(use_sym=not gdml, use_cprsn=use_cprsn, use_E=use_E, use_E_cstr=use_E_cstr)
 
 	if n_data < n_train:
@@ -196,8 +196,8 @@ def create(dataset, valid_dataset, n_train, n_valid, sigs, gdml, use_E, use_E_cs
 
 	lam = 1e-15
 	if sigs is None:
-		print ui.info_str('[INFO]') + ' Kernel hyper-paramter sigma was automatically set to range \'2:10:100\'.'
-		sigs = range(2,100,10) # default range
+		print(ui.info_str('[INFO]') + ' Kernel hyper-paramter sigma was automatically set to range \'2:10:100\'.')
+		sigs = list(range(2,100,10)) # default range
 
 	gdml_train = GDMLTrain(max_processes=max_processes)
 
@@ -205,12 +205,12 @@ def create(dataset, valid_dataset, n_train, n_valid, sigs, gdml, use_E, use_E_cs
 	task_file_names = []
 	if os.path.exists(task_dir):
 		if overwrite:
-			print ui.info_str('[INFO]') + ' Overwriting existing training directory.'
+			print(ui.info_str('[INFO]') + ' Overwriting existing training directory.')
 			shutil.rmtree(task_dir)
 			os.makedirs(task_dir)
 		else:
 			if ui.is_task_dir_resumeable(task_dir, dataset, valid_dataset, n_train, n_valid, sigs, gdml):
-				print ui.info_str('[INFO]') + ' Resuming existing hyper-parameter search in \'%s\'.' % task_dir
+				print(ui.info_str('[INFO]') + ' Resuming existing hyper-parameter search in \'%s\'.' % task_dir)
 				
 				# Get all task file names.
 				try:
@@ -230,21 +230,21 @@ def create(dataset, valid_dataset, n_train, n_valid, sigs, gdml, use_E, use_E_cs
 		#tmpl_task = dict(np.load(os.path.join(task_dir, task_file_names[0])))
 	else:
 		if not use_E:
-			print ui.info_str('[INFO]') + ' Energy labels will be ignored for training.'
-			print '       Note: If available in the dataset file, the energy labels will however still be used to '
-			print '             generate stratified training, test and validation datasets. Otherwise a uniform '
-			print '             sampling is used.'
+			print(ui.info_str('[INFO]') + ' Energy labels will be ignored for training.')
+			print('       Note: If available in the dataset file, the energy labels will however still be used to ')
+			print('             generate stratified training, test and validation datasets. Otherwise a uniform ')
+			print('             sampling is used.')
 
 		if 'E' not in dataset:
-			print ui.warn_str('[WARN]') + ' Training dataset will be sampled with no guidance from energy labels (uniformly)!'
+			print(ui.warn_str('[WARN]') + ' Training dataset will be sampled with no guidance from energy labels (uniformly)!')
 
 		if 'E' not in valid_dataset:
-			print ui.warn_str('[WARN]') + ' Validation dataset will be sampled with no guidance from energy labels (uniformly)!'
-			print '       Note: Larger validation datasets are recommended due to slower convergence of the error.'
+			print(ui.warn_str('[WARN]') + ' Validation dataset will be sampled with no guidance from energy labels (uniformly)!')
+			print('       Note: Larger validation datasets are recommended due to slower convergence of the error.')
 
 		try:
 			tmpl_task = gdml_train.create_task(dataset, n_train, valid_dataset, n_valid, sig=1, lam=lam, use_sym=not gdml, use_E=use_E, use_E_cstr=use_E_cstr, use_cprsn=use_cprsn) # template task
-		except Exception, err:
+		except Exception as err:
 			sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
 		
 	n_written = 0
@@ -254,16 +254,16 @@ def create(dataset, valid_dataset, n_train, n_valid, sigs, gdml, use_E, use_E_cs
 		task_path = os.path.join(task_dir, task_file_name)
 
 		if os.path.isfile(task_path):
-			print ui.warn_str('[WARN]') + ' Skipping existing task \'%s\'.' % task_file_name
+			print(ui.warn_str('[WARN]') + ' Skipping existing task \'%s\'.' % task_file_name)
 		else:
 			np.savez_compressed(task_path, **tmpl_task)
 			n_written += 1
 	if n_written > 0:
-		print '[DONE] Writing %d/%d tasks with %s training points each.' % (n_written, len(sigs), tmpl_task['R_train'].shape[0])
-	print ''
+		print('[DONE] Writing %d/%d tasks with %s training points each.' % (n_written, len(sigs), tmpl_task['R_train'].shape[0]))
+	print('')
 
 	if func_called_directly:
-		print ui.white_back_str(' NEXT STEP ') + ' %s train %s\n' % (PACKAGE_NAME, task_dir)
+		print(ui.white_back_str(' NEXT STEP ') + ' %s train %s\n' % (PACKAGE_NAME, task_dir))
 
 	return task_dir
 
@@ -275,11 +275,11 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 
 	func_called_directly = command == 'train' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n MODEL TRAINING \n') + '-'*100
+		print(ui.white_back_str('\n MODEL TRAINING \n') + '-'*100)
 
 	def cprsn_callback(n_atoms, n_atoms_kept):
-		print ui.info_str('[INFO]') + ' %d out of %d atoms remain after compression.' % (n_atoms_kept, n_atoms)
-		print '       Note: Compression reduces optimization problem size at the cost of prediction accuracy!'
+		print(ui.info_str('[INFO]') + ' %d out of %d atoms remain after compression.' % (n_atoms_kept, n_atoms))
+		print('       Note: Compression reduces optimization problem size at the cost of prediction accuracy!')
 	ker_progr_callback = partial(ui.progr_bar, disp_str='Assembling kernel matrix...')
 	solve_callback = partial(ui.progr_toggle, disp_str='Solving linear system...   ')
 
@@ -288,7 +288,7 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 	gdml_train = GDMLTrain(max_processes=max_processes)
 	for i,task_file_name in enumerate(task_file_names):
 		if n_tasks > 1:
-			print ui.white_bold_str('Training task %d of %d' % (i+1, n_tasks))
+			print(ui.white_bold_str('Training task %d of %d' % (i+1, n_tasks)))
 
 		task_file_path = os.path.join(task_dir, task_file_name)
 		#task_file_relpath = os.path.relpath(task_file_path, BASE_DIR)
@@ -299,25 +299,25 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 			#model_file_relpath = os.path.relpath(model_file_path, BASE_DIR)
 
 			if not overwrite and os.path.isfile(model_file_path):
-				print ui.warn_str('[WARN]') + ' Skipping exising model \'%s\'.' % model_file_name
+				print(ui.warn_str('[WARN]') + ' Skipping exising model \'%s\'.' % model_file_name)
 				if func_called_directly:
-					print '       Run \'%s train -o %s\' to overwrite.' % (PACKAGE_NAME, task_file_path)
-				print
+					print('       Run \'%s train -o %s\' to overwrite.' % (PACKAGE_NAME, task_file_path))
+				print()
 				continue
 
 			try:
 				model = gdml_train.train(task, cprsn_callback, ker_progr_callback, solve_callback)
-			except Exception, err:
+			except Exception as err:
 				sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
 			else:
 				if func_called_directly:
-					print '[DONE] Writing model to file \'%s\'...' % model_file_path
+					print('[DONE] Writing model to file \'%s\'...' % model_file_path)
 				np.savez_compressed(model_file_path, **model)
-			print
+			print()
 
 	model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir
 	if func_called_directly:
-		print ui.white_back_str(' NEXT STEP ') + ' %s validate %s %s\n' % (PACKAGE_NAME, model_dir_or_file_path, '<dataset_file>')
+		print(ui.white_back_str(' NEXT STEP ') + ' %s validate %s %s\n' % (PACKAGE_NAME, model_dir_or_file_path, '<dataset_file>'))
 
 	return model_dir_or_file_path #model directory or file
 
@@ -345,8 +345,8 @@ def validate(model_dir, dataset, overwrite, max_processes, command=None, **kwarg
 
 	func_called_directly = command == 'validate' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n MODEL VALIDATION \n') + '-'*100
-		print ui.white_bold_str('Dataset properties')
+		print(ui.white_back_str('\n MODEL VALIDATION \n') + '-'*100)
+		print(ui.white_bold_str('Dataset properties'))
 		_print_dataset_properties(dataset_extracted)
 
 	n_test = 0 # TODO remove?
@@ -358,9 +358,9 @@ def validate(model_dir, dataset, overwrite, max_processes, command=None, **kwarg
 
 		if n_models == 1:
 			model_file_path = os.path.join(model_dir, model_file_names[0])
-			print ui.white_back_str(' NEXT STEP ') + ' %s test %s %s %s\n' % (PACKAGE_NAME, model_file_path, dataset_path_extracted, '<n_test>')
+			print(ui.white_back_str(' NEXT STEP ') + ' %s test %s %s %s\n' % (PACKAGE_NAME, model_file_path, dataset_path_extracted, '<n_test>'))
 		else:
-			print ui.white_back_str(' NEXT STEP ') + ' %s select %s\n' % (PACKAGE_NAME, model_dir)
+			print(ui.white_back_str(' NEXT STEP ') + ' %s select %s\n' % (PACKAGE_NAME, model_dir))
 
 
 def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **kwargs):
@@ -372,8 +372,8 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 
 	func_called_directly = command == 'test' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n MODEL TEST \n') + '-'*100
-		print ui.white_bold_str('Dataset properties')
+		print(ui.white_back_str('\n MODEL TEST \n') + '-'*100)
+		print(ui.white_bold_str('Dataset properties'))
 		_print_dataset_properties(dataset)
 
 	num_workers, batch_size = 0,0
@@ -385,7 +385,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 		#use_E = model['use_E'] if 'use_E' in model else True
 
 		if i == 0 and command != 'all':
-			print ui.white_bold_str('Model properties')
+			print(ui.white_bold_str('Model properties'))
 			_print_model_properties(model)
 
 		if not np.array_equal(model['z'], dataset['z']):
@@ -404,13 +404,13 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 
 		#print ui.white_bold_str(('%s model' % ('Validating' if is_valid else 'Testing')) + ('' if n_models == 1 else ' %d of %d' % (i+1, n_models)))
 		if n_models > 1:
-			print ui.white_bold_str('%s model %d of %d' % ('Testing' if is_test else 'Validating', i+1, n_models))
+			print(ui.white_bold_str('%s model %d of %d' % ('Testing' if is_test else 'Validating', i+1, n_models)))
 
 		if not overwrite and not needs_valid and not is_test:
-			print ui.warn_str('[WARN]') + ' Skipping already validated model \'%s\'.' % model_file_name
+			print(ui.warn_str('[WARN]') + ' Skipping already validated model \'%s\'.' % model_file_name)
 			if command == 'test':
-				print '       Run \'%s validate -o %s %s\' to overwrite.' % (PACKAGE_NAME, model_path, dataset_path)
-			print
+				print('       Run \'%s validate -o %s %s\' to overwrite.' % (PACKAGE_NAME, model_path, dataset_path))
+			print()
 			continue
 
 		# TODO:
@@ -438,20 +438,20 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 
 			if n_test is None and n_data_eff != 0: # test on all data points that have not been used for training or testing
 				n_test = n_data_eff
-				print ui.info_str('[INFO]') + ' Test set size was automatically set to %d points.' % n_test
+				print(ui.info_str('[INFO]') + ' Test set size was automatically set to %d points.' % n_test)
 
 			if n_test == 0 or n_data_eff == 0:
-				print ui.warn_str('[WARN]') + ' Skipping! No unused points for test in provided dataset.\n'
+				print(ui.warn_str('[WARN]') + ' Skipping! No unused points for test in provided dataset.\n')
 				return
 			elif n_data_eff < n_test:
 				n_test = n_data_eff
-				print ui.warn_str('[WARN]') + ' Test size reduced to %d. Not enough unused points in provided dataset.\n' % n_test
+				print(ui.warn_str('[WARN]') + ' Test size reduced to %d. Not enough unused points in provided dataset.\n' % n_test)
 
 			if 'E' in dataset:
 				test_idxs = gdml.draw_strat_sample(dataset['E'], n_test, excl_idxs=excl_idxs)
 			else:
-				print ui.warn_str('[WARN]') + ' Test dataset will be sampled with no guidance from energy labels (uniformly)!'
-				print '       Note: Larger test datasets are recommended due to slower convergence of the error.'
+				print(ui.warn_str('[WARN]') + ' Test dataset will be sampled with no guidance from energy labels (uniformly)!')
+				print('       Note: Larger test datasets are recommended due to slower convergence of the error.')
 				idxs_valid = np.random.choice(np.arange(n_valid), n_valid, replace=False)
 		np.random.shuffle(test_idxs) # shuffle to improve convergence of online error
 
@@ -491,7 +491,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 		b_size = min(100, len(test_idxs))
 		n_done = 0
 		t = time.time()
-		for b_range in _batch(range(len(test_idxs)), b_size):
+		for b_range in _batch(list(range(len(test_idxs))), b_size):
 
 			n_done_step = len(b_range)
 			n_done += n_done_step
@@ -532,21 +532,21 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 			if b_range is not None:
 				sys.stdout.write(ui.gray_str(' @ %.1f geo/s' % sps))
 			sys.stdout.flush()
-		print '\n'
+		print('\n')
 
 		if model['use_E']:
 			e_rmse_pct = ((e_rmse/e_err['rmse'] - 1.) * 100)
 		f_rmse_pct = ((f_rmse/f_err['rmse'] - 1.) * 100)
 
 		if func_called_directly and n_models == 1:
-			print ui.white_bold_str('Measured errors (MAE, RMSE):')
+			print(ui.white_bold_str('Measured errors (MAE, RMSE):'))
 			format_str = ' {:<16} {:>.2e}/{:>.2e} '
 			if model['use_E']:
-				print (format_str + '[a.u.] {:<}').format('Energy:', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= e_err['mae'] and e_rmse <= e_err['rmse'] else '!!',e_rmse_pct))
-			print (format_str + '[a.u.] {:<}').format('Forces:', f_mae, f_rmse, "%s (%+.1f %%)" % ('OK' if f_mae <= f_err['mae'] and f_rmse <= f_err['rmse'] else '!!',f_rmse_pct))
-			print (format_str + '[a.u.]').format(' Magnitude:', mag_mae, mag_rmse)
-			print (format_str + '[0-1], 0: best').format(' Angle:', cos_mae, cos_rmse)
-			print
+				print((format_str + '[a.u.] {:<}').format('Energy:', e_mae, e_rmse, "%s (%+.1f %%)" % ('OK' if e_mae <= e_err['mae'] and e_rmse <= e_err['rmse'] else '!!',e_rmse_pct)))
+			print((format_str + '[a.u.] {:<}').format('Forces:', f_mae, f_rmse, "%s (%+.1f %%)" % ('OK' if f_mae <= f_err['mae'] and f_rmse <= f_err['rmse'] else '!!',f_rmse_pct)))
+			print((format_str + '[a.u.]').format(' Magnitude:', mag_mae, mag_rmse))
+			print((format_str + '[0-1], 0: best').format(' Angle:', cos_mae, cos_rmse))
+			print()
 
 		model_mutable = dict(model)
 		model.close()
@@ -565,17 +565,17 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 
 		if is_test:
 			if overwrite:
-				print ui.info_str('[INFO]') + ' Errors were updated in model file.\n'
+				print(ui.info_str('[INFO]') + ' Errors were updated in model file.\n')
 			elif len(test_idxs) < model['n_test']: # test on less than the model has been previously tested on
 				model_path = os.path.join(model_dir, model_file_names[i])
-				print ui.warn_str('[WARN]') + ' Model has previously been tested on %d points. Errors for current run with %d points have NOT been recorded in model file.' % (model['n_test'], len(test_idxs)) +\
-								  '\n       Run \'%s test -o %s %s %s\' to overwrite.\n' % (PACKAGE_NAME, os.path.relpath(model_path), dataset_path, n_test)
+				print(ui.warn_str('[WARN]') + ' Model has previously been tested on %d points. Errors for current run with %d points have NOT been recorded in model file.' % (model['n_test'], len(test_idxs)) +\
+								  '\n       Run \'%s test -o %s %s %s\' to overwrite.\n' % (PACKAGE_NAME, os.path.relpath(model_path), dataset_path, n_test))
 
 def select(model_dir, overwrite, max_processes, command=None, **kwargs):
 
 	func_called_directly = command == 'select' # has this function been called from command line or from 'all'?
 	if func_called_directly:
-		print ui.white_back_str('\n MODEL SELECTION \n') + '-'*100
+		print(ui.white_back_str('\n MODEL SELECTION \n') + '-'*100)
 
 	model_dir, model_file_names = model_dir
 
@@ -619,10 +619,10 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):
 	best_sig = rows[best_idx][0]
 
 	rows = sorted(rows, key=lambda col: col[0]) # sort according to sigma
-	print ui.white_bold_str('Cross-validation errors')
-	print ' '*7 + 'Energy' + ' '*6 + 'Forces'
-	print (' {:>3} ' + '{:>5} '*4).format(*data_names)
-	print ' ' + '-'*27
+	print(ui.white_bold_str('Cross-validation errors'))
+	print(' '*7 + 'Energy' + ' '*6 + 'Forces')
+	print((' {:>3} ' + '{:>5} '*4).format(*data_names))
+	print(' ' + '-'*27)
 	format_str = ' {:>3} ' + '{:>5.2f} '*4
 	format_str_no_E = ' {:>3}     -     - ' + '{:>5.2f} '*2
 	for row in rows:
@@ -633,15 +633,15 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):
 
 		if row[0] != best_sig:
 			row_str = ui.gray_str(row_str)
-		print row_str
-	print
+		print(row_str)
+	print()
 
 	has_printed = False
 
 	sig_col = [row[0] for row in rows]
 	if best_sig == min(sig_col) or best_sig == max(sig_col):
-		print ui.warn_str('[WARN]') + ' Optimal sigma lies on boundary of search grid.' +\
-						  '\n       Model performance might improve if search grid is extended in direction sigma %s %d.' % ('<' if best_idx == 0 else '>', best_sig)
+		print(ui.warn_str('[WARN]') + ' Optimal sigma lies on boundary of search grid.' +\
+						  '\n       Model performance might improve if search grid is extended in direction sigma %s %d.' % ('<' if best_idx == 0 else '>', best_sig))
 		has_printed = True
 
 	best_model_file_name = model_file_names[best_idx]
@@ -650,24 +650,24 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):
 
 	model_exists = os.path.isfile(best_model_file_name_extended)
 	if model_exists and overwrite:
-		print ui.info_str('[INFO]') + ' Overwriting existing model file.'
+		print(ui.info_str('[INFO]') + ' Overwriting existing model file.')
 		has_printed = True
 	if not model_exists or overwrite:
 		if func_called_directly:
-			print '[DONE] Writing model file \'%s\'...' % best_model_file_name_extended
+			print('[DONE] Writing model file \'%s\'...' % best_model_file_name_extended)
 			has_printed = True
 		shutil.copy(os.path.join(model_dir, best_model_file_name), best_model_file_name_extended)
 		shutil.rmtree(model_dir)
 	else:
-		print ui.warn_str('[WARN]') + ' Model \'%s\' already exists.' % best_model_file_name_extended +\
-									  '\n       Run \'%s select -o %s\' to overwrite.' % (PACKAGE_NAME, os.path.relpath(model_dir))
+		print(ui.warn_str('[WARN]') + ' Model \'%s\' already exists.' % best_model_file_name_extended +\
+									  '\n       Run \'%s select -o %s\' to overwrite.' % (PACKAGE_NAME, os.path.relpath(model_dir)))
 		has_printed = True
 	
 	if has_printed: # Add extra newline.
-		print
+		print()
 
 	if func_called_directly:
-		print ui.white_back_str(' NEXT STEP ') + ' %s test %s %s %s\n' % (PACKAGE_NAME, best_model_file_name_extended, '<dataset_file>', '<n_test>')
+		print(ui.white_back_str(' NEXT STEP ') + ' %s test %s %s %s\n' % (PACKAGE_NAME, best_model_file_name_extended, '<dataset_file>', '<n_test>'))
 
 	best_model.close()
 	return best_model_file_name_extended
@@ -675,19 +675,19 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):
 
 def show(file, overwrite, max_processes, command=None, **kwargs):
 
-	print ui.white_back_str('\n SHOW DETAILS \n') + '-'*100
+	print(ui.white_back_str('\n SHOW DETAILS \n') + '-'*100)
 	file_path, file = file
 
 	if file['type'] == 'd':
-		print ui.white_bold_str('Dataset properties')
+		print(ui.white_bold_str('Dataset properties'))
 		_print_dataset_properties(file)
 
 	if file['type'] == 't':
-		print ui.white_bold_str('Task properties')
+		print(ui.white_bold_str('Task properties'))
 		_print_task_properties(use_sym=file['use_sym'], use_cprsn=file['use_cprsn'], use_E=file['use_E'], use_E_cstr=file['use_E_cstr'])
 
 	if file['type'] == 'm':
-		print ui.white_bold_str('Model properties')
+		print(ui.white_bold_str('Model properties'))
 		_print_model_properties(file)
 
 
@@ -806,7 +806,7 @@ def main():
 
 	try:
 		getattr(sys.modules[__name__], args.command)(**vars(args))
-	except AssistantError, err:
+	except AssistantError as err:
 		sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
 
 

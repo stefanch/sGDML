@@ -10,7 +10,7 @@ import numpy as np
 import multiprocessing as mp
 from functools import partial
 
-import ui
+from . import ui
 
 glob = {}
 
@@ -87,13 +87,13 @@ def sync_mat(R,z,max_processes=None):
 
 	pool = mp.Pool(max_processes)
 	match_perms_all = {}
-	for i,match_perms in enumerate(pool.imap_unordered(partial(_sync_mat_wkr, n_train=n_train, same_z_cost=same_z_cost), range(n_train))):			
+	for i,match_perms in enumerate(pool.imap_unordered(partial(_sync_mat_wkr, n_train=n_train, same_z_cost=same_z_cost), list(range(n_train)))):			
 		match_perms_all.update(match_perms)
 
 		progr = float(i) / (n_train-1)
 		sys.stdout.write('\r[%3d%%] Bi-partite matching...' % (progr * 100))
 		sys.stdout.flush()
-	print ''
+	print('')
 	pool.close()
 
 	match_cost = np.frombuffer(glob['match_cost']).reshape(glob['match_cost_shape'])
@@ -130,7 +130,7 @@ def complete_group(perms):
 					perm_added = True
 					perms = np.vstack((perms, new_perm))
 
-	print ui.gray_str(' (%d symmetries)' % perms.shape[0])
+	print(ui.gray_str(' (%d symmetries)' % perms.shape[0]))
 	return perms
 
 

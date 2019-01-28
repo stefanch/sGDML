@@ -25,14 +25,14 @@
 import os, sys
 import argparse
 import re
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 
 from sgdml.utils import io, ui
 
 def download(command,file_name):
 
 	base_url = 'http://www.quantum-machine.org/gdml/' + ('data/npz/' if command == 'dataset' else 'models/')
-	request = urllib2.urlopen(base_url + file_name)
+	request = urllib.request.urlopen(base_url + file_name)
 	file = open(file_name, 'wb')
 	filesize = int(request.info().getheaders("Content-Length")[0])
 
@@ -45,7 +45,7 @@ def download(command,file_name):
 		size += len(buffer)
 		file.write(buffer)
 		ui.progr_bar(size, filesize, disp_str='Downloading: %s (%s bytes)' % (file_name, filesize))
-	print ''
+	print('')
 	file.close()
 
 
@@ -75,8 +75,8 @@ def main():
 	if args.name is not None:
 
 		url = '%sget.php?%s=%s' % (base_url,args.command,args.name)
-		print "Contacting server (%s)..." % base_url
-		response = urllib2.urlopen(url)
+		print("Contacting server (%s)..." % base_url)
+		response = urllib.request.urlopen(url)
 		match, score = response.read().split(',')
 		response.close()
 
@@ -85,42 +85,42 @@ def main():
 
 	else:
 
-		print "Contacting server (%s)..." % base_url
-		response = urllib2.urlopen('%sget.php?%s' % (base_url,args.command))
+		print("Contacting server (%s)..." % base_url)
+		response = urllib.request.urlopen('%sget.php?%s' % (base_url,args.command))
 		line = response.readlines()
 		response.close()
 
-		print ''
-		print 'Available %ss:' % args.command
+		print('')
+		print('Available %ss:' % args.command)
 
-		print '{:<2} {:<25}    {:>4}'.format('ID', 'Name', 'Size')
-		print '-'*36
+		print('{:<2} {:<25}    {:>4}'.format('ID', 'Name', 'Size'))
+		print('-'*36)
 
 		items = line[0].split(';')
 		for i,item in enumerate(items):
 			name, size = item.split(',')
 			size = int(size) / 1024**2 # Bytes to MBytes
 
-			print '{:>2d} {:<25} {:>4d} MB'.format(i, name, size)
-		print ''
+			print('{:>2d} {:<25} {:>4d} MB'.format(i, name, size))
+		print('')
 
-		down_list = raw_input('Please list which datasets to download (e.g. 0 1 2 6) or type \'all\': ')
+		down_list = input('Please list which datasets to download (e.g. 0 1 2 6) or type \'all\': ')
 		down_idxs = []
 		if 'all' in down_list.lower():
-			down_idxs = range(len(items))
+			down_idxs = list(range(len(items)))
 		elif re.match("^ *[0-9][0-9 ]*$", down_list): # only digits and spaces, at least one digit
 			down_idxs = [int(idx) for idx in re.split(r'\s+', down_list.strip())]
 			down_idxs = list(set(down_idxs))
 		else:
-			print ' ABORTED.'
+			print(' ABORTED.')
 
 		for idx in down_idxs:
 			if not idx in range(len(items)):
-				print 'Index ' + idx + ' out of range, skipping.'
+				print('Index ' + idx + ' out of range, skipping.')
 			else:
 				name = items[idx].split(',')[0]
 				if os.path.exists(name):
-					print "'%s' exists, skipping." % (name)
+					print("'%s' exists, skipping." % (name))
 					continue
 
 				download(args.command, name + '.npz')

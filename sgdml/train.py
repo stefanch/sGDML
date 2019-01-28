@@ -31,8 +31,8 @@ import scipy as sp
 import numpy as np
 
 from sgdml import __version__
-from predict import GDMLPredict
-from utils import desc,perm,io
+from .predict import GDMLPredict
+from .utils import desc,perm,io
 
 import multiprocessing as mp
 from functools import partial
@@ -582,7 +582,7 @@ class GDMLTrain:
 
 		todo = (n_train**2 - n_train) / 2 + n_train
 		done_total = 0
-		for done in pool.imap_unordered(partial(_assemble_kernel_mat_wkr, n_perms=n_perms, tril_perms_lin=tril_perms_lin, sig=sig, use_E_cstr=use_E_cstr), range(n_train)):			
+		for done in pool.imap_unordered(partial(_assemble_kernel_mat_wkr, n_perms=n_perms, tril_perms_lin=tril_perms_lin, sig=sig, use_E_cstr=use_E_cstr), list(range(n_train))):			
 			done_total += done
 
 			if progr_callback is not None:

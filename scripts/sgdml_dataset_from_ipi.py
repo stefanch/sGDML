@@ -33,9 +33,9 @@ from sgdml.utils import io,ui
 def raw_input_float(prompt):
     while True:
         try:
-            return float(raw_input(prompt))
+            return float(input(prompt))
         except ValueError:
-            print ui.fail_str('[FAIL]') + ' That is not a valid float.'
+            print(ui.fail_str('[FAIL]') + ' That is not a valid float.')
 
 # Assumes that the atoms in each molecule are in the same order.
 def read_concat_xyz(f):
@@ -46,7 +46,7 @@ def read_concat_xyz(f):
 		line = line.strip()
 		if not n_atoms:
 			n_atoms = int(line)
-			print 'Number atoms per geometry:      {:>7d}'.format(n_atoms)
+			print('Number atoms per geometry:      {:>7d}'.format(n_atoms))
 
 		file_i, line_i = divmod(i, n_atoms+2)
 
@@ -54,7 +54,7 @@ def read_concat_xyz(f):
 		if line_i >= 2:
 			if file_i == 0: # first molecule
 				z.append(io._z_str_to_z_dict[cols[0]])
-			R.append(map(float,cols[1:4]))
+			R.append(list(map(float,cols[1:4])))
 
 		if file_i % 1000 == 0:
 			sys.stdout.write("\rNumber geometries found so far: {:>7d}".format(file_i))
@@ -113,31 +113,31 @@ dataset_file_name = name + '.npz'
 
 dataset_exists = os.path.isfile(dataset_file_name)
 if dataset_exists and args.overwrite:	
-	print ui.info_str('[INFO]') + ' Overwriting existing dataset file.'
+	print(ui.info_str('[INFO]') + ' Overwriting existing dataset file.')
 if not dataset_exists or args.overwrite:
-	print 'Writing dataset to \'%s\'...' % dataset_file_name
+	print('Writing dataset to \'%s\'...' % dataset_file_name)
 else:
 	sys.exit(ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name)
 
 
-print 'Reading geometries...'
+print('Reading geometries...')
 R,z = read_concat_xyz(geometries)
 
-print 'Reading forces...'
+print('Reading forces...')
 F,_ = read_concat_xyz(forces)
 
-print 'Reading energies from column %d...' % energy_col
+print('Reading energies from column %d...' % energy_col)
 E = read_out_file(energies,energy_col)
 
 # Prune all arrays to same length.
 n_mols = min(min(R.shape[0], F.shape[0]), E.shape[0])
 if n_mols != R.shape[0] or n_mols != F.shape[0] or n_mols != E.shape[0]:
-	print ui.warn_str('[WARN]') + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols
+	print(ui.warn_str('[WARN]') + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols)
 R = R[:n_mols,:,:]
 F = F[:n_mols,:,:]
 E = E[:n_mols]
 
-print ui.info_str('[INFO]') + ' Geometries, forces and energies must have consistent units.'
+print(ui.info_str('[INFO]') + ' Geometries, forces and energies must have consistent units.')
 R_conv_fact = raw_input_float('Unit conversion factor for geometries: ')
 R = R * R_conv_fact
 F_conv_fact = raw_input_float('Unit conversion factor for forces: ')
@@ -156,4 +156,4 @@ base_vars = {'type':			'd',\
 base_vars['md5'] = io.dataset_md5(base_vars)
 
 np.savez_compressed(dataset_file_name, **base_vars)
-print ui.pass_str('DONE')
+print(ui.pass_str('DONE'))

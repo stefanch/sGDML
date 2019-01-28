@@ -38,7 +38,7 @@ def read_concat_ext_xyz(f):
 		line = line.strip()
 		if not n_atoms:
 			n_atoms = int(line)
-			print 'Number atoms per geometry:      {:>7d}'.format(n_atoms)
+			print('Number atoms per geometry:      {:>7d}'.format(n_atoms))
 
 		file_i, line_i = divmod(i, n_atoms+2)
 
@@ -47,17 +47,17 @@ def read_concat_ext_xyz(f):
 
 		cols = line.split()
 		if line_i >= 2:
-			R.append(map(float,cols[1:4]))
+			R.append(list(map(float,cols[1:4])))
 			if file_i == 0: # first molecule
 				z.append(io._z_str_to_z_dict[cols[0]])
-			F.append(map(float,cols[4:7]))
+			F.append(list(map(float,cols[4:7])))
 
 		if file_i % 1000 == 0:
 			sys.stdout.write("\rNumber geometries found so far: {:>7d}".format(file_i))
 			sys.stdout.flush()
 	sys.stdout.write("\rNumber geometries found so far: {:>7d}".format(file_i))
 	sys.stdout.flush()
-	print ''
+	print('')
 
 	R = np.array(R).reshape(-1,n_atoms,3)
 	z = np.array(z)
@@ -82,9 +82,9 @@ dataset_file_name = name + '.npz'
 
 dataset_exists = os.path.isfile(dataset_file_name)
 if dataset_exists and args.overwrite:	
-	print ui.info_str('[INFO]') + ' Overwriting existing dataset file.'
+	print(ui.info_str('[INFO]') + ' Overwriting existing dataset file.')
 if not dataset_exists or args.overwrite:
-	print 'Writing dataset to \'%s\'...' % dataset_file_name
+	print('Writing dataset to \'%s\'...' % dataset_file_name)
 else:
 	sys.exit(ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name)
 
@@ -101,4 +101,4 @@ base_vars = {'type':			'd',\
 base_vars['md5'] = io.dataset_md5(base_vars)
 
 np.savez_compressed(dataset_file_name, **base_vars)
-print ui.pass_str('DONE')
+print(ui.pass_str('DONE'))

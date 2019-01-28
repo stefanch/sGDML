@@ -67,7 +67,7 @@ def perm(perm):
 	#perm = perm # - 1 # MATLAB is 1-dominant (legacy reasons)
 
 	rest = np.zeros((n,n))
-	rest[np.tril_indices(n,-1)] = range((n**2-n)/2)
+	rest[np.tril_indices(n,-1)] = list(range((n**2-n)/2))
 	rest = rest + rest.T
 	rest = rest[perm, :]
 	rest = rest[:, perm]

@@ -66,11 +66,11 @@ for s in ['train', 'test']:
 	subset_file_name = '%s_%s.npz' % (os.path.splitext(os.path.basename(dataset_path))[0], s)
 	file_exists = os.path.isfile(subset_file_name)
 	if file_exists and args.overwrite:
-		print ui.info_str('[INFO]') + ' Overwriting existing model file.'
+		print(ui.info_str('[INFO]') + ' Overwriting existing model file.')
 	if not file_exists or args.overwrite:
 		np.savez_compressed(subset_file_name, **base_vars)
-		print '[DONE] Extracted %s dataset saved to \'%s\'' % (s,subset_file_name)
+		print('[DONE] Extracted %s dataset saved to \'%s\'' % (s,subset_file_name))
 	else:
-		print ui.warn_str('[WARN]') + ' %s dataset \'%s\' already exists.' % (s.capitalize(), subset_file_name) +\
-									  '\n       Run \'python %s -o %s %s\' to overwrite.\n' % (os.path.basename(__file__), model_path, dataset_path)
+		print(ui.warn_str('[WARN]') + ' %s dataset \'%s\' already exists.' % (s.capitalize(), subset_file_name) +\
+									  '\n       Run \'python %s -o %s %s\' to overwrite.\n' % (os.path.basename(__file__), model_path, dataset_path))
 		sys.exit()

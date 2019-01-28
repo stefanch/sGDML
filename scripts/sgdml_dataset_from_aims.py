@@ -46,13 +46,13 @@ def read_reference_data(f):
 				e_next = False
 			elif f_next:
 				a = int(cols[1])-1
-				F.append(map(float,cols[2:5]))
+				F.append(list(map(float,cols[2:5])))
 				if a == n_atoms-1:
 					f_next = False
 			elif geo_next:
 				if 'atom' in cols:
 					a_count += 1
-					R.append(map(float,cols[1:4]))
+					R.append(list(map(float,cols[1:4])))
 
 					if geo_idx == 0:
 						z.append(io._z_str_to_z_dict[cols[4]])
@@ -69,7 +69,7 @@ def read_reference_data(f):
 					a_count = 0
 		elif 'The structure contains' in line and 'atoms,  and a total of' in line:
 			n_atoms = int(line.split()[3])
-			print 'Number atoms per geometry:      {:>7d}'.format(n_atoms)
+			print('Number atoms per geometry:      {:>7d}'.format(n_atoms))
 			continue
 
 		if geo_idx > 0 and geo_idx % 1000 == 0:
@@ -77,7 +77,7 @@ def read_reference_data(f):
 			sys.stdout.flush()
 	sys.stdout.write("\rNumber geometries found so far: {:>7d}".format(geo_idx))
 	sys.stdout.flush()
-	print '\n' + ui.info_str('[INFO]') + ' Energies and forces have been converted from eV to kcal/mol(/Ang)'
+	print('\n' + ui.info_str('[INFO]') + ' Energies and forces have been converted from eV to kcal/mol(/Ang)')
 
 	R = np.array(R).reshape(-1,n_atoms,3) 
 	z = np.array(z)
@@ -101,9 +101,9 @@ dataset_file_name = name + '.npz'
 
 dataset_exists = os.path.isfile(dataset_file_name)
 if dataset_exists and args.overwrite:	
-	print ui.info_str('[INFO]') + ' Overwriting existing dataset file.'
+	print(ui.info_str('[INFO]') + ' Overwriting existing dataset file.')
 if not dataset_exists or args.overwrite:
-	print 'Writing dataset to \'%s\'...' % dataset_file_name
+	print('Writing dataset to \'%s\'...' % dataset_file_name)
 else:
 	sys.exit(ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name)
 
@@ -112,7 +112,7 @@ R,z,E,F = read_reference_data(dataset)
 # Prune all arrays to same length.
 n_mols = min(min(R.shape[0], F.shape[0]), E.shape[0])
 if n_mols != R.shape[0] or n_mols != F.shape[0] or n_mols != E.shape[0]:
-	print ui.warn_str('[WARN]') + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols
+	print(ui.warn_str('[WARN]') + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols)
 R = R[:n_mols,:,:]
 F = F[:n_mols,:,:]
 E = E[:n_mols]
@@ -128,4 +128,4 @@ base_vars = {'type':			'd',\
 base_vars['md5'] = io.dataset_md5(base_vars)
 
 np.savez_compressed(dataset_file_name, **base_vars)
-print ui.pass_str('DONE')
+print(ui.pass_str('DONE'))

@@ -33,7 +33,7 @@ import timeit
 import multiprocessing as mp
 from functools import partial
 
-from utils import desc
+from .utils import desc
 
 
 glob = {}
@@ -122,7 +122,7 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
 	wkr_stop *= n_perms
 
 	b_start = wkr_start
-	for b_stop in range(wkr_start+dim_c,wkr_stop,dim_c) + [wkr_stop]:
+	for b_stop in list(range(wkr_start+dim_c,wkr_stop,dim_c)) + [wkr_stop]:
 
 		rj_desc_perms = R_desc_perms[b_start:b_stop,:]
 		rj_d_desc_alpha_perms = R_d_desc_alpha_perms[b_start:b_stop,:]
@@ -242,10 +242,10 @@ class GDMLPredict:
 			self._num_workers = self.pool._processes
 
 		# Data ranges for processes
-		wkr_starts = range(0,self.n_train,int(np.ceil(float(self.n_train)/self._num_workers)))
+		wkr_starts = list(range(0,self.n_train,int(np.ceil(float(self.n_train)/self._num_workers))))
 		wkr_stops = wkr_starts[1:] + [self.n_train]
 
-		self.wkr_starts_stops = zip(wkr_starts, wkr_stops)
+		self.wkr_starts_stops = list(zip(wkr_starts, wkr_stops))
 
 	def set_batch_size(self, batch_size=None): # TODO: complain if chunk or worker parameters do not fit training data (this causes issues with the caching)!!
 		"""
@@ -330,7 +330,7 @@ class GDMLPredict:
 				if bulk_mp == False:
 					last_i = 0
 
-				num_workers_rng = range(self._max_processes, 1, -1) if bulk_mp else range(1,self._max_processes+1)
+				num_workers_rng = list(range(self._max_processes, 1, -1)) if bulk_mp else list(range(1,self._max_processes+1))
 
 				#num_workers_rng_sizes = [batch_size for batch_size in batch_size_rng if min_batch_size % batch_size == 0]
 
@@ -347,7 +347,7 @@ class GDMLPredict:
 					gps_rng = (np.inf,0.)
 
 					min_batch_size = min(self.n_train,n_bulk) if bulk_mp else int(np.ceil(self.n_train/num_workers))
-					batch_size_rng = range(min_batch_size, 0, -1)
+					batch_size_rng = list(range(min_batch_size, 0, -1))
 
 					#for i in range(0,min_batch_size):
 					batch_size_rng_sizes = [batch_size for batch_size in batch_size_rng if min_batch_size % batch_size == 0]
