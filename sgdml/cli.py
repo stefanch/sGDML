@@ -22,23 +22,21 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os, sys
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 import argparse
-import time
+import os
 import shutil
+import sys
+import time
 from functools import partial
 
 import numpy as np
 
-from sgdml import __version__
-from .train import GDMLTrain
+from . import __version__
 from .predict import GDMLPredict
-
+from .train import GDMLTrain
 from .utils import io, ui
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PACKAGE_NAME = 'sgdml'
 
 

@@ -1,5 +1,7 @@
 import os
 import re
+from os import path
+
 from setuptools import setup
 
 
@@ -11,7 +13,6 @@ def get_property(property, package):
     return result.group(1)
 
 
-from os import path
 
 this_dir = path.abspath(path.dirname(__file__))
 with open(path.join(this_dir, 'README.md')) as f:

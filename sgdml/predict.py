@@ -24,17 +24,15 @@ This module contains all routines for evaluating GDML and sGDML models.
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys
-
-import scipy.spatial.distance
-import numpy as np
-
-import timeit
 import multiprocessing as mp
+import sys
+import timeit
 from functools import partial
 
-from .utils import desc
+import numpy as np
+import scipy.spatial.distance
 
+from .utils import desc
 
 glob = {}
 

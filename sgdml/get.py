@@ -22,15 +22,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os, sys
 import argparse
+import os
 import re
+import sys
+
+from .utils import io, ui
+
 try:
     from urllib.request import urlopen
 except ImportError:
     from urllib2 import urlopen
 
-from sgdml.utils import io, ui
 
 
 def download(command, file_name):

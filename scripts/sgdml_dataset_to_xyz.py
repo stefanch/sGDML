@@ -22,12 +22,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os, sys
 import argparse
+import os
+import sys
+
 import numpy as np
 
 from sgdml.utils import io, ui
-
 
 parser = argparse.ArgumentParser(
     description='Converts a native dataset file to extended XYZ format.'

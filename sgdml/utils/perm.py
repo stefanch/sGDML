@@ -1,14 +1,12 @@
+import multiprocessing as mp
 import sys
-import scipy.spatial.distance
-import scipy.optimize
-
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import minimum_spanning_tree
+from functools import partial
 
 import numpy as np
-
-import multiprocessing as mp
-from functools import partial
+import scipy.optimize
+import scipy.spatial.distance
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import minimum_spanning_tree
 
 from . import ui
 

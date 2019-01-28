@@ -21,11 +21,10 @@
 # SOFTWARE.
 
 import numpy as np
-
-from sgdml.predict import GDMLPredict
-
 from ase.calculators.calculator import Calculator
-from ase.units import mol, kcal
+from ase.units import kcal, mol
+
+from ..predict import GDMLPredict
 
 
 class SGDMLCalculator(Calculator):

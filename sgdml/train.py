@@ -24,21 +24,19 @@ This module contains all routines for training GDML and sGDML models.
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os, sys
-import warnings
-
-import scipy as sp
-import numpy as np
-
-from sgdml import __version__
-from .predict import GDMLPredict
-from .utils import desc, perm, io
-
 import multiprocessing as mp
+import os
+import sys
+import timeit
+import warnings
 from functools import partial
 
-import timeit
+import numpy as np
+import scipy as sp
 
+from . import __version__
+from .predict import GDMLPredict
+from .utils import desc, io, perm
 
 glob = {}
 

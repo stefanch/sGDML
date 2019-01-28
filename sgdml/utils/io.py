@@ -1,6 +1,7 @@
-import sys
-import re
 import hashlib
+import re
+import sys
+
 import numpy as np
 
 _z_str_to_z_dict = {
