@@ -60,7 +60,7 @@ def _print_splash():
 def _print_dataset_properties(dataset):
 
     n_mols, n_atoms, _ = dataset['R'].shape
-    print(' {:<16} {:<} ({:<d} atoms)'.format('Name:', dataset['name'], n_atoms))
+    print(' {:<16} {:<} ({:<d} atoms)'.format('Name:', dataset['name'].astype(str), n_atoms))
     print(' {:<16} {:<}'.format('Theory:', dataset['theory']))
     print(' {:<16} {:<d}'.format('Size:', n_mols))
 
@@ -85,7 +85,7 @@ def _print_dataset_properties(dataset):
         + ' {:>9.3} [a.u.]'.format(TG_max)
     )
 
-    print(' {:<16} {:<}'.format('Fingerprint:', dataset['md5']))
+    print(' {:<16} {:<}'.format('Fingerprint:', dataset['md5'].astype(str)))
     print()
 
 
@@ -661,7 +661,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
             # TODO:
             # (1) check if user tried to validate an untested model
 
-        if needs_valid and dataset['md5'] != model['md5_valid']:
+        if needs_valid and dataset['md5'].astype(str) != model['md5_valid']:
             raise AssistantError(
                 'Fingerprint of provided test dataset does not match the one in model file.'
             )
@@ -672,9 +672,9 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 
             # exclude training and/or test sets from validation set if necessary
             excl_idxs = np.empty((0,), dtype=int)
-            if dataset['md5'] == model['md5_train']:
+            if dataset['md5'].astype(str) == model['md5_train']:
                 excl_idxs = np.concatenate([excl_idxs, model['idxs_train']])
-            if dataset['md5'] == model['md5_valid']:
+            if dataset['md5'].astype(str) == model['md5_valid']:
                 excl_idxs = np.concatenate([excl_idxs, model['idxs_valid']])
             if len(excl_idxs) == 0:
                 excl_idxs = None
@@ -874,7 +874,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
         if model_needs_update:
             if is_test:
                 model['n_test'] = len(test_idxs)
-                model['md5_test'] = dataset['md5']
+                model['md5_test'] = dataset['md5'].astype(str)
 
             if model['use_E']:
                 model['e_err'] = {
@@ -1032,11 +1032,11 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
     print(ui.white_back_str('\n SHOW DETAILS \n') + '-' * 100)
     file_path, file = file
 
-    if file['type'] == 'd':
+    if file['type'].astype(str) == 'd':
         print(ui.white_bold_str('Dataset properties'))
         _print_dataset_properties(file)
 
-    if file['type'] == 't':
+    if file['type'].astype(str) == 't':
         print(ui.white_bold_str('Task properties'))
         _print_task_properties(
             use_sym=file['use_sym'],
@@ -1045,7 +1045,7 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
             use_E_cstr=file['use_E_cstr'],
         )
 
-    if file['type'] == 'm':
+    if file['type'].astype(str) == 'm':
         print(ui.white_bold_str('Model properties'))
         _print_model_properties(file)
 

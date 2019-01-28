@@ -156,7 +156,7 @@ def is_file_type(arg, type):
     except:
         raise argparse.ArgumentTypeError('{0} is not readable'.format(arg))
 
-    if 'type' not in file or file['type'] != type[0]:
+    if 'type' not in file or file['type'].astype(str) != type[0]:
         raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg, type))
 
         # Legacy support
@@ -258,7 +258,7 @@ def is_dir_with_file_type(arg, type, or_file=False):
                         '{0} contains unreadable .npz files'.format(arg)
                     )
 
-                if 'type' in file and file['type'] == type[0]:
+                if 'type' in file and file['type'].astype(str) == type[0]:
                     file_names.append(file_name)
 
                 file.close()

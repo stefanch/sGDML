@@ -141,7 +141,7 @@ def train_dir_name(dataset, n_train, use_sym, use_cprsn, use_E, use_E_cstr):
     Ecstr_str = '-Ecstr' if use_E_cstr else ''
 
     return 'sgdml_cv_%s-%s-train%d%s%s%s%s' % (
-        dataset['name'],
+        dataset['name'].astype(str),
         theory_level_str,
         n_train,
         sym_str,

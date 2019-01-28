@@ -282,7 +282,7 @@ class GDMLTrain:
         task = {
             'type': 't',
             'code_version': __version__,
-            'dataset_name': train_dataset['name'],
+            'dataset_name': train_dataset['name'].astype(str),
             'dataset_theory': train_dataset['theory'],
             'z': train_dataset['z'],
             'R_train': R_train,
@@ -673,7 +673,7 @@ class GDMLTrain:
 
         pool = mp.Pool(self._max_processes)
 
-        todo = (n_train ** 2 - n_train) / 2 + n_train
+        todo = (n_train ** 2 - n_train) // 2 + n_train
         done_total = 0
         for done in pool.imap_unordered(
             partial(

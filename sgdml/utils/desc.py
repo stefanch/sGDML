@@ -7,7 +7,7 @@ def init(n_atoms):
     global d_dim, d_desc_mask
 
     # Descriptor space dimension.
-    d_dim = (n_atoms * (n_atoms - 1)) / 2
+    d_dim = (n_atoms * (n_atoms - 1)) // 2
 
     # Precompute indices for nonzero entries in desriptor derivatices.
     d_desc_mask = np.zeros((n_atoms, n_atoms - 1), dtype=np.int)
@@ -75,7 +75,7 @@ def perm(perm):
     # perm = perm # - 1 # MATLAB is 1-dominant (legacy reasons)
 
     rest = np.zeros((n, n))
-    rest[np.tril_indices(n, -1)] = list(range((n ** 2 - n) / 2))
+    rest[np.tril_indices(n, -1)] = list(range((n ** 2 - n) // 2))
     rest = rest + rest.T
     rest = rest[perm, :]
     rest = rest[:, perm]

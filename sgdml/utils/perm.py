@@ -69,7 +69,7 @@ def sync_mat(R, z, max_processes=None):
 
     match_cost = np.zeros((n_train, n_train))
 
-    adj_set = np.empty((n_train, (n_atoms ** 2 - n_atoms) / 2))
+    adj_set = np.empty((n_train, (n_atoms ** 2 - n_atoms) // 2))
     v_set = np.empty((n_train, n_atoms, n_atoms))
     for i in range(n_train):
         r = np.squeeze(R[i, :, :])

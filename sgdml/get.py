@@ -25,7 +25,10 @@
 import os, sys
 import argparse
 import re
-import urllib.request, urllib.error, urllib.parse
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
 
 from sgdml.utils import io, ui
 
@@ -35,9 +38,9 @@ def download(command, file_name):
     base_url = 'http://www.quantum-machine.org/gdml/' + (
         'data/npz/' if command == 'dataset' else 'models/'
     )
-    request = urllib.request.urlopen(base_url + file_name)
+    request = urlopen(base_url + file_name)
     file = open(file_name, 'wb')
-    filesize = int(request.info().getheaders("Content-Length")[0])
+    filesize = int(request.headers['Content-Length'])
 
     size = 0
     block_sz = 1024
@@ -95,8 +98,8 @@ def main():
 
         url = '%sget.php?%s=%s' % (base_url, args.command, args.name)
         print("Contacting server (%s)..." % base_url)
-        response = urllib.request.urlopen(url)
-        match, score = response.read().split(',')
+        response = urlopen(url)
+        match, score = response.read().decode().split(',')
         response.close()
 
         if int(score) == 0 or ui.yes_or_no('Did you mean \'%s\'?' % match):
@@ -105,7 +108,7 @@ def main():
     else:
 
         print("Contacting server (%s)..." % base_url)
-        response = urllib.request.urlopen('%sget.php?%s' % (base_url, args.command))
+        response = urlopen('%sget.php?%s' % (base_url, args.command))
         line = response.readlines()
         response.close()
 
