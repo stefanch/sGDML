@@ -32,7 +32,7 @@ from sgdml.utils import io, ui
 def download(command,file_name):
 
 	base_url = 'http://www.quantum-machine.org/gdml/' + ('data/npz/' if command == 'dataset' else 'models/')
- 	request = urllib2.urlopen(base_url + file_name)
+	request = urllib2.urlopen(base_url + file_name)
 	file = open(file_name, 'wb')
 	filesize = int(request.info().getheaders("Content-Length")[0])
 

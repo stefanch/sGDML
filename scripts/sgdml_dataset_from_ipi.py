@@ -98,9 +98,9 @@ parser.add_argument('energies', metavar = '<energies>',\
 							   type    = argparse.FileType('r'),\
 							   help	   = 'path to CSV force file')
 parser.add_argument('energy_col', 	 metavar = '<energy_col>',\
-							  	 type    = lambda x: ui.is_strict_pos_int(x),\
-							  	 help    = 'which column to parse from energy file (zero based)',\
-							  	 nargs   = '?', default = 0)
+							 	 type    = lambda x: ui.is_strict_pos_int(x),\
+							 	 help    = 'which column to parse from energy file (zero based)',\
+							 	 nargs   = '?', default = 0)
 parser.add_argument('-o','--overwrite', dest='overwrite', action='store_true', help = 'overwrite existing dataset file')
 args = parser.parse_args()
 geometries = args.geometries

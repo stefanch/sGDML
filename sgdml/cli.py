@@ -216,7 +216,7 @@ def create(dataset, valid_dataset, n_train, n_valid, sigs, gdml, use_E, use_E_cs
 				try:
 					_, task_file_names = ui.is_dir_with_file_type(task_dir, 'task')
 				except:
-   					pass
+					pass
 			else:
 				raise AssistantError('Unfinished hyper-parameter search found in \'%s\'.' % task_dir\
 					+ '\n       Run \'%s %s -o %s %d %d -s %s\' to overwrite.' % (PACKAGE_NAME, command, dataset_path, n_train, n_valid, ' '.join(str(s) for s in sigs)))
