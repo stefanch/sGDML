@@ -38,7 +38,7 @@ setup(name = 'sgdml',
 					'Topic :: Software Development :: Libraries :: Python Modules'],
 			url = 'http://www.gdml.ml',
 			author = 'Stefan Chmiela',
-			author_email = 'noreply@chmiela.com',
+			author_email = 'sgdml@chmiela.com',
 			license = 'MIT',
 			packages = ['sgdml', 'sgdml.utils', 'sgdml.intf'],
 			install_requires = [
