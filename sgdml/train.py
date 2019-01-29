@@ -27,7 +27,6 @@ This module contains all routines for training GDML and sGDML models.
 from __future__ import print_function
 
 import multiprocessing as mp
-import os
 import sys
 import timeit
 import warnings
@@ -45,54 +44,54 @@ glob = {}
 
 def _share_array(arr_np, typecode_or_type):
     """
-	Return a ctypes array allocated from shared memory with data from a
-	NumPy array.
+    Return a ctypes array allocated from shared memory with data from a
+    NumPy array.
 
-	Parameters
-	----------
-		arr_np : :obj:`numpy.ndarray`
-			NumPy array.
-		typecode_or_type : char or :obj:`ctype`
-			Either a ctypes type or a one character typecode of the
-			kind used by the Python array module.
+    Parameters
+    ----------
+        arr_np : :obj:`numpy.ndarray`
+            NumPy array.
+        typecode_or_type : char or :obj:`ctype`
+            Either a ctypes type or a one character typecode of the
+            kind used by the Python array module.
 
-	Returns
-	-------
-		array of :obj:`ctype`
-	"""
+    Returns
+    -------
+        array of :obj:`ctype`
+    """
 
     arr = mp.RawArray(typecode_or_type, arr_np.ravel())
     return arr, arr_np.shape
 
 
 def _assemble_kernel_mat_wkr(j, n_perms, tril_perms_lin, sig, use_E_cstr=False):
+    r"""
+    Compute one row and column of the force field kernel matrix.
+
+    The Hessian of the Matern kernel is used with n = 2 (twice
+    differentiable). Each row and column consists of matrix-valued
+    blocks, which encode the interaction of one training point with all
+    others. The result is stored in shared memory (a global variable).
+
+    Parameters
+    ----------
+        j : int
+            Index of training point.
+        n_perms : int
+            Number of individual permutations encoded in `tril_perms_lin`.
+        tril_perms_lin : :obj:`numpy.ndarray`
+            1D array (int) containing all recovered permutations
+            expanded as one large permutation to be applied to a tiled
+            copy of the object to be permuted.
+        sig : int
+            Hyper-parameter :math:`\sigma`.
+
+    Returns
+    -------
+        int
+            Number of kernel matrix blocks created, divided by 2
+            (symmetric blocks are always created at together).
     """
-	Compute one row and column of the force field kernel matrix.
-
-	The Hessian of the Matern kernel is used with n = 2 (twice
-	differentiable). Each row and column consists of matrix-valued
-	blocks, which encode the interaction of one training point with all
-	others. The result is stored in shared memory (a global variable).
-
-	Parameters
-	----------
-		j : int
-			Index of training point.
-		n_perms : int
-			Number of individual permutations encoded in `tril_perms_lin`.
-		tril_perms_lin : :obj:`numpy.ndarray`
-			1D array (int) containing all recovered permutations
-			expanded as one large permutation to be applied to a tiled
-			copy of the object to be permuted.
-		sig : int
-			Hyper-parameter :math:`\sigma`.
-
-	Returns
-	-------
-		int
-			Number of kernel matrix blocks created, divided by 2
-			(symmetric blocks are always created at together).
-	"""
 
     global glob
 
@@ -184,56 +183,56 @@ class GDMLTrain:
         use_cprsn=False,
     ):
         """
-		Create a data structure of custom type `task`.
+        Create a data structure of custom type `task`.
 
-		These data structures serve as recipes for model creation, summarizing
-		the configuration of one particular training run. Training and test
-		points are sampled from the provided dataset, without replacement. If
-		the same dataset if given for training and testing, the subsets are
-		drawn without overlap.
-		
-		Each task also contains a choice for the hyper-parameters of the
-		training process and the MD5 fingerprints of the used datasets.
+        These data structures serve as recipes for model creation, summarizing
+        the configuration of one particular training run. Training and test
+        points are sampled from the provided dataset, without replacement. If
+        the same dataset if given for training and testing, the subsets are
+        drawn without overlap.
 
-		Parameters
-		----------
-			train_dataset : :obj:`dict`
-				Data structure of custom type :obj:`dataset` containing train dataset.
-			n_train : int
-				Number of training points to sample.
-			valid_dataset : :obj:`dict`
-				Data structure of custom type :obj:`dataset` containing validation dataset.
-			n_valid : int
-				Number of validation points to sample.
-			sig : int
-				Hyper-parameter (kernel length scale).
-			lam : float, optional
-				Hyper-parameter lambda (regularization strength).
-			use_sym : bool, optional
-				True: include symmetries (sGDML), False: GDML.
-			use_E : bool, optional
-				True: reconstruct force field with corresponding potential energy surface,
-				False: ignore energy during training, even if energy labels are available
-					   in the dataset. The trained model will still be able to predict
-					   energies up to an unknown integration constant. Note, that the
-					   energy predictions accuracy will be untested.
-			use_E_cstr : bool, optional
-				True: include energy constraints in the kernel, False: default (s)GDML.
-			use_cprsn : bool, optional
-				True: compress kernel matrix along symmetric degrees of freedom, 
-				False: train using full kernel matrix
+        Each task also contains a choice for the hyper-parameters of the
+        training process and the MD5 fingerprints of the used datasets.
 
-		Returns
-		-------
-			dict
-				Data structure of custom type :obj:`task`.
+        Parameters
+        ----------
+            train_dataset : :obj:`dict`
+                Data structure of custom type :obj:`dataset` containing train dataset.
+            n_train : int
+                Number of training points to sample.
+            valid_dataset : :obj:`dict`
+                Data structure of custom type :obj:`dataset` containing validation dataset.
+            n_valid : int
+                Number of validation points to sample.
+            sig : int
+                Hyper-parameter (kernel length scale).
+            lam : float, optional
+                Hyper-parameter lambda (regularization strength).
+            use_sym : bool, optional
+                True: include symmetries (sGDML), False: GDML.
+            use_E : bool, optional
+                True: reconstruct force field with corresponding potential energy surface,
+                False: ignore energy during training, even if energy labels are available
+                       in the dataset. The trained model will still be able to predict
+                       energies up to an unknown integration constant. Note, that the
+                       energy predictions accuracy will be untested.
+            use_E_cstr : bool, optional
+                True: include energy constraints in the kernel, False: default (s)GDML.
+            use_cprsn : bool, optional
+                True: compress kernel matrix along symmetric degrees of freedom,
+                False: train using full kernel matrix
 
-		Raises
-		------
-			ValueError
-				If a reconstruction of the potential energy surface is requested,
-				but the energy labels are missing in the dataset.
-		"""
+        Returns
+        -------
+            dict
+                Data structure of custom type :obj:`task`.
+
+        Raises
+        ------
+            ValueError
+                If a reconstruction of the potential energy surface is requested,
+                but the energy labels are missing in the dataset.
+        """
 
         if use_E and 'E' not in train_dataset:
             raise ValueError(
@@ -314,45 +313,45 @@ class GDMLTrain:
 
         return task
 
-    def train(
+    def train(  # noqa: C901
         self, task, cprsn_callback=None, ker_progr_callback=None, solve_callback=None
     ):
         """
-		Train a model based on a training task.
+        Train a model based on a training task.
 
-		Parameters
-		----------
-			task : :obj:`dict`
-				Data structure of custom type :obj:`task`.
-			cprsn_callback : callable, optional
-				Symmetry compression status.
-					n_atoms : int
-						Total number of atoms.
-					n_atoms_kept : float or None, optional
-						Number of atoms kept after compression.
-			ker_progr_callback : callable, optional
-				Kernel assembly progress function that takes three
-				arguments:
-					current : int
-						Current progress (number of completed entries).
-					total : int
-						Task size (total number of entries to create).
-					duration_s : float or None, optional
-						Once complete, this parameter contains the
-						time it took to assemble the kernel (seconds). 
-			solve_callback : callable, optional
-				Linear system solver status.
-					done : bool
-						False when solver starts, True when it finishes.
-					duration_s : float or None, optional
-						Once done, this parameter contains the runtime
-						of the solver (seconds).
+        Parameters
+        ----------
+            task : :obj:`dict`
+                Data structure of custom type :obj:`task`.
+            cprsn_callback : callable, optional
+                Symmetry compression status.
+                    n_atoms : int
+                        Total number of atoms.
+                    n_atoms_kept : float or None, optional
+                        Number of atoms kept after compression.
+            ker_progr_callback : callable, optional
+                Kernel assembly progress function that takes three
+                arguments:
+                    current : int
+                        Current progress (number of completed entries).
+                    total : int
+                        Task size (total number of entries to create).
+                    duration_s : float or None, optional
+                        Once complete, this parameter contains the
+                        time it took to assemble the kernel (seconds).
+            solve_callback : callable, optional
+                Linear system solver status.
+                    done : bool
+                        False when solver starts, True when it finishes.
+                    duration_s : float or None, optional
+                        Once done, this parameter contains the runtime
+                        of the solver (seconds).
 
-		Returns
-		-------
-			dict
-				Data structure of custom type :obj:`model`.
-		"""
+        Returns
+        -------
+            dict
+                Data structure of custom type :obj:`model`.
+        """
 
         sig = np.squeeze(task['sig'])
         lam = np.squeeze(task['lam'])
@@ -438,7 +437,7 @@ class GDMLTrain:
                 alphas = -sp.linalg.cho_solve(
                     (L, lower), y, overwrite_b=True, check_finite=False
                 )
-            except:
+            except Exception:
                 # LU
                 alphas = sp.linalg.solve(
                     K, y, overwrite_a=True, overwrite_b=True, check_finite=False
@@ -458,7 +457,7 @@ class GDMLTrain:
 
         r_dim = R_d_desc.shape[2]
         r_d_desc_alpha = [
-            rj_d_desc.dot(alphas_F[(j * r_dim) : ((j + 1) * r_dim)])
+            rj_d_desc.dot(alphas_F[(j * r_dim):((j + 1) * r_dim)])
             for j, rj_d_desc in enumerate(R_d_desc)
         ]
 
@@ -498,38 +497,38 @@ class GDMLTrain:
 
     def _recov_int_const(self, model, task):
         """
-		Estimate the integration constant for a force field model.
+        Estimate the integration constant for a force field model.
 
-		The offset between the energies predicted for the original training
-		data and the true energy labels is computed in the least square sense.
-		Furthermore, common issues with the user-provided datasets are self
-		diagnosed here.
+        The offset between the energies predicted for the original training
+        data and the true energy labels is computed in the least square sense.
+        Furthermore, common issues with the user-provided datasets are self
+        diagnosed here.
 
-		Parameters
-		----------
-			model : :obj:`dict`
-				Data structure of custom type :obj:`model`.
-			task : :obj:`dict`
-				Data structure of custom type :obj:`task`.
+        Parameters
+        ----------
+            model : :obj:`dict`
+                Data structure of custom type :obj:`model`.
+            task : :obj:`dict`
+                Data structure of custom type :obj:`task`.
 
-		Returns
-		-------
-			float
-				Estimate for the integration constant.
+        Returns
+        -------
+            float
+                Estimate for the integration constant.
 
-		Raises
-		------
-			ValueError
-				If the sign of the force labels in the dataset from
-				which the model emerged is switched (e.g. gradients
-				instead of forces).
-			ValueError
-				If inconsistent/corrupted energy labels are detected
-				in the provided dataset.
-			ValueError
-				If different scales in energy vs. force labels are
-				detected in the provided dataset.
-		"""
+        Raises
+        ------
+            ValueError
+                If the sign of the force labels in the dataset from
+                which the model emerged is switched (e.g. gradients
+                instead of forces).
+            ValueError
+                If inconsistent/corrupted energy labels are detected
+                in the provided dataset.
+            ValueError
+                If different scales in energy vs. force labels are
+                detected in the provided dataset.
+        """
 
         gdml = GDMLPredict(model)
         n_train = task['E_train'].shape[0]
@@ -615,49 +614,49 @@ class GDMLTrain:
         use_E_cstr=False,
         progr_callback=None,
     ):
+        r"""
+        Compute force field kernel matrix.
+
+        The Hessian of the Matern kernel is used with n = 2 (twice
+        differentiable). Each row and column consists of matrix-valued blocks,
+        which encode the interaction of one training point with all others. The
+        result is stored in shared memory (a global variable).
+
+        Parameters
+        ----------
+            R_desc : :obj:`numpy.ndarray`
+                Array containing the descriptor for each training point.
+            R_d_desc : :obj:`numpy.ndarray`
+                Array containing the gradient of the descriptor for
+                each training point.
+            n_perms : int
+                Number of individual permutations encoded in
+                `tril_perms_lin`.
+            tril_perms_lin : :obj:`numpy.ndarray`
+                1D array containing all recovered permutations
+                expanded as one large permutation to be applied to a
+                tiled copy of the object to be permuted.
+            sig : int
+                Hyper-parameter :math:`\sigma`(kernel length scale).
+            use_E_cstr : bool, optional
+                True: include energy constraints in the kernel,
+                False: default (s)GDML kernel.
+            progress_callback : callable, optional
+                Kernel assembly progress function that takes three
+                arguments:
+                    current : int
+                        Current progress (number of completed entries).
+                    total : int
+                        Task size (total number of entries to create).
+                    duration_s : float or None, optional
+                        Once complete, this parameter contains the
+                        time it took to assemble the kernel (seconds).
+
+        Returns
+        -------
+            :obj:`numpy.ndarray`
+                Force field kernel matrix.
         """
-		Compute force field kernel matrix.
-
-		The Hessian of the Matern kernel is used with n = 2 (twice
-		differentiable). Each row and column consists of matrix-valued blocks,
-		which encode the interaction of one training point with all others. The
-		result is stored in shared memory (a global variable).
-
-		Parameters
-		----------
-			R_desc : :obj:`numpy.ndarray`
-				Array containing the descriptor for each training point.
-			R_d_desc : :obj:`numpy.ndarray`
-				Array containing the gradient of the descriptor for
-				each training point.
-			n_perms : int
-				Number of individual permutations encoded in
-				`tril_perms_lin`.
-			tril_perms_lin : :obj:`numpy.ndarray`
-				1D array containing all recovered permutations
-				expanded as one large permutation to be applied to a
-				tiled copy of the object to be permuted.
-			sig : int
-				Hyper-parameter :math:`\sigma`(kernel length scale).
-			use_E_cstr : bool, optional
-				True: include energy constraints in the kernel,
-				False: default (s)GDML kernel.
-			progress_callback : callable, optional
-				Kernel assembly progress function that takes three
-				arguments:
-					current : int
-						Current progress (number of completed entries).
-					total : int
-						Task size (total number of entries to create).
-					duration_s : float or None, optional
-						Once complete, this parameter contains the
-						time it took to assemble the kernel (seconds). 
-
-		Returns
-		-------
-			:obj:`numpy.ndarray`
-				Force field kernel matrix.
-		"""
 
         global glob
 
@@ -700,31 +699,31 @@ class GDMLTrain:
 
     def draw_strat_sample(self, T, n, excl_idxs=None):
         """
-		Draw sample from dataset that preserves its original distribution.
+        Draw sample from dataset that preserves its original distribution.
 
-		The distribution is estimated from a histogram were the bin size is
-		determined using the Freedman-Diaconis rule. This rule is designed to
-		minimize the difference between the area under the empirical
-		probability distribution and the area under the theoretical
-		probability distribution. A reduced histogram is then constructed by
-		sampling uniformly in each bin. It is intended to populate all bins
-		with at least one sample in the reduced histogram, even for small
-		training sizes.
+        The distribution is estimated from a histogram were the bin size is
+        determined using the Freedman-Diaconis rule. This rule is designed to
+        minimize the difference between the area under the empirical
+        probability distribution and the area under the theoretical
+        probability distribution. A reduced histogram is then constructed by
+        sampling uniformly in each bin. It is intended to populate all bins
+        with at least one sample in the reduced histogram, even for small
+        training sizes.
 
-		Parameters
-		----------
-			T : :obj:`numpy.ndarray`
-				Dataset to sample from.
-			n : int
-				Number of examples.
-			excl_idxs : :obj:`numpy.ndarray`, optional
-				Array of indices to exclude from sample.
+        Parameters
+        ----------
+            T : :obj:`numpy.ndarray`
+                Dataset to sample from.
+            n : int
+                Number of examples.
+            excl_idxs : :obj:`numpy.ndarray`, optional
+                Array of indices to exclude from sample.
 
-		Returns
-		-------
-			:obj:`numpy.ndarray`
-				Array of indices that form the sample.
-		"""
+        Returns
+        -------
+            :obj:`numpy.ndarray`
+                Array of indices that form the sample.
+        """
 
         if T.size == n:
             return np.arange(n)

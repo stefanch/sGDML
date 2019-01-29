@@ -133,8 +133,8 @@ def z_to_z_str(z):
 
 def train_dir_name(dataset, n_train, use_sym, use_cprsn, use_E, use_E_cstr):
 
-    theory_level_str = re.sub('[^\w\-_\.]', '.', str(dataset['theory']))
-    theory_level_str = re.sub('\.\.', '.', theory_level_str)
+    theory_level_str = re.sub(r'[^\w\-_\.]', '.', str(dataset['theory']))
+    theory_level_str = re.sub(r'\.\.', '.', theory_level_str)
 
     sym_str = '-sym' if use_sym else ''
     cprsn_str = '-cprsn' if use_cprsn else ''
@@ -170,9 +170,9 @@ def model_file_name(task_or_model, is_extended=False):
     if is_extended:
         dataset = np.squeeze(task_or_model['dataset_name'])
         theory_level_str = re.sub(
-            '[^\w\-_\.]', '.', str(np.squeeze(task_or_model['dataset_theory']))
+            r'[^\w\-_\.]', '.', str(np.squeeze(task_or_model['dataset_theory']))
         )
-        theory_level_str = re.sub('\.\.', '.', theory_level_str)
+        theory_level_str = re.sub(r'\.\.', '.', theory_level_str)
         return '%s-%s-train%d-sym%d.npz' % (dataset, theory_level_str, n_train, n_perms)
     return 'model-train%d-sym%d-sig%04d.npz' % (n_train, n_perms, sig)
 
@@ -192,7 +192,7 @@ def dataset_md5(dataset):
     return md5_hash.hexdigest()
 
 
-## FILES
+# ## FILES
 
 # Read geometry file (xyz format).
 # R: (n_geo,3*n_atoms)

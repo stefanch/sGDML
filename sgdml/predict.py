@@ -27,7 +27,6 @@ This module contains all routines for evaluating GDML and sGDML models.
 from __future__ import print_function
 
 import multiprocessing as mp
-import sys
 import timeit
 from functools import partial
 
@@ -41,19 +40,18 @@ glob = {}
 
 def share_array(arr_np):
     """
-	Return a ctypes array allocated from shared memory with data from
-	a NumPy array of type `float`.
+    Return a ctypes array allocated from shared memory with data from
+    a NumPy array of type `float`.
 
-	Parameters
-	----------
-		arr_np : :obj:`numpy.ndarray`
-			NumPy array.
+    Parameters
+    ----------
+            arr_np : :obj:`numpy.ndarray`
+                    NumPy array.
 
-	Returns
-	-------
-		array of :obj:`ctype`
-	"""
-
+    Returns
+    -------
+            array of :obj:`ctype`
+    """
     arr = mp.RawArray('d', arr_np.ravel())
     return arr, arr_np.shape
 
@@ -75,24 +73,24 @@ def _predict(r, n_train, std, c, chunk_size):
 
 def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
     """
-	Compute part of a prediction.
 
-	The workload will be processed in `b_size` chunks.
+    Compute part of a prediction.
 
-	Parameters
-	----------
-		wkr_start_stop : tuple of int
-			Indices of first and last (exclusive) sum element.
-		r_desc : numpy.ndarray
-			1D array containing the descriptor for the query geometry.
+    The workload will be processed in `b_size` chunks.
 
-	Returns
-	-------
-		:obj:`numpy.ndarray`
-			Partial prediction of all force components and energy
-			(appended to array as last element).
-	"""
+    Parameters
+    ----------
+            wkr_start_stop : tuple of int
+                    Indices of first and last (exclusive) sum element.
+            r_desc : numpy.ndarray
+                    1D array containing the descriptor for the query geometry.
 
+    Returns
+    -------
+            :obj:`numpy.ndarray`
+                    Partial prediction of all force components and energy
+                    (appended to array as last element).
+    """
     global glob, sig, n_perms
 
     wkr_start, wkr_stop = wkr_start_stop
@@ -182,7 +180,6 @@ class GDMLPredict:
         global glob, sig, n_perms
 
         self.n_atoms = model['z'].shape[0]
-        n_tril = self.n_atoms * (self.n_atoms - 1) / 2
 
         self.n_train = model['R_desc'].shape[1]
         sig = model['sig']
@@ -238,26 +235,26 @@ class GDMLPredict:
         if self.pool is not None:
             self.pool.terminate()
 
-            ## Public ##
+            # ## Public ##
 
     def set_num_workers(
         self, num_workers=None
     ):  # TODO: complain if chunk or worker parameters do not fit training data (this causes issues with the caching)!!
         """
-		Set number of processes to use during prediction.
+        Set number of processes to use during prediction.
 
-		This number should not exceed the number of available CPU cores.
+        This number should not exceed the number of available CPU cores.
 
-		Note
-		----
-			This parameter can be optimally determined using
-			`set_opt_num_workers_and_batch_size_fast`.
+        Note
+        ----
+                This parameter can be optimally determined using
+                `set_opt_num_workers_and_batch_size_fast`.
 
-		Parameters
-		----------
-			num_workers : int
-				Number of processes (maximum value is set if `None`).
-		"""
+        Parameters
+        ----------
+                num_workers : int
+                        Number of processes (maximum value is set if `None`).
+        """
 
         if self.pool is not None:
             self.pool.terminate()
@@ -283,61 +280,61 @@ class GDMLPredict:
         self, batch_size=None
     ):  # TODO: complain if chunk or worker parameters do not fit training data (this causes issues with the caching)!!
         """
-		Set chunk size for each process.
+        Set chunk size for each process.
 
-		The chunk size determines how much of a processes workload
-		will be passed to Python's underlying low-level routines at
-		once. This parameter is highly hardware dependent.
-		A chunk is a subset of the training set of the model.
+        The chunk size determines how much of a processes workload
+        will be passed to Python's underlying low-level routines at
+        once. This parameter is highly hardware dependent.
+        A chunk is a subset of the training set of the model.
 
-		Note
-		----
-			This parameter can be optimally determined using
-			`set_opt_num_workers_and_batch_size_fast`.
+        Note
+        ----
+                This parameter can be optimally determined using
+                `set_opt_num_workers_and_batch_size_fast`.
 
-		Parameters
-		----------
-			batch_size : int
-				Chunk size (maximum value is set if `None`).
-		"""
+        Parameters
+        ----------
+                batch_size : int
+                        Chunk size (maximum value is set if `None`).
+        """
 
         if batch_size is None:
             batch_size = self.n_train
 
         self._chunk_size = batch_size
 
-    def set_opt_num_workers_and_batch_size_fast(self, n_bulk=1, n_reps=3):
+    def set_opt_num_workers_and_batch_size_fast(self, n_bulk=1, n_reps=3):  # noqa: C901
         """
-		Determine the optimal number of processes and chunk size to
-		use when evaluating the loaded model.
+        Determine the optimal number of processes and chunk size to
+        use when evaluating the loaded model.
 
-		This routine runs a benchmark in which the prediction routine
-		in repeatedly called `n_reps`-times with varying parameter
-		configurations, while the runtime is measured for each one.
-		The optimal parameters are then automatically set.
+        This routine runs a benchmark in which the prediction routine
+        in repeatedly called `n_reps`-times with varying parameter
+        configurations, while the runtime is measured for each one.
+        The optimal parameters are then automatically set.
 
-		Note
-		----
-			Depending on the parameter `n_reps`, this routine takes
-			some seconds to complete, which is why it only makes sense
-			to call it before running a large number of predictions.
+        Note
+        ----
+                Depending on the parameter `n_reps`, this routine takes
+                some seconds to complete, which is why it only makes sense
+                to call it before running a large number of predictions.
 
-		Parameters
-		----------
-			n_bulk : int
-				Number of geometries that will be passed to the `predict`
-				function in each call (performance will be optimized for
-				that exact use case).
-			n_reps : int
-				Number of repetitions (bigger value: more accurate,
-				but also slower).
+        Parameters
+        ----------
+                n_bulk : int
+                        Number of geometries that will be passed to the `predict`
+                        function in each call (performance will be optimized for
+                        that exact use case).
+                n_reps : int
+                        Number of repetitions (bigger value: more accurate,
+                        but also slower).
 
-		Returns
-		-------
-			int
-				Force and energy prediciton speed in geometries
-				per second.
-		"""
+        Returns
+        -------
+                int
+                        Force and energy prediciton speed in geometries
+                        per second.
+        """
 
         best_results = []
         last_i = None
@@ -361,7 +358,7 @@ class GDMLPredict:
             for bulk_mp in bulk_mp_rng:
                 self._bulk_mp = bulk_mp
 
-                if bulk_mp == False:
+                if bulk_mp is False:
                     last_i = 0
 
                 num_workers_rng = (
@@ -401,7 +398,7 @@ class GDMLPredict:
 
                     i_done = 0
                     i_dir = 1
-                    i = 0 if last_i == None else last_i
+                    i = 0 if last_i is None else last_i
                     # i = 0
                     while i < len(batch_size_rng_sizes):
 
@@ -489,28 +486,28 @@ class GDMLPredict:
 
     def _predict_bulk(self, R):
         """
-		Predict energy and forces for multiple geometries.
+        Predict energy and forces for multiple geometries.
 
-		Parameters
-		----------
-			R : :obj:`numpy.ndarray`
-				A 2D array of size M x 3N containing of the Cartesian coordinates of each
-				atom of M molecules.
+        Parameters
+        ----------
+                R : :obj:`numpy.ndarray`
+                        A 2D array of size M x 3N containing of the Cartesian coordinates of each
+                        atom of M molecules.
 
-		Returns
-		-------
-			:obj:`numpy.ndarray`
-				Energies stored in an 1D array of size M.
-			:obj:`numpy.ndarray`
-				Forces stored in an 2D arry of size M x 3N.
-		"""
+        Returns
+        -------
+                :obj:`numpy.ndarray`
+                        Energies stored in an 1D array of size M.
+                :obj:`numpy.ndarray`
+                        Forces stored in an 2D arry of size M x 3N.
+        """
 
         n_pred, dim_i = R.shape
 
         F = np.empty((n_pred, dim_i))
         E = np.empty((n_pred,))
 
-        if self._bulk_mp == True:
+        if self._bulk_mp is True:
             for i, E_F in enumerate(
                 self.pool.imap(
                     partial(
@@ -532,26 +529,26 @@ class GDMLPredict:
 
     def predict(self, r):
         """
-		Predict energy and forces for multiple geometries.
+        Predict energy and forces for multiple geometries.
 
-		Note
-		----
-			The order of the atoms in `r` is not arbitrary and must be
-			the same as used for training the model.
+        Note
+        ----
+                The order of the atoms in `r` is not arbitrary and must be
+                the same as used for training the model.
 
-		Parameters
-		----------
-			R : :obj:`numpy.ndarray`
-				A 2D array of size M x 3N containing of the Cartesian coordinates of each
-				atom of M molecules.
+        Parameters
+        ----------
+                R : :obj:`numpy.ndarray`
+                        A 2D array of size M x 3N containing of the Cartesian coordinates of each
+                        atom of M molecules.
 
-		Returns
-		-------
-			:obj:`numpy.ndarray`
-				Energies stored in an 1D array of size M.
-			:obj:`numpy.ndarray`
-				Forces stored in an 2D arry of size M x 3N.
-		"""
+        Returns
+        -------
+                :obj:`numpy.ndarray`
+                        Energies stored in an 1D array of size M.
+                :obj:`numpy.ndarray`
+                        Forces stored in an 2D arry of size M x 3N.
+        """
 
         if r.ndim == 2 and r.shape[0] > 1:
             return self._predict_bulk(r)

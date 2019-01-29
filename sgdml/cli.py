@@ -48,9 +48,9 @@ class AssistantError(Exception):
 
 def _print_splash():
     print(
-        """         __________  __  _____ 
-   _____/ ____/ __ \/  |/  / / 
-  / ___/ / __/ / / / /|_/ / /  
+        r"""         __________  __  _____
+   _____/ ____/ __ \/  |/  / /
+  / ___/ / __/ / / / /|_/ / /
  (__  ) /_/ / /_/ / /  / / /___
 /____/\____/_____/_/  /_/_____/  """
         + __version__
@@ -277,7 +277,7 @@ def all(
 
 # if training job exists and is a subset of the requested cv range, add new tasks
 # otherwise, if new range is different or smaller, fail
-def create(
+def create(  # noqa: C901
     dataset,
     valid_dataset,
     n_train,
@@ -370,7 +370,7 @@ def create(
                 # Get all task file names.
                 try:
                     _, task_file_names = ui.is_dir_with_file_type(task_dir, 'task')
-                except:
+                except Exception:
                     pass
             else:
                 raise AssistantError(
@@ -490,8 +490,6 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
     ker_progr_callback = partial(ui.progr_bar, disp_str='Assembling kernel matrix...')
     solve_callback = partial(ui.progr_toggle, disp_str='Solving linear system...   ')
 
-    n_failed = 0
-
     gdml_train = GDMLTrain(max_processes=max_processes)
     for i, task_file_name in enumerate(task_file_names):
         if n_tasks > 1:
@@ -544,7 +542,7 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 def _batch(iterable, n=1):
     l = len(iterable)
     for ndx in range(0, l, n):
-        yield iterable[ndx : min(ndx + n, l)]
+        yield iterable[ndx:min(ndx + n, l)]
 
 
 def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
@@ -593,7 +591,7 @@ def validate(model_dir, dataset, overwrite, max_processes, command=None, **kwarg
             )
 
 
-def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **kwargs):
+def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **kwargs):  # noqa: C901
 
     model_dir, model_file_names = model_dir
     n_models = len(model_file_names)
@@ -717,9 +715,6 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
                 )
                 print(
                     '       Note: Larger test datasets are recommended due to slower convergence of the error.'
-                )
-                idxs_valid = np.random.choice(
-                    np.arange(n_valid), n_valid, replace=False
                 )
         np.random.shuffle(test_idxs)  # shuffle to improve convergence of online error
 
@@ -900,7 +895,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
                 )
 
 
-def select(model_dir, overwrite, max_processes, command=None, **kwargs):
+def select(model_dir, overwrite, max_processes, command=None, **kwargs):  # noqa: C901
 
     func_called_directly = (
         command == 'select'

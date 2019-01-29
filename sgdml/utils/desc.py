@@ -43,7 +43,7 @@ def r_to_d_desc(r, pdist):
         d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
 
         idx = d_desc_mask[a, :]
-        grad[idx, (3 * a) : (3 * a + 3)] = np.delete(d_dist, a, axis=0)
+        grad[idx, (3 * a):(3 * a + 3)] = np.delete(d_dist, a, axis=0)
 
     return grad
 
@@ -63,7 +63,7 @@ def r_to_d_desc_op(r, pdist, F_d):  # returns F_d.dot(r_d_desc)
         d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
 
         idx = d_desc_mask[a, :]
-        F_d[idx].dot(np.delete(d_dist, a, axis=0), out=F_i[(3 * a) : (3 * a + 3)])
+        F_d[idx].dot(np.delete(d_dist, a, axis=0), out=F_i[(3 * a):(3 * a + 3)])
 
     return F_i
 

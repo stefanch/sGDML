@@ -33,7 +33,7 @@ import numpy as np
 from sgdml.utils import io, ui
 
 
-def read_reference_data(f):
+def read_reference_data(f):  # noqa C901
     eV_to_kcalmol = 0.036749326 / 0.0015946679
 
     e_next, f_next, geo_next = False, False, False
@@ -54,7 +54,7 @@ def read_reference_data(f):
                     f_next = False
             elif geo_next:
                 if 'atom' in cols:
-                    a_count += 1
+                    a_count += 1  # noqa: F821
                     R.append(list(map(float, cols[1:4])))
 
                     if geo_idx == 0:

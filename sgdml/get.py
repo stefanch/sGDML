@@ -27,15 +27,13 @@ from __future__ import print_function
 import argparse
 import os
 import re
-import sys
 
-from .utils import io, ui
+from .utils import ui
 
 try:
     from urllib.request import urlopen
 except ImportError:
     from urllib2 import urlopen
-
 
 
 def download(command, file_name):
@@ -146,7 +144,7 @@ def main():
             print(' ABORTED.')
 
         for idx in down_idxs:
-            if not idx in range(len(items)):
+            if idx not in range(len(items)):
                 print('Index ' + idx + ' out of range, skipping.')
             else:
                 name = items[idx].split(',')[0]

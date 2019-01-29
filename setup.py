@@ -13,7 +13,6 @@ def get_property(property, package):
     return result.group(1)
 
 
-
 this_dir = path.abspath(path.dirname(__file__))
 with open(path.join(this_dir, 'README.md')) as f:
     long_description = f.read()
