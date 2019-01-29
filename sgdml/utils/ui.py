@@ -19,7 +19,7 @@ def yes_or_no(question):
         question : :obj:`str`
             User question.
     """
-    reply = str(input(question + ' (y/n): ')).lower().strip()
+    reply = raw_input(question + ' (y/n): ').lower().strip()
     if not reply or reply[0] != 'y':
         return False
     else:

@@ -60,16 +60,16 @@ model_path, model = args.model
 dataset_path, dataset = args.dataset
 
 
-for s in ['train', 'test']:
+for s in ['train', 'valid']:
 
-    if dataset['md5'].astype(str) != model[s + '_md5']:
+    if dataset['md5'] != model['md5_' + s]:
         sys.exit(
             ui.fail_str('[FAIL]')
             + ' Dataset fingerprint does not match the one referenced in model for \'%s\'.'
             % s
         )
 
-    idxs = model[s + '_idxs']
+    idxs = model['idxs_' + s]
     R = dataset['R'][idxs, :, :]
     E = dataset['E'][idxs]
     F = dataset['F'][idxs, :, :]
@@ -77,7 +77,7 @@ for s in ['train', 'test']:
     base_vars = {
         'type': 'd',
         'name': dataset['name'].astype(str),
-        'theory': dataset['theory'],
+        'theory': dataset['theory'].astype(str),
         'z': dataset['z'],
         'R': R,
         'E': E,

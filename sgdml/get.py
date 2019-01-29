@@ -77,7 +77,8 @@ def main():
         help='overwrite existing files',
     )
 
-    subparsers = parser.add_subparsers(title='commands', dest='command', required=True)
+    subparsers = parser.add_subparsers(title='commands', dest='command')
+    subparsers.required = True
     parser_dataset = subparsers.add_parser(
         'dataset', help='download benchmark dataset', parents=[parent_parser]
     )
@@ -105,7 +106,7 @@ def main():
         match, score = response.read().decode().split(',')
         response.close()
 
-        if int(score) == 0 or ui.yes_or_no('Did you mean \'%s\'?' % match):
+        if int(score) == 0 or ui.yes_or_no('Do you mean \'%s\'?' % match):
             download(args.command, match + '.npz')
 
     else:

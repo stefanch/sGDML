@@ -189,7 +189,7 @@ def dataset_md5(dataset):
     for key in keys:
         md5_hash.update(hashlib.md5(dataset[key].ravel()).digest())
 
-    return md5_hash.hexdigest()
+    return md5_hash.hexdigest().encode('utf-8')
 
 
 # ## FILES

@@ -3,7 +3,7 @@
 For more details visit: [http://quantum-machine.org/gdml/doc/](http://quantum-machine.org/gdml/doc/)
 
 #### Requirements:
-- Python 2.7
+- Python 2.7/3.7
 - NumPy (>=1.13.0)
 - SciPy
 
@@ -39,11 +39,11 @@ Using the flag ``--user``, we can tell ``pip`` to install the package to the cur
 
 Download one of the example datasets:
 
-`sgdml-get dataset ethanol`
+`sgdml-get dataset ethanol_dft`
 
 Train a force field model:
 
-`sgdml all ethanol.npz 200 1000 5000`
+`sgdml all ethanol_dft.npz 200 1000 5000`
 
 ## Query a force field
 

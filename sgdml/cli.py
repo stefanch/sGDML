@@ -123,7 +123,7 @@ def _print_model_properties(model):
     n_train = len(model['idxs_train'])
     print(
         ' {:<16} {:<d} points from \'{:<}\''.format(
-            'Trained on:', n_train, model['md5_train']
+            'Trained on:', n_train, model['md5_train'].astype(str)
         )
     )
 
@@ -139,7 +139,7 @@ def _print_model_properties(model):
             'Validated on:',
             '' if is_valid else '[pending] ',
             n_valid,
-            model['md5_valid'],
+            model['md5_valid'].astype(str),
         )
     )
 
@@ -148,7 +148,7 @@ def _print_model_properties(model):
     if is_test:
         print(
             ' {:<16} {:<d} points from \'{:<}\''.format(
-                'Tested on:', n_test, model['md5_test']
+                'Tested on:', n_test, model['md5_test'].astype(str)
             )
         )
     else:
@@ -220,7 +220,7 @@ def all(
     )
     task_dir = create(
         dataset,
-        test_dataset,
+        valid_dataset,
         n_train,
         n_valid,
         sigs,
@@ -656,12 +656,9 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
             print()
             continue
 
-            # TODO:
-            # (1) check if user tried to validate an untested model
-
-        if needs_valid and dataset['md5'].astype(str) != model['md5_valid']:
+        if needs_valid and dataset['md5'] != model['md5_valid']:
             raise AssistantError(
-                'Fingerprint of provided test dataset does not match the one in model file.'
+                'Fingerprint of provided validation dataset does not match the one in model file.'
             )
 
         test_idxs = model['idxs_valid']
@@ -670,9 +667,9 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
 
             # exclude training and/or test sets from validation set if necessary
             excl_idxs = np.empty((0,), dtype=int)
-            if dataset['md5'].astype(str) == model['md5_train']:
+            if dataset['md5'] == model['md5_train']:
                 excl_idxs = np.concatenate([excl_idxs, model['idxs_train']])
-            if dataset['md5'].astype(str) == model['md5_valid']:
+            if dataset['md5'] == model['md5_valid']:
                 excl_idxs = np.concatenate([excl_idxs, model['idxs_valid']])
             if len(excl_idxs) == 0:
                 excl_idxs = None
@@ -869,7 +866,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
         if model_needs_update:
             if is_test:
                 model['n_test'] = len(test_idxs)
-                model['md5_test'] = dataset['md5'].astype(str)
+                model['md5_test'] = dataset['md5']
 
             if model['use_E']:
                 model['e_err'] = {
@@ -1027,11 +1024,11 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
     print(ui.white_back_str('\n SHOW DETAILS \n') + '-' * 100)
     file_path, file = file
 
-    if file['type'].astype(str) == 'd':
+    if file['type'] == b'd':
         print(ui.white_bold_str('Dataset properties'))
         _print_dataset_properties(file)
 
-    if file['type'].astype(str) == 't':
+    if file['type'] == b't':
         print(ui.white_bold_str('Task properties'))
         _print_task_properties(
             use_sym=file['use_sym'],
@@ -1040,7 +1037,7 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
             use_E_cstr=file['use_E_cstr'],
         )
 
-    if file['type'].astype(str) == 'm':
+    if file['type'] == b'm':
         print(ui.white_bold_str('Model properties'))
         _print_model_properties(file)
 
@@ -1091,7 +1088,8 @@ def main():
         help='limit the number of processes for this application',
     )
 
-    subparsers = parser.add_subparsers(title='commands', dest='command', required=True)
+    subparsers = parser.add_subparsers(title='commands', dest='command')
+    subparsers.required = True
     parser_all = subparsers.add_parser(
         'all', help='create model from beginning to end', parents=[parent_parser]
     )

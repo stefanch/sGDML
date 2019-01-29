@@ -400,9 +400,7 @@ class GDMLPredict:
                     i_dir = 1
                     i = 0 if last_i is None else last_i
                     # i = 0
-                    while i < len(batch_size_rng_sizes):
-
-                        # print i
+                    while i >= 0 and i < len(batch_size_rng_sizes):
 
                         batch_size = batch_size_rng_sizes[i]
                         self.set_batch_size(batch_size)
