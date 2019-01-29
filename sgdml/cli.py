@@ -1091,7 +1091,7 @@ def main():
         help='limit the number of processes for this application',
     )
 
-    subparsers = parser.add_subparsers(title='commands', dest='command')
+    subparsers = parser.add_subparsers(title='commands', dest='command', required=True)
     parser_all = subparsers.add_parser(
         'all', help='create model from beginning to end', parents=[parent_parser]
     )

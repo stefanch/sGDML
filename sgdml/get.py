@@ -77,7 +77,7 @@ def main():
         help='overwrite existing files',
     )
 
-    subparsers = parser.add_subparsers(title='commands', dest='command')
+    subparsers = parser.add_subparsers(title='commands', dest='command', required=True)
     parser_dataset = subparsers.add_parser(
         'dataset', help='download benchmark dataset', parents=[parent_parser]
     )
@@ -110,7 +110,7 @@ def main():
 
     else:
 
-        print("Contacting server (%s)..." % base_url)
+        print('Contacting server (%s)...' % base_url)
         response = urlopen('%sget.php?%s' % (base_url, args.command))
         line = response.readlines()
         response.close()
@@ -121,12 +121,12 @@ def main():
         print('{:<2} {:<25}    {:>4}'.format('ID', 'Name', 'Size'))
         print('-' * 36)
 
-        items = line[0].split(';')
+        items = line[0].split(b';')
         for i, item in enumerate(items):
-            name, size = item.split(',')
+            name, size = item.split(b',')
             size = int(size) / 1024 ** 2  # Bytes to MBytes
 
-            print('{:>2d} {:<25} {:>4d} MB'.format(i, name, size))
+            print('{:>2d} {:<25} {:>4d} MB'.format(i, name.decode("utf-8"), int(size)))
         print('')
 
         down_list = input(
@@ -147,7 +147,7 @@ def main():
             if idx not in range(len(items)):
                 print('Index ' + idx + ' out of range, skipping.')
             else:
-                name = items[idx].split(',')[0]
+                name = items[idx].split(b',')[0].decode("utf-8")
                 if os.path.exists(name):
                     print("'%s' exists, skipping." % (name))
                     continue
