@@ -478,7 +478,7 @@ class GDMLTrain:
 
         r_dim = R_d_desc.shape[2]
         r_d_desc_alpha = [
-            rj_d_desc.dot(alphas_F[(j * r_dim):((j + 1) * r_dim)])
+            rj_d_desc.dot(alphas_F[(j * r_dim) : ((j + 1) * r_dim)])
             for j, rj_d_desc in enumerate(R_d_desc)
         ]
 
