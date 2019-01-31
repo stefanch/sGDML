@@ -1,6 +1,7 @@
 # Symmetric Gradient Domain Machine Learning (sGDML)
 
-For more details visit: [http://quantum-machine.org/gdml/doc/](http://quantum-machine.org/gdml/doc/)
+For more details visit: [http://quantum-machine.org/gdml/](http://quantum-machine.org/gdml/)
+Documentation can be found here: [http://quantum-machine.org/gdml/doc/](http://quantum-machine.org/gdml/doc/)
 
 #### Requirements:
 - Python 2.7/3.7
