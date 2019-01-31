@@ -378,7 +378,7 @@ class GDMLTrain:
             R_desc[i, :] = desc.r_to_desc(r, pdist)
             R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist)
 
-        if task['use_cprsn'] and n_perms > 1:  # NEW
+        if task['use_cprsn'] and n_perms > 1:
             _, cprsn_keep_idxs = np.unique(
                 np.sort(task['perms'], axis=0), axis=1, return_index=True
             )
@@ -391,9 +391,9 @@ class GDMLTrain:
 
             task = dict(task)  # enable item assignment in NPZ
             task['F_train'] = task['F_train'][:, cprsn_keep_idxs, :]
-            R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]  # NEW
+            R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
 
-        Ft = task['F_train'].ravel()  # NEW
+        Ft = task['F_train'].ravel()
         Ft_std = np.std(Ft)
         Ft /= Ft_std
 

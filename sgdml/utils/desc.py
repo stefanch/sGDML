@@ -30,10 +30,10 @@ def r_to_desc(r, pdist):
 
 def r_to_d_desc(r, pdist):
     global d_dim, d_desc_mask
-
+    
     n_atoms = r.shape[0]
 
-    if d_desc_mask is None:
+    if d_desc_mask is None or d_desc_mask.shape[0] != n_atoms:
         init(n_atoms)
 
     np.seterr(divide='ignore', invalid='ignore')  # ignore division by zero below
@@ -53,7 +53,7 @@ def r_to_d_desc_op(r, pdist, F_d):  # returns F_d.dot(r_d_desc)
 
     n_atoms = r.shape[0]
 
-    if d_desc_mask is None:
+    if d_desc_mask is None or d_desc_mask.shape[0] != n_atoms:
         init(n_atoms)
 
     np.seterr(divide='ignore', invalid='ignore')  # ignore division by zero below
