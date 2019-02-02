@@ -41,7 +41,7 @@ setup(name = 'sgdml',
             url = 'http://www.gdml.ml',
             author = 'Stefan Chmiela',
             author_email = 'sgdml@chmiela.com',
-            license = 'MIT',
+            license = 'LICENSE.txt',
             packages = find_packages(),
             install_requires = ['numpy >= 1.13.0', 'scipy >= 1.1.0', 'ase >= 3.16.2'],
             entry_points={
