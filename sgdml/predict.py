@@ -40,8 +40,8 @@ glob = {}
 
 def share_array(arr_np):
     """
-    Return a ctypes array allocated from shared memory with data from
-    a NumPy array of type `float`.
+    Return a ctypes array allocated from shared memory with data from a
+    NumPy array of type `float`.
 
     Parameters
     ----------
@@ -83,13 +83,14 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
             wkr_start_stop : tuple of int
                     Indices of first and last (exclusive) sum element.
             r_desc : numpy.ndarray
-                    1D array containing the descriptor for the query geometry.
+                    1D array containing the descriptor for the query
+                    geometry.
 
     Returns
     -------
             :obj:`numpy.ndarray`
-                    Partial prediction of all force components and energy
-                    (appended to array as last element).
+                    Partial prediction of all force components and
+                    energy (appended to array as last element).
     """
     global glob, sig, n_perms
 
@@ -253,7 +254,8 @@ class GDMLPredict:
         Parameters
         ----------
                 num_workers : int
-                        Number of processes (maximum value is set if `None`).
+                        Number of processes (maximum value is set if
+                        `None`).
         """
 
         if self.pool is not None:
@@ -282,10 +284,10 @@ class GDMLPredict:
         """
         Set chunk size for each process.
 
-        The chunk size determines how much of a processes workload
-        will be passed to Python's underlying low-level routines at
-        once. This parameter is highly hardware dependent.
-        A chunk is a subset of the training set of the model.
+        The chunk size determines how much of a processes workload will
+        be passed to Python's underlying low-level routines at once.
+        This parameter is highly hardware dependent. A chunk is a subset
+        of the training set of the model.
 
         Note
         ----
@@ -305,29 +307,30 @@ class GDMLPredict:
 
     def set_opt_num_workers_and_batch_size_fast(self, n_bulk=1, n_reps=3):  # noqa: C901
         """
-        Determine the optimal number of processes and chunk size to
-        use when evaluating the loaded model.
+        Determine the optimal number of processes and chunk size to use
+        when evaluating the loaded model.
 
-        This routine runs a benchmark in which the prediction routine
-        in repeatedly called `n_reps`-times with varying parameter
-        configurations, while the runtime is measured for each one.
-        The optimal parameters are then automatically set.
+        This routine runs a benchmark in which the prediction routine in
+        repeatedly called `n_reps`-times with varying parameter
+        configurations, while the runtime is measured for each one. The
+        optimal parameters are then automatically set.
 
         Note
         ----
                 Depending on the parameter `n_reps`, this routine takes
-                some seconds to complete, which is why it only makes sense
-                to call it before running a large number of predictions.
+                some seconds to complete, which is why it only makes 
+                sense to call it before running a large number of
+                predictions.
 
         Parameters
         ----------
                 n_bulk : int
-                        Number of geometries that will be passed to the `predict`
-                        function in each call (performance will be optimized for
-                        that exact use case).
+                        Number of geometries that will be passed to the
+                        `predict` function in each call (performance
+                        will be optimized for that exact use case).
                 n_reps : int
-                        Number of repetitions (bigger value: more accurate,
-                        but also slower).
+                        Number of repetitions (bigger value: more
+                        accurate, but also slower).
 
         Returns
         -------
@@ -489,8 +492,9 @@ class GDMLPredict:
         Parameters
         ----------
                 R : :obj:`numpy.ndarray`
-                        A 2D array of size M x 3N containing of the Cartesian coordinates of each
-                        atom of M molecules.
+                        A 2D array of size M x 3N containing of the
+                        Cartesian coordinates of each atom of M
+                        molecules.
 
         Returns
         -------
@@ -531,14 +535,15 @@ class GDMLPredict:
 
         Note
         ----
-                The order of the atoms in `r` is not arbitrary and must be
-                the same as used for training the model.
+                The order of the atoms in `r` is not arbitrary and must
+                be the same as used for training the model.
 
         Parameters
         ----------
-                R : :obj:`numpy.ndarray`
-                        A 2D array of size M x 3N containing of the Cartesian coordinates of each
-                        atom of M molecules.
+                r : :obj:`numpy.ndarray`
+                        A 2D array of size M x 3N containing of the
+                        Cartesian coordinates of each atom of M
+                        molecules.
 
         Returns
         -------

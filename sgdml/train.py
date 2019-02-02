@@ -78,7 +78,8 @@ def _assemble_kernel_mat_wkr(j, n_perms, tril_perms_lin, sig, use_E_cstr=False):
         j : int
             Index of training point.
         n_perms : int
-            Number of individual permutations encoded in `tril_perms_lin`.
+            Number of individual permutations encoded in
+            `tril_perms_lin`.
         tril_perms_lin : :obj:`numpy.ndarray`
             1D array (int) containing all recovered permutations
             expanded as one large permutation to be applied to a tiled
@@ -185,11 +186,11 @@ class GDMLTrain:
         """
         Create a data structure of custom type `task`.
 
-        These data structures serve as recipes for model creation, summarizing
-        the configuration of one particular training run. Training and test
-        points are sampled from the provided dataset, without replacement. If
-        the same dataset if given for training and testing, the subsets are
-        drawn without overlap.
+        These data structures serve as recipes for model creation,
+        summarizing the configuration of one particular training run.
+        Training and test points are sampled from the provided dataset,
+        without replacement. If the same dataset if given for training
+        and testing, the subsets are drawn without overlap.
 
         Each task also contains a choice for the hyper-parameters of the
         training process and the MD5 fingerprints of the used datasets.
@@ -197,11 +198,13 @@ class GDMLTrain:
         Parameters
         ----------
             train_dataset : :obj:`dict`
-                Data structure of custom type :obj:`dataset` containing train dataset.
+                Data structure of custom type :obj:`dataset` containing
+                train dataset.
             n_train : int
                 Number of training points to sample.
             valid_dataset : :obj:`dict`
-                Data structure of custom type :obj:`dataset` containing validation dataset.
+                Data structure of custom type :obj:`dataset` containing
+                validation dataset.
             n_valid : int
                 Number of validation points to sample.
             sig : int
@@ -217,9 +220,11 @@ class GDMLTrain:
                        energies up to an unknown integration constant. Note, that the
                        energy predictions accuracy will be untested.
             use_E_cstr : bool, optional
-                True: include energy constraints in the kernel, False: default (s)GDML.
+                True: include energy constraints in the kernel,
+                False: default (s)GDML.
             use_cprsn : bool, optional
-                True: compress kernel matrix along symmetric degrees of freedom,
+                True: compress kernel matrix along symmetric degrees of
+                freedom,
                 False: train using full kernel matrix
 
         Returns
@@ -371,7 +376,6 @@ class GDMLTrain:
 
         for i in range(n_train):
             r = task['R_train'][i]
-
             pdist = sp.spatial.distance.pdist(r, 'euclidean')
             pdist = sp.spatial.distance.squareform(pdist)
 
