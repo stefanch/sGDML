@@ -118,7 +118,18 @@ def _print_task_properties(use_sym, use_cprsn, use_E, use_E_cstr):
 
 def _print_model_properties(model):
 
+    print(' {:<16} {:<}'.format('Dataset:', model['dataset_name'].astype(str)))
+    
+    n_atoms = len(model['z'])
+    print(' {:<16} {:<d}'.format('Atoms:', n_atoms))
+    
     print(' {:<16} {:<d}'.format('Symmetries:', len(model['perms'])))
+
+    _, cprsn_keep_idxs = np.unique(
+                np.sort(model['perms'], axis=0), axis=1, return_index=True
+    )
+    n_atoms_kept = cprsn_keep_idxs.shape[0]
+    print(' {:<16} {:<}'.format('Compression:', '{:<d} effective atoms'.format(n_atoms_kept) if model['use_cprsn'] else 'n/a'))
 
     n_train = len(model['idxs_train'])
     print(
@@ -356,7 +367,7 @@ def create(  # noqa: C901
     if os.path.exists(task_dir):
         if overwrite:
             print(ui.info_str('[INFO]') + ' Overwriting existing training directory.')
-            shutil.rmtree(task_dir)
+            shutil.rmtree(task_dir, ignore_errors=True)
             os.makedirs(task_dir)
         else:
             if ui.is_task_dir_resumeable(
@@ -781,12 +792,12 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **k
                     np.squeeze(e) - e_pred, 1, n_done, e_mae_sum, e_rmse_sum
                 )
 
-                # force component error
+            # force component error
             f_mae, f_mae_sum, f_rmse, f_rmse_sum = _online_err(
                 f - f_pred, 3 * n_atoms, n_done, f_mae_sum, f_rmse_sum
             )
 
-            # magnetude error
+            # magnitude error
             f_pred_mags = np.linalg.norm(f_pred.reshape(-1, 3), axis=1)
             f_mags = np.linalg.norm(f.reshape(-1, 3), axis=1)
             mag_mae, mag_mae_sum, mag_rmse, mag_rmse_sum = _online_err(
@@ -990,7 +1001,7 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):  # noqa
         shutil.copy(
             os.path.join(model_dir, best_model_file_name), best_model_file_name_extended
         )
-        shutil.rmtree(model_dir)
+        shutil.rmtree(model_dir, ignore_errors=True)
     else:
         print(
             ui.warn_str('[WARN]')
@@ -1069,7 +1080,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--version', action='version', version='%(prog)s ' + __version__
+        '--version', action='version', version='%(prog)s ' + __version__ + ' [python ' + '.'.join(map(str, sys.version_info[:3])) + ']'
     )
 
     parent_parser = argparse.ArgumentParser(add_help=False)

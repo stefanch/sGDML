@@ -377,8 +377,9 @@ class GDMLTrain:
         for i in range(n_train):
             r = task['R_train'][i]
             pdist = sp.spatial.distance.pdist(r, 'euclidean')
+            #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
             pdist = sp.spatial.distance.squareform(pdist)
-
+            
             R_desc[i, :] = desc.r_to_desc(r, pdist)
             R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist)
 
@@ -386,6 +387,22 @@ class GDMLTrain:
             _, cprsn_keep_idxs = np.unique(
                 np.sort(task['perms'], axis=0), axis=1, return_index=True
             )
+
+            # _, _, inv_idxs = np.unique(
+            #     np.sort(task['perms'], axis=0), axis=1, return_index=True, return_inverse=True
+            # )
+
+            # R_d_desc = R_d_desc.reshape(n_train,dim_d,n_atoms,3)
+            # task = dict(task)  #
+            # for kii,ki in enumerate(cprsn_keep_idxs):
+            #     idx_to = ki
+            #     idxs_from = np.where(inv_idxs==kii)[0]
+
+            #     for fr in idxs_from[1:]:
+            #         R_d_desc[:,:,idx_to,:] += R_d_desc[:,:,fr,:] / len(idxs_from)
+            #         task['F_train'][:,idx_to,:] += task['F_train'][:,fr,:] / len(idxs_from)
+            # R_d_desc = R_d_desc.reshape(n_train,dim_d,-1)
+
             cprsn_keep_idxs_lin = (
                 np.arange(dim_i).reshape(n_atoms, -1)[cprsn_keep_idxs, :].ravel()
             )

@@ -130,7 +130,7 @@ def main():
             print('{:>2d} {:<25} {:>4d} MB'.format(i, name.decode("utf-8"), int(size)))
         print('')
 
-        down_list = input(
+        down_list = raw_input(
             'Please list which datasets to download (e.g. 0 1 2 6) or type \'all\': '
         )
         down_idxs = []

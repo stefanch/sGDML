@@ -60,6 +60,7 @@ def _predict(r, n_train, std, c, chunk_size):
 
     r = r.reshape(-1, 3)
     pdist = scipy.spatial.distance.pdist(r, 'euclidean')
+    #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
     pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
     r_desc = desc.r_to_desc(r, pdist)
@@ -132,6 +133,14 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
 
         rj_desc_perms = R_desc_perms[b_start:b_stop, :]
         rj_d_desc_alpha_perms = R_d_desc_alpha_perms[b_start:b_stop, :]
+
+        # Resize pre-allocated memory for last iteration, if chunk_size is not a divisor of the training set size.
+        # Note: It's faster to process equally sized chunks.
+        c_size = b_stop - b_start
+        if c_size < dim_c:
+            diff_ab_perms = diff_ab_perms[:c_size,:]
+            a_x2 = a_x2[:c_size]
+            mat52_base = mat52_base[:c_size]
 
         # diff_ab_perms = r_desc - rj_desc_perms
         np.subtract(
@@ -558,6 +567,7 @@ class GDMLPredict:
 
         r = r.reshape(self.n_atoms, 3)
         pdist = scipy.spatial.distance.pdist(r, 'euclidean')
+        #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
         pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
         r_desc = desc.r_to_desc(r, pdist)
