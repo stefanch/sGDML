@@ -47,6 +47,9 @@ setup(name = 'sgdml',
             entry_points={
                     'console_scripts': ['sgdml=sgdml.cli:main', 'sgdml-get=sgdml.get:main']
                     },
+            extras_require={
+                    'torch': ['torch'],
+            },
             scripts=scripts,
             include_package_data=True,
             zip_safe=False
