@@ -96,6 +96,8 @@ class GDMLTorchPredict(nn.Module):
         """
         assert Rs.dim() == 3
         assert Rs.shape[1:] == (self._n_atoms, 3)
+        dtype = Rs.dtype
+        Rs = Rs.double()
         batch_size = self._batch_size or self._max_memory // self._memory_per_sample()
         Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
-        return torch.cat(Es), torch.cat(Fs)
+        return torch.cat(Es).to(dtype), torch.cat(Fs).to(dtype)
