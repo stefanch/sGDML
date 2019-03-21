@@ -60,7 +60,11 @@ def _print_splash():
 def _print_dataset_properties(dataset):
 
     n_mols, n_atoms, _ = dataset['R'].shape
-    print(' {:<16} {:<} ({:<d} atoms)'.format('Name:', dataset['name'].astype(str), n_atoms))
+    print(
+        ' {:<16} {:<} ({:<d} atoms)'.format(
+            'Name:', dataset['name'].astype(str), n_atoms
+        )
+    )
     print(' {:<16} {:<}'.format('Theory:', dataset['theory']))
     print(' {:<16} {:<d}'.format('Size:', n_mols))
 
@@ -119,17 +123,24 @@ def _print_task_properties(use_sym, use_cprsn, use_E, use_E_cstr):
 def _print_model_properties(model):
 
     print(' {:<16} {:<}'.format('Dataset:', model['dataset_name'].astype(str)))
-    
+
     n_atoms = len(model['z'])
     print(' {:<16} {:<d}'.format('Atoms:', n_atoms))
-    
+
     print(' {:<16} {:<d}'.format('Symmetries:', len(model['perms'])))
 
     _, cprsn_keep_idxs = np.unique(
-                np.sort(model['perms'], axis=0), axis=1, return_index=True
+        np.sort(model['perms'], axis=0), axis=1, return_index=True
     )
     n_atoms_kept = cprsn_keep_idxs.shape[0]
-    print(' {:<16} {:<}'.format('Compression:', '{:<d} effective atoms'.format(n_atoms_kept) if model['use_cprsn'] else 'n/a'))
+    print(
+        ' {:<16} {:<}'.format(
+            'Compression:',
+            '{:<d} effective atoms'.format(n_atoms_kept)
+            if model['use_cprsn']
+            else 'n/a',
+        )
+    )
 
     n_train = len(model['idxs_train'])
     print(
@@ -553,7 +564,7 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 def _batch(iterable, n=1):
     l = len(iterable)
     for ndx in range(0, l, n):
-        yield iterable[ndx:min(ndx + n, l)]
+        yield iterable[ndx : min(ndx + n, l)]
 
 
 def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
@@ -602,7 +613,9 @@ def validate(model_dir, dataset, overwrite, max_processes, command=None, **kwarg
             )
 
 
-def test(model_dir, dataset, n_test, overwrite, max_processes, command=None, **kwargs):  # noqa: C901
+def test(
+    model_dir, dataset, n_test, overwrite, max_processes, command=None, **kwargs
+):  # noqa: C901
 
     model_dir, model_file_names = model_dir
     n_models = len(model_file_names)
@@ -1080,7 +1093,13 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--version', action='version', version='%(prog)s ' + __version__ + ' [python ' + '.'.join(map(str, sys.version_info[:3])) + ']'
+        '--version',
+        action='version',
+        version='%(prog)s '
+        + __version__
+        + ' [python '
+        + '.'.join(map(str, sys.version_info[:3]))
+        + ']',
     )
 
     parent_parser = argparse.ArgumentParser(add_help=False)

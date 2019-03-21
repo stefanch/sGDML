@@ -377,9 +377,9 @@ class GDMLTrain:
         for i in range(n_train):
             r = task['R_train'][i]
             pdist = sp.spatial.distance.pdist(r, 'euclidean')
-            #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+            # pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
             pdist = sp.spatial.distance.squareform(pdist)
-            
+
             R_desc[i, :] = desc.r_to_desc(r, pdist)
             R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist)
 
@@ -478,7 +478,7 @@ class GDMLTrain:
 
         r_dim = R_d_desc.shape[2]
         r_d_desc_alpha = [
-            rj_d_desc.dot(alphas_F[(j * r_dim):((j + 1) * r_dim)])
+            rj_d_desc.dot(alphas_F[(j * r_dim) : ((j + 1) * r_dim)])
             for j, rj_d_desc in enumerate(R_d_desc)
         ]
 
