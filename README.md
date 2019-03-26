@@ -22,7 +22,7 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 
 ### Development version
 
-#### Clone the repository
+#### (1) Clone the repository
 
 `git clone https://github.com/stefanch/sGDML.git`
 
@@ -32,11 +32,11 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 
 `git pull origin master`
 
-##### Install
+#### (2) Install
 
 `pip install -e .`
 
-###### Install (with optional GPU support)
+##### Install (with optional GPU support)
 
 For GPU support, the optional PyTorch dependency needs to be installed.
 
