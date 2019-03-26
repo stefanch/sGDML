@@ -71,6 +71,17 @@ print e.shape # (1,)
 print f.shape # (1,27)
 ```
 
+### ...or with GPU support
+
+Setting ``use_torch=True`` when instantiating the predictor, redirects all calculations to PyTorch.
+
+```python
+gdml = GDMLPredict(model, use_torch=True)
+```
+
+**_NOTE:_**  PyTorch must be installed with GPU support, otherwise the CPU is used. We recommend performing CPU calculations without PyTorch for improved performance.
+
+
 ## References
 
 * [1] Chmiela, S., Tkatchenko, A., Sauceda, H. E., Poltavsky, I., Schütt, K. T., Müller, K.-R.,
