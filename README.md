@@ -89,4 +89,5 @@ Nature Communications, 9(1), 3887 (2018)
 
 * [4] Sauceda, H. E., Chmiela, S., Poltavsky, I., Müller, K.-R., & Tkatchenko, A.,
 *Molecular Force Fields with Gradient-Domain Machine Learning: Construction and Application to Dynamics of Small Molecules with Coupled Cluster Forces*
-[arXiv:1901.06594](https://arxiv.org/abs/1901.06594)
+The Journal of Chemical Physics, 150, 114102 (2019)
+[10.1063/1.5078687](https://doi.org/10.1063/1.5078687)
