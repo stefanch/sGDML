@@ -79,7 +79,7 @@ Setting ``use_torch=True`` when instantiating the predictor redirects all calcul
 gdml = GDMLPredict(model, use_torch=True)
 ```
 
-**_NOTE:_**  PyTorch must be installed with GPU support, otherwise the CPU is used. However, we recommend performing CPU calculations without it for optimal performance.
+**_NOTE:_**  PyTorch must be installed with GPU support, otherwise the CPU is used. However, we recommend performing CPU calculations without PyTorch for optimal performance.
 
 
 ## References
