@@ -8,6 +8,7 @@ Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 - Python 2.7/3.7
 - NumPy (>=1.13.0)
 - SciPy
+- PyTorch (optional)
 
 ## Getting started
 
@@ -34,6 +35,12 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 ##### Install
 
 `pip install -e .`
+
+###### Install (with optional GPU support)
+
+For GPU support, the optional PyTorch dependency needs to be installed.
+
+`pip install -e .[torch]`
 
 Using the flag ``--user``, we can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
 
