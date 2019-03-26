@@ -14,7 +14,7 @@ Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 
 ### Stable release
 
-Most systems come with the default package manager for Python ``pip`` already preinstalled. We install ``sgdml`` by simply calling:
+Most systems come with the default package manager for Python ``pip`` already preinstalled. Install ``sgdml`` by simply calling:
 
 `pip install sgdml`
 
@@ -36,7 +36,7 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 
 `pip install -e .`
 
-##### Install (with optional GPU support)
+##### Install with GPU support
 
 For GPU support, the optional PyTorch dependency needs to be installed.
 
@@ -88,6 +88,6 @@ Nature Communications, 9(1), 3887 (2018)
 [arXiv:1812.04986](https://arxiv.org/abs/1812.04986)
 
 * [4] Sauceda, H. E., Chmiela, S., Poltavsky, I., Müller, K.-R., & Tkatchenko, A.,
-*Molecular Force Fields with Gradient-Domain Machine Learning: Construction and Application to Dynamics of Small Molecules with Coupled Cluster Forces*
+*Molecular Force Fields with Gradient-Domain Machine Learning: Construction and Application to Dynamics of Small Molecules with Coupled Cluster Forces.*
 The Journal of Chemical Physics, 150, 114102 (2019)
 [10.1063/1.5078687](https://doi.org/10.1063/1.5078687)
