@@ -36,13 +36,13 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 
 `pip install -e .`
 
+Using the flag ``--user``, we can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
+
 ##### Install with GPU support
 
 For GPU support, the optional PyTorch dependency needs to be installed.
 
 `pip install -e .[torch]`
-
-Using the flag ``--user``, we can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
 
 ## Reconstruct your first force field
 
