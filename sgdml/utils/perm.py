@@ -115,7 +115,7 @@ def sync_mat(R, z, max_processes=None):
         if perm is not None:
             perms = np.vstack((perms, perm))
     perms = np.unique(perms, axis=0)
-    sys.stdout.write('[DONE] Permutation synchronization...')
+    sys.stdout.write(ui.info_str('\r[DONE]') + ' Permutation synchronization...')
     sys.stdout.flush()
 
     return perms

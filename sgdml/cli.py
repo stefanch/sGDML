@@ -60,11 +60,7 @@ def _print_splash():
 def _print_dataset_properties(dataset):
 
     n_mols, n_atoms, _ = dataset['R'].shape
-    print(
-        ' {:<16} {:<} ({:<d} atoms)'.format(
-            'Name:', dataset['name'].astype(str), n_atoms
-        )
-    )
+    print(' {:<16} {:<} ({:<d} atoms)'.format('Name:', dataset['name'].astype(str), n_atoms))
     print(' {:<16} {:<}'.format('Theory:', dataset['theory']))
     print(' {:<16} {:<d}'.format('Size:', n_mols))
 
@@ -123,24 +119,17 @@ def _print_task_properties(use_sym, use_cprsn, use_E, use_E_cstr):
 def _print_model_properties(model):
 
     print(' {:<16} {:<}'.format('Dataset:', model['dataset_name'].astype(str)))
-
+    
     n_atoms = len(model['z'])
     print(' {:<16} {:<d}'.format('Atoms:', n_atoms))
-
+    
     print(' {:<16} {:<d}'.format('Symmetries:', len(model['perms'])))
 
     _, cprsn_keep_idxs = np.unique(
-        np.sort(model['perms'], axis=0), axis=1, return_index=True
+                np.sort(model['perms'], axis=0), axis=1, return_index=True
     )
     n_atoms_kept = cprsn_keep_idxs.shape[0]
-    print(
-        ' {:<16} {:<}'.format(
-            'Compression:',
-            '{:<d} effective atoms'.format(n_atoms_kept)
-            if model['use_cprsn']
-            else 'n/a',
-        )
-    )
+    print(' {:<16} {:<}'.format('Compression:', '{:<d} effective atoms'.format(n_atoms_kept) if model['use_cprsn'] else 'n/a'))
 
     n_train = len(model['idxs_train'])
     print(
@@ -208,6 +197,7 @@ def all(
     use_cprsn,
     overwrite,
     max_processes,
+    use_torch,
     **kwargs
 ):
 
@@ -270,6 +260,7 @@ def all(
         valid_dataset,
         overwrite=False,
         max_processes=max_processes,
+        use_torch=use_torch,
         **kwargs
     )
 
@@ -290,10 +281,11 @@ def all(
         n_test,
         overwrite=False,
         max_processes=max_processes,
+        use_torch=use_torch,
         **kwargs
     )
 
-    print(ui.pass_str('[DONE]') + ' Training assistant finished sucessfully.')
+    print(ui.pass_str('[ OK ]') + ' Training assistant finished sucessfully.')
     print('       Here is your model: \'%s\'' % model_file_name)
 
 
@@ -475,7 +467,7 @@ def create(  # noqa: C901
             n_written += 1
     if n_written > 0:
         print(
-            '[DONE] Writing %d/%d tasks with %s training points each.'
+            ui.info_str('[DONE]') + ' Writing %d/%d tasks with %s training points each.'
             % (n_written, len(sigs), tmpl_task['R_train'].shape[0])
         )
     print('')
@@ -546,7 +538,7 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
                 sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
             else:
                 if func_called_directly:
-                    print('[DONE] Writing model to file \'%s\'...' % model_file_path)
+                    print(ui.info_str('[DONE]') + ' Writing model to file \'%s\'...' % model_file_path)
                 np.savez_compressed(model_file_path, **model)
             print()
 
@@ -564,7 +556,7 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 def _batch(iterable, n=1):
     l = len(iterable)
     for ndx in range(0, l, n):
-        yield iterable[ndx : min(ndx + n, l)]
+        yield iterable[ndx:min(ndx + n, l)]
 
 
 def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
@@ -580,7 +572,7 @@ def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
     return mae, mae_n_sum, rmse, rmse_n_sum
 
 
-def validate(model_dir, dataset, overwrite, max_processes, command=None, **kwargs):
+def validate(model_dir, dataset, overwrite, max_processes, use_torch, command=None, **kwargs):
 
     dataset_path_extracted, dataset_extracted = dataset
 
@@ -593,7 +585,7 @@ def validate(model_dir, dataset, overwrite, max_processes, command=None, **kwarg
         _print_dataset_properties(dataset_extracted)
 
     n_test = 0  # TODO remove?
-    test(model_dir, dataset, n_test, overwrite, max_processes, command, **kwargs)
+    test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, command, **kwargs)
 
     if func_called_directly:
         model_dir, model_file_names = model_dir
@@ -613,9 +605,7 @@ def validate(model_dir, dataset, overwrite, max_processes, command=None, **kwarg
             )
 
 
-def test(
-    model_dir, dataset, n_test, overwrite, max_processes, command=None, **kwargs
-):  # noqa: C901
+def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, command=None, **kwargs):  # noqa: C901
 
     model_dir, model_file_names = model_dir
     n_models = len(model_file_names)
@@ -746,35 +736,43 @@ def test(
         if model['use_E']:
             E = dataset['E'][test_idxs]
 
-        gdml_predict = GDMLPredict(model, max_processes=max_processes)
-
-        if num_workers == 0 or batch_size == 0:
-            sys.stdout.write('\r[' + ui.blink_str(' .. ') + '] Running benchmark...')
-            sys.stdout.flush()
-
-            # n_reps = min(max(int(n_valid*0.1),3),10) # 10% of the n_valid, at least 3, no more than 5
-            n_reps = 3
-            gps = gdml_predict.set_opt_num_workers_and_batch_size_fast(
-                n_bulk=100, n_reps=n_reps
+        try:
+            gdml_predict = GDMLPredict(
+                model,
+                max_processes=max_processes,
+                use_torch=use_torch,
             )
-            num_workers, batch_size, bulk_mp = (
-                gdml_predict._num_workers,
-                gdml_predict._chunk_size,
-                gdml_predict._bulk_mp,
-            )
+        except Exception as err:
+            sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
 
-            sys.stdout.write(
-                '\r[DONE] Running benchmark... '
-                + ui.gray_str(
-                    '(best: %d wkr %s/ chunks of %d @ %.1f geo/s)\n'
-                    % (num_workers, '[MP] ' if bulk_mp else '', batch_size, gps)
+        if not use_torch:
+            if num_workers == 0 or batch_size == 0:
+                sys.stdout.write('\r[' + ui.blink_str(' .. ') + '] Running benchmark...')
+                sys.stdout.flush()
+
+                # n_reps = min(max(int(n_valid*0.1),3),10) # 10% of the n_valid, at least 3, no more than 5
+                n_reps = 3
+                gps = gdml_predict.set_opt_num_workers_and_batch_size_fast(
+                    n_bulk=100, n_reps=n_reps
                 )
-            )
-            sys.stdout.flush()
-        else:
-            gdml_predict.set_num_workers(num_workers)
-            gdml_predict.set_batch_size(batch_size)
-            gdml_predict._bulk_mp = bulk_mp  # TODO: implement setter
+                num_workers, batch_size, bulk_mp = (
+                    gdml_predict._num_workers,
+                    gdml_predict._chunk_size,
+                    gdml_predict._bulk_mp,
+                )
+
+                sys.stdout.write(
+                    ui.info_str('\r[DONE]') + ' Running benchmark... '
+                    + ui.gray_str(
+                        '(best: %d wkr %s/ chunks of %d @ %.1f geo/s)\n'
+                        % (num_workers, '[MP] ' if bulk_mp else '', batch_size, gps)
+                    )
+                )
+                sys.stdout.flush()
+            else:
+                gdml_predict.set_num_workers(num_workers)
+                gdml_predict.set_batch_size(batch_size)
+                gdml_predict._bulk_mp = bulk_mp  # TODO: implement setter
 
         n_atoms = z.shape[0]
 
@@ -1009,7 +1007,7 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):  # noqa
         has_printed = True
     if not model_exists or overwrite:
         if func_called_directly:
-            print('[DONE] Writing model file \'%s\'...' % best_model_file_name_extended)
+            print(ui.info_str('[DONE]') + ' Writing model file \'%s\'...' % best_model_file_name_extended)
             has_printed = True
         shutil.copy(
             os.path.join(model_dir, best_model_file_name), best_model_file_name_extended
@@ -1093,13 +1091,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--version',
-        action='version',
-        version='%(prog)s '
-        + __version__
-        + ' [python '
-        + '.'.join(map(str, sys.version_info[:3]))
-        + ']',
+        '--version', action='version', version='%(prog)s ' + __version__ + ' [python ' + '.'.join(map(str, sys.version_info[:3])) + ']'
     )
 
     parent_parser = argparse.ArgumentParser(add_help=False)
@@ -1116,6 +1108,12 @@ def main():
         metavar='<max_processes>',
         type=ui.is_strict_pos_int,
         help='limit the number of processes for this application',
+    )
+    parent_parser.add_argument(
+        '--torch',
+        dest='use_torch',
+        action='store_true',
+        help='use PyTorch for validation and test',
     )
 
     subparsers = parser.add_subparsers(title='commands', dest='command')
@@ -1239,6 +1237,20 @@ def main():
         args.sigs = sorted(list(set(args.sigs)))  # remove potential duplicates
 
     _print_splash()
+
+    # check PyTorch GPU support
+    if 'use_torch' in args and args.use_torch:
+        try:
+            import torch
+        except ImportError:
+            pass
+        else:
+            if not torch.cuda.is_available():
+                print(
+                    ui.warn_str('\n[WARN]')
+                    + ' Your PyTorch installation does not support GPU computation!'
+                    + '\n       We recommend running CPU calculations without \'--torch\' for improved performance.'
+                )
 
     try:
         getattr(sys.modules[__name__], args.command)(**vars(args))

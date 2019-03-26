@@ -4,7 +4,7 @@ This module contains all routines for training GDML and sGDML models.
 
 # MIT License
 #
-# Copyright (c) 2018 Stefan Chmiela
+# Copyright (c) 2018-2019 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -37,7 +37,7 @@ import scipy as sp
 
 from . import __version__
 from .predict import GDMLPredict
-from .utils import desc, io, perm
+from .utils import ui, io, desc, perm
 
 glob = {}
 
@@ -255,7 +255,7 @@ class GDMLTrain:
         md5_train = io.dataset_md5(train_dataset)
         md5_valid = io.dataset_md5(valid_dataset)
 
-        sys.stdout.write('\r[DONE] Hashing dataset(s)...\n')
+        sys.stdout.write(ui.info_str('\r[DONE]') + ' Hashing dataset(s)...\n')
         sys.stdout.flush()
 
         sys.stdout.write(
@@ -279,7 +279,7 @@ class GDMLTrain:
             )
             idxs_valid = np.random.choice(idxs_valid_all, n_valid, replace=False)
 
-        sys.stdout.write('\r[DONE] Sampling training and validation subset...\n')
+        sys.stdout.write(ui.info_str('\r[DONE]') + ' Sampling training and validation subset...\n')
         sys.stdout.flush()
 
         R_train = train_dataset['R'][idxs_train, :, :]
@@ -354,7 +354,7 @@ class GDMLTrain:
 
         Returns
         -------
-            dict
+            :obj:`dict`
                 Data structure of custom type :obj:`model`.
         """
 
@@ -377,7 +377,7 @@ class GDMLTrain:
         for i in range(n_train):
             r = task['R_train'][i]
             pdist = sp.spatial.distance.pdist(r, 'euclidean')
-            # pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+            #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
             pdist = sp.spatial.distance.squareform(pdist)
 
             R_desc[i, :] = desc.r_to_desc(r, pdist)
@@ -478,7 +478,7 @@ class GDMLTrain:
 
         r_dim = R_d_desc.shape[2]
         r_d_desc_alpha = [
-            rj_d_desc.dot(alphas_F[(j * r_dim) : ((j + 1) * r_dim)])
+            rj_d_desc.dot(alphas_F[(j * r_dim):((j + 1) * r_dim)])
             for j, rj_d_desc in enumerate(R_d_desc)
         ]
 

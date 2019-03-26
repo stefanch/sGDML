@@ -23,12 +23,10 @@ def init(n_atoms):
 # 	d_dim = (n_atoms**2 - n_atoms)/2
 
 
-# Difference with periodic boundary conditions
-b_size = 9.91241  # box size (lattice)
-b_rsize = 1.0 / b_size  # TODO: put into init
-
-
-def pbc_diff(u, v):  # for cubic unit cell only
+# Difference with periodic boundary conditions 
+b_size = 9.91241 # box size (lattice)
+b_rsize = 1.0 / b_size # TODO: put into init
+def pbc_diff(u, v): # for cubic unit cell only
 
     diff = u - v
     diff -= b_size * np.rint(diff * b_rsize)
@@ -82,7 +80,7 @@ def r_to_d_desc(r, pdist):
     """
 
     global d_dim, d_desc_mask
-
+    
     n_atoms = r.shape[0]
 
     if d_desc_mask is None or d_desc_mask.shape[0] != n_atoms:
@@ -93,10 +91,10 @@ def r_to_d_desc(r, pdist):
     for a in range(n_atoms):
 
         d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
-        # d_dist = pbc_diff(r,r[a, :]) / (pdist[a, :] ** 3)[:, None]
+        #d_dist = pbc_diff(r,r[a, :]) / (pdist[a, :] ** 3)[:, None]
 
         idx = d_desc_mask[a, :]
-        grad[idx, (3 * a) : (3 * a + 3)] = np.delete(d_dist, a, axis=0)
+        grad[idx, (3 * a):(3 * a + 3)] = np.delete(d_dist, a, axis=0)
 
     return grad
 
@@ -138,10 +136,10 @@ def r_to_d_desc_op(r, pdist, F_d):
     for a in range(n_atoms):
 
         d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
-        # d_dist = pbc_diff(r,r[a, :]) / (pdist[a, :] ** 3)[:, None]
+        #d_dist = pbc_diff(r,r[a, :]) / (pdist[a, :] ** 3)[:, None]
 
         idx = d_desc_mask[a, :]
-        F_d[idx].dot(np.delete(d_dist, a, axis=0), out=F_i[(3 * a) : (3 * a + 3)])
+        F_d[idx].dot(np.delete(d_dist, a, axis=0), out=F_i[(3 * a):(3 * a + 3)])
 
     return F_i
 

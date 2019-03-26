@@ -71,7 +71,8 @@ def progr_toggle(done, duration_s=None, disp_str=''):
         disp_str : :obj:`str`, optional
             Task description.
     """
-    sys.stdout.write('\r[%s] ' % ('DONE' if done else blink_str(' .. ')))
+
+    sys.stdout.write('\r%s ' % (info_str('[DONE]') if done else '['+blink_str(' .. ')+']'))
     sys.stdout.write(disp_str)
 
     if duration_s is not None:

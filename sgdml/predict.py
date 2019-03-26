@@ -4,7 +4,7 @@ This module contains all routines for evaluating GDML and sGDML models.
 
 # MIT License
 #
-# Copyright (c) 2018 Stefan Chmiela
+# Copyright (c) 2018-2019 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -60,21 +60,22 @@ def _predict(r, n_train, std, c, chunk_size):
 
     r = r.reshape(-1, 3)
     pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-    # pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+    #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
     pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
     r_desc = desc.r_to_desc(r, pdist)
+    #r_d_desc = desc.r_to_d_desc(r, pdist)
 
     res = _predict_wkr((0, n_train), chunk_size, r_desc)
     res *= std
 
     F = desc.r_to_d_desc_op(r, pdist, res[1:]).reshape(1, -1)
+    #F = res[1:].reshape(1,-1).dot(r_d_desc)
     return (res[0] + c).reshape(-1), F
 
 
 def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
     """
-
     Compute part of a prediction.
 
     The workload will be processed in `b_size` chunks.
@@ -138,7 +139,7 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
         # Note: It's faster to process equally sized chunks.
         c_size = b_stop - b_start
         if c_size < dim_c:
-            diff_ab_perms = diff_ab_perms[:c_size, :]
+            diff_ab_perms = diff_ab_perms[:c_size,:]
             a_x2 = a_x2[:c_size]
             mat52_base = mat52_base[:c_size]
 
@@ -185,7 +186,49 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
 
 
 class GDMLPredict:
-    def __init__(self, model, batch_size=None, num_workers=1, max_processes=None):
+    def __init__(self, model, batch_size=None, num_workers=1, max_processes=None, use_torch=False):
+        """
+        Query trained sGDML force fields.
+
+        This class is used to load a trained model and make energy and
+        force predictions for new geometries. GPU support is provided
+        through PyTorch (requires optional `torch` dependency to be
+        installed).
+
+        Note
+        ----
+                The parameters `batch_size` and `num_workers` are only
+                relevant if this code runs on a CPU. Both can be set
+                automatically via the function
+                `set_opt_num_workers_and_batch_size_fast`. Enabling
+                calculations via PyTorch is only recommended with GPU
+                support. CPU calcuations are faster with our NumPy
+                implementation.
+
+        Parameters
+        ----------
+                model : :obj:`dict`
+                        Data structure that holds all parameters of the
+                        trained model. This object is the output of
+                        `GDMLTrain.train`
+                batch_size : int, optional
+                        Chunk size for processing parallel tasks.
+                num_workers : int, optional
+                        Number of parallel workers.
+                max_processes : int, optional
+                        Limit the max. number of processes. Otherwise
+                        all CPU cores are used. This parameters has no
+                        effect if `use_torch=True`
+                use_torch : boolean, optional
+                        Use PyTorch to calculate predictions
+
+        Returns
+        -------
+                :obj:`numpy.ndarray`
+                        Energies stored in an 1D array of size M.
+                :obj:`numpy.ndarray`
+                        Forces stored in an 2D arry of size M x 3N.
+        """
 
         global glob, sig, n_perms
 
@@ -226,7 +269,25 @@ class GDMLPredict:
             alphas_E_lin = np.tile(model['alphas_E'][:, None], (1, n_perms)).ravel()
             glob['alphas_E_lin'], glob['alphas_E_lin_shape'] = share_array(alphas_E_lin)
 
-            # Parallel processing configuration
+        
+        # GPU support
+
+        self.use_torch = False if not use_torch else use_torch
+        self.torch_predict = None
+        if self.use_torch:
+            try:
+                import torch
+            except ImportError: # dependency missing, issue a warning
+                raise ValueError(
+                    'PyTorch calculations requested, without having optional PyTorch dependency installed!'
+                    + '\n       Please \'pip install torch\' or disable PyTorch calculations.'
+                )
+
+            from .torchtools import GDMLTorchPredict
+            self.torch_predict = GDMLTorchPredict(model)
+
+
+        # Parallel processing configuration
 
         self._bulk_mp = False  # Bulk predictions with multiple processes?
 
@@ -242,7 +303,7 @@ class GDMLPredict:
         self.set_batch_size(batch_size)
 
     def __del__(self):
-        if self.pool is not None:
+        if hasattr(self, 'pool') and self.pool is not None:
             self.pool.terminate()
 
             # ## Public ##
@@ -540,7 +601,10 @@ class GDMLPredict:
 
     def predict(self, r):
         """
-        Predict energy and forces for multiple geometries.
+        Predict energy and forces for multiple geometries. This function
+        can run on the GPU, if the optional PyTorch dependency is
+        installed and `use_torch=True` was speciefied during
+        initialization of this class.
 
         Note
         ----
@@ -562,15 +626,30 @@ class GDMLPredict:
                         Forces stored in an 2D arry of size M x 3N.
         """
 
+        if self.use_torch:
+
+            import torch
+
+            M = r.shape[0]
+            
+            Rs = torch.from_numpy(r.reshape(M, -1, 3))
+            e_pred, f_pred = self.torch_predict.forward(Rs)
+            
+            E = e_pred.numpy()
+            F = f_pred.numpy().reshape(M, -1)
+
+            return E, F
+
         if r.ndim == 2 and r.shape[0] > 1:
             return self._predict_bulk(r)
 
         r = r.reshape(self.n_atoms, 3)
         pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-        # pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+        #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
         pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
         r_desc = desc.r_to_desc(r, pdist)
+        #r_d_desc = desc.r_to_d_desc(r, pdist)
 
         if self._num_workers == 1 or self._bulk_mp:
             res = _predict_wkr(self.wkr_starts_stops[0], self._chunk_size, r_desc)
@@ -585,4 +664,5 @@ class GDMLPredict:
 
         E = res[0].reshape(-1) + self.c
         F = desc.r_to_d_desc_op(r, pdist, res[1:]).reshape(1, -1)
+        #F = res[1:].reshape(1,-1).dot(r_d_desc)
         return E, F
