@@ -38,7 +38,7 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 
 Using the flag ``--user``, we can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
 
-##### Install with GPU support
+##### ...with GPU support
 
 For GPU support, the optional PyTorch dependency needs to be installed.
 
@@ -71,15 +71,15 @@ print e.shape # (1,)
 print f.shape # (1,27)
 ```
 
-### ...or with GPU support
+### ...with GPU support
 
-Setting ``use_torch=True`` when instantiating the predictor, redirects all calculations to PyTorch.
+Setting ``use_torch=True`` when instantiating the predictor redirects all calculations to PyTorch.
 
 ```python
 gdml = GDMLPredict(model, use_torch=True)
 ```
 
-**_NOTE:_**  PyTorch must be installed with GPU support, otherwise the CPU is used. We recommend performing CPU calculations without PyTorch for improved performance.
+**_NOTE:_**  PyTorch must be installed with GPU support, otherwise the CPU is used. However, we recommend performing CPU calculations without it for optimal performance.
 
 
 ## References
