@@ -272,7 +272,7 @@ class GDMLPredict:
         
         # GPU support
 
-        self.use_torch = False if not use_torch else use_torch
+        self.use_torch = use_torch
         self.torch_predict = None
         if self.use_torch:
             try:
