@@ -60,6 +60,7 @@ class GDMLTorchPredict(nn.Module):
 
         super(GDMLTorchPredict, self).__init__()
 
+        model = dict(model) # hack
 
         self._batch_size = batch_size
         self._max_memory = int(2 ** 30 * max_memory)

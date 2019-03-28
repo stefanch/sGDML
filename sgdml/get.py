@@ -27,6 +27,9 @@ from __future__ import print_function
 import argparse
 import os
 import re
+import sys
+if sys.version[0] == '3':
+    raw_input = input
 
 from .utils import ui
 
@@ -146,7 +149,7 @@ def main():
 
         for idx in down_idxs:
             if idx not in range(len(items)):
-                print('Index ' + idx + ' out of range, skipping.')
+                print('Index ' + str(idx) + ' out of range, skipping.')
             else:
                 name = items[idx].split(b',')[0].decode("utf-8")
                 if os.path.exists(name):

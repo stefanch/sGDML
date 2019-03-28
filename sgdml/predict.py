@@ -630,6 +630,10 @@ class GDMLPredict:
 
             import torch
 
+            # hack: add sigleton dimension if input is (,3N)
+            if r.ndim == 1:
+                r = r[None,:]
+
             M = r.shape[0]
             
             Rs = torch.from_numpy(r.reshape(M, -1, 3))

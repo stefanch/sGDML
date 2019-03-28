@@ -4,6 +4,8 @@ import argparse
 import os
 import re
 import sys
+if sys.version[0] == '3':
+    raw_input = input
 
 import numpy as np
 
@@ -19,6 +21,7 @@ def yes_or_no(question):
         question : :obj:`str`
             User question.
     """
+
     reply = raw_input(question + ' (y/n): ').lower().strip()
     if not reply or reply[0] != 'y':
         return False

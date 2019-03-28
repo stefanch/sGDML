@@ -626,8 +626,6 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
         model_path = os.path.join(model_dir, model_file_name)
         _, model = ui.is_file_type(model_path, 'model')
 
-        # use_E = model['use_E'] if 'use_E' in model else True
-
         if i == 0 and command != 'all':
             print(ui.white_bold_str('Model properties'))
             _print_model_properties(model)
@@ -644,7 +642,6 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
         # is this a test or validation run?
         # needs_test = np.isnan(e_err['mae']) and np.isnan(e_err['rmse']) and np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
         needs_valid = np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
-        # if model['use_E']:
 
         is_test = n_test != 0 and not needs_valid
 
@@ -753,7 +750,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
                 # n_reps = min(max(int(n_valid*0.1),3),10) # 10% of the n_valid, at least 3, no more than 5
                 n_reps = 3
                 gps = gdml_predict.set_opt_num_workers_and_batch_size_fast(
-                    n_bulk=100, n_reps=n_reps
+                    n_bulk=1000, n_reps=n_reps
                 )
                 num_workers, batch_size, bulk_mp = (
                     gdml_predict._num_workers,
@@ -782,7 +779,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
         cos_mae_sum, cos_rmse_sum = 0, 0
         mag_mae_sum, mag_rmse_sum = 0, 0
 
-        b_size = min(100, len(test_idxs))
+        b_size = min(1000, len(test_idxs))
         n_done = 0
         t = time.time()
         for b_range in _batch(list(range(len(test_idxs))), b_size):
