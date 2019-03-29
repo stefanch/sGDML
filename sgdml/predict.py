@@ -425,8 +425,6 @@ class GDMLPredict:
             def _dummy_predict():
                 self.predict(r_dummy)
 
-                # print  # remove me
-
             bulk_mp_rng = [True, False] if n_bulk > 1 else [False]
             for bulk_mp in bulk_mp_rng:
                 self._bulk_mp = bulk_mp
@@ -630,7 +628,7 @@ class GDMLPredict:
 
             import torch
 
-            # hack: add sigleton dimension if input is (,3N)
+            # hack: add singleton dimension if input is (,3N)
             if r.ndim == 1:
                 r = r[None,:]
 

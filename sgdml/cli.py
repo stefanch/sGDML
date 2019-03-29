@@ -60,8 +60,8 @@ def _print_splash():
 def _print_dataset_properties(dataset):
 
     n_mols, n_atoms, _ = dataset['R'].shape
-    print(' {:<16} {:<} ({:<d} atoms)'.format('Name:', dataset['name'].astype(str), n_atoms))
-    print(' {:<16} {:<}'.format('Theory:', dataset['theory']))
+    print(' {:<16} {} ({:<d} atoms)'.format('Name:', dataset['name'].astype(str), n_atoms))
+    print(' {:<16} {}'.format('Theory:', dataset['theory']))
     print(' {:<16} {:<d}'.format('Size:', n_mols))
 
     if 'E' in dataset:
@@ -74,7 +74,7 @@ def _print_dataset_properties(dataset):
             + ' {:>9.3} [a.u.]'.format(T_max)
         )
     else:
-        print(' {:<16} {:<}'.format('Energies:', 'n/a'))
+        print(' {:<16} {}'.format('Energies:', 'n/a'))
 
     TG_min, TG_max = np.min(dataset['F'].ravel()), np.max(dataset['F'].ravel())
     print(
@@ -85,7 +85,7 @@ def _print_dataset_properties(dataset):
         + ' {:>9.3} [a.u.]'.format(TG_max)
     )
 
-    print(' {:<16} {:<}'.format('Fingerprint:', dataset['md5'].astype(str)))
+    print(' {:<16} {}'.format('Fingerprint:', dataset['md5'].astype(str)))
     print()
 
 
@@ -100,15 +100,15 @@ def _print_task_properties(use_sym, use_cprsn, use_E, use_E_cstr):
         if use_E
         else 'none'
     )
-    print(' {:<16} {:<}'.format('Energy handling:', energy_fix_str))
+    print(' {:<16} {}'.format('Energy handling:', energy_fix_str))
 
     print(
-        ' {:<16} {:<}'.format(
+        ' {:<16} {}'.format(
             'Symmetries:', 'include (sGDML)' if use_sym else 'ignore (GDML)'
         )
     )
     print(
-        ' {:<16} {:<}'.format(
+        ' {:<16} {}'.format(
             'Compression:', 'requested' if use_cprsn else 'not requested'
         )
     )
@@ -118,7 +118,7 @@ def _print_task_properties(use_sym, use_cprsn, use_E, use_E_cstr):
 
 def _print_model_properties(model):
 
-    print(' {:<16} {:<}'.format('Dataset:', model['dataset_name'].astype(str)))
+    print(' {:<16} {}'.format('Dataset:', model['dataset_name'].astype(str)))
     
     n_atoms = len(model['z'])
     print(' {:<16} {:<d}'.format('Atoms:', n_atoms))
@@ -129,11 +129,11 @@ def _print_model_properties(model):
                 np.sort(model['perms'], axis=0), axis=1, return_index=True
     )
     n_atoms_kept = cprsn_keep_idxs.shape[0]
-    print(' {:<16} {:<}'.format('Compression:', '{:<d} effective atoms'.format(n_atoms_kept) if model['use_cprsn'] else 'n/a'))
+    print(' {:<16} {}'.format('Compression:', '{:<d} effective atoms'.format(n_atoms_kept) if model['use_cprsn'] else 'n/a'))
 
     n_train = len(model['idxs_train'])
     print(
-        ' {:<16} {:<d} points from \'{:<}\''.format(
+        ' {:<16} {:<d} points from \'{}\''.format(
             'Trained on:', n_train, model['md5_train'].astype(str)
         )
     )
@@ -146,7 +146,7 @@ def _print_model_properties(model):
     # is_tested = not np.isnan(e_err['mae']) and not np.isnan(e_err['rmse']) and not np.isnan(f_err['mae']) and not np.isnan(f_err['rmse'])
     is_valid = not np.isnan(f_err['mae']) and not np.isnan(f_err['rmse'])
     print(
-        ' {:<16} {}{:<d} points from \'{:<}\''.format(
+        ' {:<16} {}{:<d} points from \'{}\''.format(
             'Validated on:',
             '' if is_valid else '[pending] ',
             n_valid,
@@ -158,7 +158,7 @@ def _print_model_properties(model):
     is_test = n_test > 0
     if is_test:
         print(
-            ' {:<16} {:<d} points from \'{:<}\''.format(
+            ' {:<16} {:<d} points from \'{}\''.format(
                 'Tested on:', n_test, model['md5_test'].astype(str)
             )
         )
@@ -844,7 +844,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
             format_str = ' {:<16} {:>.2e}/{:>.2e} '
             if model['use_E']:
                 print(
-                    (format_str + '[a.u.] {:<}').format(
+                    (format_str + '[a.u.] {}').format(
                         'Energy:',
                         e_mae,
                         e_rmse,
@@ -858,7 +858,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
                     )
                 )
             print(
-                (format_str + '[a.u.] {:<}').format(
+                (format_str + '[a.u.] {}').format(
                     'Forces:',
                     f_mae,
                     f_rmse,
@@ -969,8 +969,10 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):  # noqa
     print(' ' * 7 + 'Energy' + ' ' * 6 + 'Forces')
     print((' {:>3} ' + '{:>5} ' * 4).format(*data_names))
     print(' ' + '-' * 27)
-    format_str = ' {:>3} ' + '{:>5.2f} ' * 4
-    format_str_no_E = ' {:>3}     -     - ' + '{:>5.2f} ' * 2
+    #format_str = ' {:>3} ' + '{:>5.2f} ' * 4
+    #format_str_no_E = ' {:>3}     -     - ' + '{:>5.2f} ' * 2
+    format_str = ' {} ' + '{:5.2f} ' * 4
+    format_str_no_E = ' {}     -     - ' + '{:5.2f} ' * 2
     for row in rows:
         if use_E:
             row_str = format_str.format(*row)
