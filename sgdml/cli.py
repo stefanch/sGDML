@@ -198,6 +198,8 @@ def all(
     overwrite,
     max_processes,
     use_torch,
+    task_dir=None,
+    model_file=None,
     **kwargs
 ):
 
@@ -242,6 +244,7 @@ def all(
         use_cprsn,
         overwrite,
         max_processes,
+        task_dir,
         **kwargs
     )
 
@@ -266,7 +269,7 @@ def all(
 
     print(ui.white_back_str(' STEP 4 ') + ' Hyper-parameter selection\n' + '-' * 100)
     # if sigs is None or len(sigs) > 1: # Skip testing and selection, if only one model was trained.
-    model_file_name = select(model_dir_arg, overwrite, max_processes, **kwargs)
+    model_file_name = select(model_dir_arg, overwrite, max_processes, model_file, **kwargs)
     # else:
     # 	best_model_path = model_dir_or_file_path # model_dir_or_file_path = model_path, if single model is being trained
     # 	print ui.info_str('[INFO]') + ' Skipping step because only one model is being trained.\n'
@@ -303,6 +306,7 @@ def create(  # noqa: C901
     use_cprsn,
     overwrite,
     max_processes,
+    task_dir=None,
     command=None,
     **kwargs
 ):
@@ -340,7 +344,7 @@ def create(  # noqa: C901
             )
     else:
         valid_dataset_path, valid_dataset = valid_dataset
-        n_valid_data = valid_dataset['E'].shape[0]
+        n_valid_data = valid_dataset['R'].shape[0]
         if n_valid_data < n_valid:
             raise AssistantError(
                 'Validation dataset only contains {} points, can not validate on {}.'.format(
@@ -358,14 +362,15 @@ def create(  # noqa: C901
 
     gdml_train = GDMLTrain(max_processes=max_processes)
 
-    task_dir = io.train_dir_name(
-        dataset,
-        n_train,
-        use_sym=not gdml,
-        use_cprsn=use_cprsn,
-        use_E=use_E,
-        use_E_cstr=use_E_cstr,
-    )
+    if task_dir == None:
+        task_dir = io.train_dir_name(
+            dataset,
+            n_train,
+            use_sym=not gdml,
+            use_cprsn=use_cprsn,
+            use_E=use_E,
+            use_E_cstr=use_E_cstr,
+        )
     task_file_names = []
     if os.path.exists(task_dir):
         if overwrite:
@@ -641,7 +646,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
 
         # is this a test or validation run?
         # needs_test = np.isnan(e_err['mae']) and np.isnan(e_err['rmse']) and np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
-        needs_valid = np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
+        needs_valid = np.isnan(f_err['mae']) and np.isnan(f_err['rmse']) and not func_called_directly
 
         is_test = n_test != 0 and not needs_valid
 
@@ -911,7 +916,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
                 )
 
 
-def select(model_dir, overwrite, max_processes, command=None, **kwargs):  # noqa: C901
+def select(model_dir, overwrite, max_processes, model_file=None, command=None, **kwargs):  # noqa: C901
 
     func_called_directly = (
         command == 'select'
@@ -996,26 +1001,32 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):  # noqa
         )
         has_printed = True
 
-    best_model_file_name = model_file_names[best_idx]
-    best_model = np.load(os.path.join(model_dir, best_model_file_name))
-    best_model_file_name_extended = io.model_file_name(best_model, is_extended=True)
 
-    model_exists = os.path.isfile(best_model_file_name_extended)
+    best_model_path = os.path.join(model_dir, model_file_names[best_idx])
+
+    if model_file == None:
+        
+        # generate model file name based on model properties
+        best_model = np.load(best_model_path)
+        model_file = io.model_file_name(best_model, is_extended=True)
+        best_model.close()
+
+    model_exists = os.path.isfile(model_file)
     if model_exists and overwrite:
         print(ui.info_str('[INFO]') + ' Overwriting existing model file.')
         has_printed = True
     if not model_exists or overwrite:
         if func_called_directly:
-            print(ui.info_str('[DONE]') + ' Writing model file \'%s\'...' % best_model_file_name_extended)
+            print(ui.info_str('[DONE]') + ' Writing model file \'%s\'...' % model_file)
             has_printed = True
         shutil.copy(
-            os.path.join(model_dir, best_model_file_name), best_model_file_name_extended
+            best_model_path, model_file
         )
         shutil.rmtree(model_dir, ignore_errors=True)
     else:
         print(
             ui.warn_str('[WARN]')
-            + ' Model \'%s\' already exists.' % best_model_file_name_extended
+            + ' Model \'%s\' already exists.' % model_file
             + '\n       Run \'%s select -o %s\' to overwrite.'
             % (PACKAGE_NAME, os.path.relpath(model_dir))
         )
@@ -1030,14 +1041,13 @@ def select(model_dir, overwrite, max_processes, command=None, **kwargs):  # noqa
             + ' %s test %s %s %s\n'
             % (
                 PACKAGE_NAME,
-                best_model_file_name_extended,
+                model_file,
                 '<dataset_file>',
                 '<n_test>',
             )
         )
 
-    best_model.close()
-    return best_model_file_name_extended
+    return model_file
 
 
 def show(file, overwrite, max_processes, command=None, **kwargs):
@@ -1173,6 +1183,12 @@ def main():
             help='integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-parameter sigma',
             nargs='+',
         )
+        subparser.add_argument(
+            '--task_dir',
+            metavar='<task_dir>',
+            dest='task_dir',
+            help='path to task file output directory',
+        )
 
         group = subparser.add_mutually_exclusive_group()
         group.add_argument(
@@ -1215,7 +1231,15 @@ def main():
             default=None,
         )
 
-        # train
+    for subparser in [parser_all, parser_select]:
+        subparser.add_argument(
+            '--model_file',
+            metavar='<model_file>',
+            dest='model_file',
+            help='user-defined model output file name',
+        )
+
+    # train
     _add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
 
     # select
@@ -1234,6 +1258,11 @@ def main():
             args.sigs
         ).tolist()  # flatten list, if (part of it) was generated using the range syntax
         args.sigs = sorted(list(set(args.sigs)))  # remove potential duplicates
+
+    # post-processing for optional model output file argument
+    if 'model_file' in args and args.model_file is not None:
+        if not args.model_file.endswith('.npz'):
+            args.model_file += '.npz'
 
     _print_splash()
 

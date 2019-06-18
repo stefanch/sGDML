@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import numpy as np
+
 from ase.calculators.calculator import Calculator
 from ase.units import kcal, mol
 
@@ -37,7 +38,7 @@ class SGDMLCalculator(Calculator):
 
         model = np.load(model_path)
         self.gdml_predict = GDMLPredict(model)
-
+        
         self.from_kcal_mol = kcal / mol
 
     def calculate(self, atoms=None, *args, **kwargs):

@@ -60,7 +60,7 @@ def _predict(r, n_train, std, c, chunk_size):
 
     r = r.reshape(-1, 3)
     pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-    #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+    #pdist = scipy.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
     pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
     r_desc = desc.r_to_desc(r, pdist)
@@ -550,7 +550,7 @@ class GDMLPredict:
         self.set_batch_size(batch_size)
         self.set_num_workers(num_workers)
         self._bulk_mp = bulk_mp
-
+        
         return gps
 
     def _predict_bulk(self, R):
@@ -647,7 +647,7 @@ class GDMLPredict:
 
         r = r.reshape(self.n_atoms, 3)
         pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-        #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+        #pdist = scipy.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
         pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
         r_desc = desc.r_to_desc(r, pdist)

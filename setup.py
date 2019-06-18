@@ -45,7 +45,7 @@ setup(
         'Topic :: Scientific/Engineering :: Physics',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
-    url='http://www.gdml.ml',
+    url='http://www.sgdml.org',
     author='Stefan Chmiela',
     author_email='sgdml@chmiela.com',
     license='LICENSE.txt',

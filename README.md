@@ -96,7 +96,8 @@ Nature Communications, 9(1), 3887 (2018)
 
 * [3] Chmiela, S., Sauceda, H. E., Poltavsky, I., Müller, K.-R., & Tkatchenko, A.,
 *sGDML: Constructing Accurate and Data Efficient Molecular Force Fields Using Machine Learning.*
-[arXiv:1812.04986](https://arxiv.org/abs/1812.04986)
+Computer Physics Communications, 240, 38-45 (2019)
+[10.1016/j.cpc.2019.02.007](https://doi.org/10.1016/j.cpc.2019.02.007)
 
 * [4] Sauceda, H. E., Chmiela, S., Poltavsky, I., Müller, K.-R., & Tkatchenko, A.,
 *Molecular Force Fields with Gradient-Domain Machine Learning: Construction and Application to Dynamics of Small Molecules with Coupled Cluster Forces.*
