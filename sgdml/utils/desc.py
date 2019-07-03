@@ -18,18 +18,32 @@ def init(n_atoms):
         )
 
 
-# def desc_dim(r):
-# 	n_atoms = r.shape[0]
-# 	d_dim = (n_atoms**2 - n_atoms)/2
+# Difference with periodic boundary conditions
+# b_size = 9.91241 # box size (lattice)
 
 
-# Difference with periodic boundary conditions 
-b_size = 9.91241 # box size (lattice)
-b_rsize = 1.0 / b_size # TODO: put into init
-def pbc_diff(u, v): # for cubic unit cell only
+def pbc_diff(u, v, size):
+    """
+    Compute the difference of two vectors, while appling the
+    minimum-image convention as periodic boundary condition.
+
+    Parameters
+    ----------
+        u : :obj:`numpy.ndarray`
+            First vector.
+        v : :obj:`numpy.ndarray`
+            Second vector.
+        size : float
+            Edge length of (cubic) unit cell.
+
+    Returns
+    -------
+        :obj:`numpy.ndarray`
+            Difference between two vectors `u - v`.
+    """
 
     diff = u - v
-    diff -= b_size * np.rint(diff * b_rsize)
+    diff -= size * np.rint(diff / size)
 
     return diff
 
@@ -58,10 +72,13 @@ def r_to_desc(r, pdist):
     return 1.0 / pdist[np.tril_indices(n_atoms, -1)]
 
 
-def r_to_d_desc(r, pdist):
+def r_to_d_desc(r, pdist, ucell_size=None):
     """
     Generate Jacobian of descriptor for a set of atom positions in
     Cartesian coordinates.
+    This method can apply the minimum-image convention as periodic
+    boundary condition for distances between atoms, given the edge
+    length of the (square) unit cell.
 
     Parameters
     ----------
@@ -71,6 +88,8 @@ def r_to_d_desc(r, pdist):
         pdist : :obj:`numpy.ndarray`
             Array of size N x N containing the Euclidean distance
             (2-norm) for each pair of atoms.
+        ucell_size : float, optional
+            Edge length of the (cubic) unit cell.
 
     Returns
     -------
@@ -80,7 +99,7 @@ def r_to_d_desc(r, pdist):
     """
 
     global d_dim, d_desc_mask
-    
+
     n_atoms = r.shape[0]
 
     if d_desc_mask is None or d_desc_mask.shape[0] != n_atoms:
@@ -90,21 +109,26 @@ def r_to_d_desc(r, pdist):
     grad = np.zeros((d_dim, 3 * n_atoms))
     for a in range(n_atoms):
 
-        d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
-        #d_dist = pbc_diff(r,r[a, :]) / (pdist[a, :] ** 3)[:, None]
+        if ucell_size is None:
+            d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
+        else:
+            d_dist = pbc_diff(r, r[a, :], ucell_size) / (pdist[a, :] ** 3)[:, None]
 
         idx = d_desc_mask[a, :]
-        grad[idx, (3 * a):(3 * a + 3)] = np.delete(d_dist, a, axis=0)
+        grad[idx, (3 * a) : (3 * a + 3)] = np.delete(d_dist, a, axis=0)
 
     return grad
 
 
-def r_to_d_desc_op(r, pdist, F_d):
+def r_to_d_desc_op(r, pdist, F_d, ucell_size=None):
     """
     Compute vector-matrix product with descriptor Jacobian.
 
     The descriptor Jacobian will be generated and directly applied
     without storing it.
+    This method can apply the minimum-image convention as periodic
+    boundary condition for distances between atoms, given the edge
+    length of the (square) unit cell.
 
     Parameters
     ----------
@@ -116,6 +140,8 @@ def r_to_d_desc_op(r, pdist, F_d):
             (2-norm) for each pair of atoms.
         F_d : :obj:`numpy.ndarray`
             Array of size N(N-1)/2.
+        ucell_size : float, optional
+            Edge length of the (cubic) unit cell.
 
     Returns
     -------
@@ -135,11 +161,13 @@ def r_to_d_desc_op(r, pdist, F_d):
     F_i = np.empty((3 * n_atoms,))
     for a in range(n_atoms):
 
-        d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
-        #d_dist = pbc_diff(r,r[a, :]) / (pdist[a, :] ** 3)[:, None]
+        if ucell_size is None:
+            d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
+        else:
+            d_dist = pbc_diff(r, r[a, :], ucell_size) / (pdist[a, :] ** 3)[:, None]
 
         idx = d_desc_mask[a, :]
-        F_d[idx].dot(np.delete(d_dist, a, axis=0), out=F_i[(3 * a):(3 * a + 3)])
+        F_d[idx].dot(np.delete(d_dist, a, axis=0), out=F_i[(3 * a) : (3 * a + 3)])
 
     return F_i
 

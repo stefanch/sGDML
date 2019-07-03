@@ -60,30 +60,59 @@ def _print_splash():
 def _print_dataset_properties(dataset):
 
     n_mols, n_atoms, _ = dataset['R'].shape
-    print(' {:<16} {} ({:<d} atoms)'.format('Name:', dataset['name'].astype(str), n_atoms))
+    print(
+        ' {:<16} {} ({:<d} atoms)'.format('Name:', dataset['name'].astype(str), n_atoms)
+    )
     print(' {:<16} {}'.format('Theory:', dataset['theory']))
     print(' {:<16} {:<d}'.format('Size:', n_mols))
 
+    lat_label = 'Lattice:'
+    if 'lattice' in dataset:
+        for i in range(3):
+            print(
+                ' {:<15} {:5.2f} {:5.2f} {:5.2f}'.format(
+                    lat_label, *dataset['lattice'][i]
+                )
+            )
+            if i == 0:
+                lat_label = ''
+    else:
+        print(' {:<16} {}'.format(lat_label, '-'))
+
     if 'E' in dataset:
+        print(' Energies [a.u.]:')
         T_min, T_max = np.min(dataset['E']), np.max(dataset['E'])
         print(
-            ' {:<16} {:<.3} '.format('Energies:', T_min)
+            '  {:<15} {:<.3} '.format('Range:', T_min)
             + '|--'
             + ' {:^8.3} '.format(T_max - T_min)
             + '--|'
-            + ' {:>9.3} [a.u.]'.format(T_max)
+            + ' {:<9.3}'.format(T_max)
         )
+
+        T_mean = np.mean(dataset['E'])
+        print('  {:<15} {:<.3} '.format('Mean:', T_mean))
+
+        T_var = np.var(dataset['E'])
+        print('  {:<15} {:<.3} '.format('Variance:', T_var))
     else:
         print(' {:<16} {}'.format('Energies:', 'n/a'))
 
     TG_min, TG_max = np.min(dataset['F'].ravel()), np.max(dataset['F'].ravel())
+    print(' Forces [a.u.]:')
     print(
-        ' {:<16} {:<.3} '.format('Forces:', TG_min)
+        '  {:<15} {:<.3} '.format('Range:', TG_min)
         + '|--'
-        + ' {:.3} '.format(TG_max - TG_min)
+        + ' {:8.3} '.format(TG_max - TG_min)
         + '--|'
-        + ' {:>9.3} [a.u.]'.format(TG_max)
+        + ' {:<9.3}'.format(TG_max)
     )
+
+    TG_mean = np.mean(dataset['F'].ravel())
+    print('  {:<15} {:<.3} '.format('Mean:', TG_mean))
+
+    TG_var = np.var(dataset['F'].ravel())
+    print('  {:<15} {:<.3} '.format('Variance:', TG_var))
 
     print(' {:<16} {}'.format('Fingerprint:', dataset['md5'].astype(str)))
     print()
@@ -119,17 +148,37 @@ def _print_task_properties(use_sym, use_cprsn, use_E, use_E_cstr):
 def _print_model_properties(model):
 
     print(' {:<16} {}'.format('Dataset:', model['dataset_name'].astype(str)))
-    
+
     n_atoms = len(model['z'])
     print(' {:<16} {:<d}'.format('Atoms:', n_atoms))
-    
+
+    lat_label = 'Lattice:'
+    if 'lattice' in model:
+        for i in range(3):
+            print(
+                ' {:<15} {:5.2f} {:5.2f} {:5.2f}'.format(
+                    lat_label, *model['lattice'][i]
+                )
+            )
+            if i == 0:
+                lat_label = ''
+    else:
+        print(' {:<16} {}'.format(lat_label, '-'))
+
     print(' {:<16} {:<d}'.format('Symmetries:', len(model['perms'])))
 
     _, cprsn_keep_idxs = np.unique(
-                np.sort(model['perms'], axis=0), axis=1, return_index=True
+        np.sort(model['perms'], axis=0), axis=1, return_index=True
     )
     n_atoms_kept = cprsn_keep_idxs.shape[0]
-    print(' {:<16} {}'.format('Compression:', '{:<d} effective atoms'.format(n_atoms_kept) if model['use_cprsn'] else 'n/a'))
+    print(
+        ' {:<16} {}'.format(
+            'Compression:',
+            '{:<d} effective atoms'.format(n_atoms_kept)
+            if model['use_cprsn']
+            else 'n/a',
+        )
+    )
 
     n_train = len(model['idxs_train'])
     print(
@@ -269,7 +318,9 @@ def all(
 
     print(ui.white_back_str(' STEP 4 ') + ' Hyper-parameter selection\n' + '-' * 100)
     # if sigs is None or len(sigs) > 1: # Skip testing and selection, if only one model was trained.
-    model_file_name = select(model_dir_arg, overwrite, max_processes, model_file, **kwargs)
+    model_file_name = select(
+        model_dir_arg, overwrite, max_processes, model_file, **kwargs
+    )
     # else:
     # 	best_model_path = model_dir_or_file_path # model_dir_or_file_path = model_path, if single model is being trained
     # 	print ui.info_str('[INFO]') + ' Skipping step because only one model is being trained.\n'
@@ -411,7 +462,6 @@ def create(  # noqa: C901
 
         with np.load(os.path.join(task_dir, task_file_names[0])) as task:
             tmpl_task = dict(task)
-            # tmpl_task = dict(np.load(os.path.join(task_dir, task_file_names[0])))
     else:
         if not use_E:
             print(
@@ -438,6 +488,18 @@ def create(  # noqa: C901
             )
             print(
                 '       Note: Larger validation datasets are recommended due to slower convergence of the error.'
+            )
+
+        if ('lattice' in dataset) ^ ('lattice' in valid_dataset):
+            sys.exit(
+                ui.fail_str('[FAIL]')
+                + ' One of the datasets specifies lattice vectors and one does not!'
+            )
+
+        if 'lattice' in dataset or 'lattice' in valid_dataset:
+            print(
+                ui.info_str('[INFO]')
+                + ' Lattice vectors found in dataset: applying periodic boundary conditions.'
             )
 
         try:
@@ -472,7 +534,8 @@ def create(  # noqa: C901
             n_written += 1
     if n_written > 0:
         print(
-            ui.info_str('[DONE]') + ' Writing %d/%d tasks with %s training points each.'
+            ui.info_str('[DONE]')
+            + ' Writing %d/%d tasks with %s training points each.'
             % (n_written, len(sigs), tmpl_task['R_train'].shape[0])
         )
     print('')
@@ -543,7 +606,10 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
                 sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
             else:
                 if func_called_directly:
-                    print(ui.info_str('[DONE]') + ' Writing model to file \'%s\'...' % model_file_path)
+                    print(
+                        ui.info_str('[DONE]')
+                        + ' Writing model to file \'%s\'...' % model_file_path
+                    )
                 np.savez_compressed(model_file_path, **model)
             print()
 
@@ -561,7 +627,7 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 def _batch(iterable, n=1):
     l = len(iterable)
     for ndx in range(0, l, n):
-        yield iterable[ndx:min(ndx + n, l)]
+        yield iterable[ndx : min(ndx + n, l)]
 
 
 def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
@@ -577,7 +643,9 @@ def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
     return mae, mae_n_sum, rmse, rmse_n_sum
 
 
-def validate(model_dir, dataset, overwrite, max_processes, use_torch, command=None, **kwargs):
+def validate(
+    model_dir, dataset, overwrite, max_processes, use_torch, command=None, **kwargs
+):
 
     dataset_path_extracted, dataset_extracted = dataset
 
@@ -590,7 +658,16 @@ def validate(model_dir, dataset, overwrite, max_processes, use_torch, command=No
         _print_dataset_properties(dataset_extracted)
 
     n_test = 0  # TODO remove?
-    test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, command, **kwargs)
+    test(
+        model_dir,
+        dataset,
+        n_test,
+        overwrite,
+        max_processes,
+        use_torch,
+        command,
+        **kwargs
+    )
 
     if func_called_directly:
         model_dir, model_file_names = model_dir
@@ -610,7 +687,16 @@ def validate(model_dir, dataset, overwrite, max_processes, use_torch, command=No
             )
 
 
-def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, command=None, **kwargs):  # noqa: C901
+def test(
+    model_dir,
+    dataset,
+    n_test,
+    overwrite,
+    max_processes,
+    use_torch,
+    command=None,
+    **kwargs
+):  # noqa: C901
 
     model_dir, model_file_names = model_dir
     n_models = len(model_file_names)
@@ -640,13 +726,27 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
                 'Atom composition or order in dataset does not match the one in model.'
             )
 
+        if ('lattice' in model) is not ('lattice' in dataset):
+            if 'lattice' in model:
+                raise AssistantError(
+                    'Model contains lattice vectors, but dataset does not.'
+                )
+            elif 'lattice' in dataset:
+                raise AssistantError(
+                    'Dataset contains lattice vectors, but model does not.'
+                )
+
         if model['use_E']:
             e_err = model['e_err'].item()
         f_err = model['f_err'].item()
 
         # is this a test or validation run?
         # needs_test = np.isnan(e_err['mae']) and np.isnan(e_err['rmse']) and np.isnan(f_err['mae']) and np.isnan(f_err['rmse'])
-        needs_valid = np.isnan(f_err['mae']) and np.isnan(f_err['rmse']) and not func_called_directly
+        needs_valid = (
+            np.isnan(f_err['mae'])
+            and np.isnan(f_err['rmse'])
+            and not func_called_directly
+        )
 
         is_test = n_test != 0 and not needs_valid
 
@@ -740,20 +840,20 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
 
         try:
             gdml_predict = GDMLPredict(
-                model,
-                max_processes=max_processes,
-                use_torch=use_torch,
+                model, max_processes=max_processes, use_torch=use_torch
             )
         except Exception as err:
             sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
 
         if not use_torch:
             if num_workers == 0 or batch_size == 0:
-                sys.stdout.write('\r[' + ui.blink_str(' .. ') + '] Running benchmark...')
+                sys.stdout.write(
+                    '\r[' + ui.blink_str(' .. ') + '] Running benchmark...'
+                )
                 sys.stdout.flush()
 
                 # n_reps = min(max(int(n_valid*0.1),3),10) # 10% of the n_valid, at least 3, no more than 5
-                n_reps = 3
+                n_reps = 1
                 gps = gdml_predict.set_opt_num_workers_and_batch_size_fast(
                     n_bulk=1000, n_reps=n_reps
                 )
@@ -764,7 +864,8 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
                 )
 
                 sys.stdout.write(
-                    ui.info_str('\r[DONE]') + ' Running benchmark... '
+                    ui.info_str('\r[DONE]')
+                    + ' Running benchmark... '
                     + ui.gray_str(
                         '(best: %d wkr %s/ chunks of %d @ %.1f geo/s)\n'
                         % (num_workers, '[MP] ' if bulk_mp else '', batch_size, gps)
@@ -845,7 +946,7 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
         f_rmse_pct = (f_rmse / f_err['rmse'] - 1.0) * 100
 
         if func_called_directly and n_models == 1:
-            print(ui.white_bold_str('Measured errors (MAE, RMSE):'))
+            print(ui.white_bold_str('Measured errors (MAE, RMSE)'))
             format_str = ' {:<16} {:>.2e}/{:>.2e} '
             if model['use_E']:
                 print(
@@ -916,7 +1017,9 @@ def test(model_dir, dataset, n_test, overwrite, max_processes, use_torch, comman
                 )
 
 
-def select(model_dir, overwrite, max_processes, model_file=None, command=None, **kwargs):  # noqa: C901
+def select(
+    model_dir, overwrite, max_processes, model_file=None, command=None, **kwargs
+):  # noqa: C901
 
     func_called_directly = (
         command == 'select'
@@ -974,8 +1077,8 @@ def select(model_dir, overwrite, max_processes, model_file=None, command=None, *
     print(' ' * 7 + 'Energy' + ' ' * 6 + 'Forces')
     print((' {:>3} ' + '{:>5} ' * 4).format(*data_names))
     print(' ' + '-' * 27)
-    #format_str = ' {:>3} ' + '{:>5.2f} ' * 4
-    #format_str_no_E = ' {:>3}     -     - ' + '{:>5.2f} ' * 2
+    # format_str = ' {:>3} ' + '{:>5.2f} ' * 4
+    # format_str_no_E = ' {:>3}     -     - ' + '{:>5.2f} ' * 2
     format_str = ' {} ' + '{:5.2f} ' * 4
     format_str_no_E = ' {}     -     - ' + '{:5.2f} ' * 2
     for row in rows:
@@ -1001,11 +1104,10 @@ def select(model_dir, overwrite, max_processes, model_file=None, command=None, *
         )
         has_printed = True
 
-
     best_model_path = os.path.join(model_dir, model_file_names[best_idx])
 
     if model_file == None:
-        
+
         # generate model file name based on model properties
         best_model = np.load(best_model_path)
         model_file = io.model_file_name(best_model, is_extended=True)
@@ -1019,9 +1121,7 @@ def select(model_dir, overwrite, max_processes, model_file=None, command=None, *
         if func_called_directly:
             print(ui.info_str('[DONE]') + ' Writing model file \'%s\'...' % model_file)
             has_printed = True
-        shutil.copy(
-            best_model_path, model_file
-        )
+        shutil.copy(best_model_path, model_file)
         shutil.rmtree(model_dir, ignore_errors=True)
     else:
         print(
@@ -1039,12 +1139,7 @@ def select(model_dir, overwrite, max_processes, model_file=None, command=None, *
         print(
             ui.white_back_str(' NEXT STEP ')
             + ' %s test %s %s %s\n'
-            % (
-                PACKAGE_NAME,
-                model_file,
-                '<dataset_file>',
-                '<n_test>',
-            )
+            % (PACKAGE_NAME, model_file, '<dataset_file>', '<n_test>')
         )
 
     return model_file
@@ -1100,7 +1195,13 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--version', action='version', version='%(prog)s ' + __version__ + ' [python ' + '.'.join(map(str, sys.version_info[:3])) + ']'
+        '--version',
+        action='version',
+        version='%(prog)s '
+        + __version__
+        + ' [python '
+        + '.'.join(map(str, sys.version_info[:3]))
+        + ']',
     )
 
     parent_parser = argparse.ArgumentParser(add_help=False)
@@ -1187,7 +1288,7 @@ def main():
             '--task_dir',
             metavar='<task_dir>',
             dest='task_dir',
-            help='path to task file output directory',
+            help='user-defined task output dir name',
         )
 
         group = subparser.add_mutually_exclusive_group()

@@ -56,21 +56,26 @@ def share_array(arr_np):
     return arr, arr_np.shape
 
 
-def _predict(r, n_train, std, c, chunk_size):
+def _predict(r, n_train, std, c, chunk_size, ucell_size):
 
     r = r.reshape(-1, 3)
-    pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-    #pdist = scipy.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+
+    if ucell_size is None:
+        pdist = scipy.spatial.distance.pdist(r, 'euclidean')
+    else:
+        pdist = scipy.spatial.distance.pdist(
+            r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, ucell_size))
+        )
     pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
     r_desc = desc.r_to_desc(r, pdist)
-    #r_d_desc = desc.r_to_d_desc(r, pdist)
+    # r_d_desc = desc.r_to_d_desc(r, pdist)
 
     res = _predict_wkr((0, n_train), chunk_size, r_desc)
     res *= std
 
-    F = desc.r_to_d_desc_op(r, pdist, res[1:]).reshape(1, -1)
-    #F = res[1:].reshape(1,-1).dot(r_d_desc)
+    F = desc.r_to_d_desc_op(r, pdist, res[1:], ucell_size).reshape(1, -1)
+    # F = res[1:].reshape(1,-1).dot(r_d_desc)
     return (res[0] + c).reshape(-1), F
 
 
@@ -84,7 +89,7 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
     ----------
             wkr_start_stop : tuple of int
                     Indices of first and last (exclusive) sum element.
-            r_desc : numpy.ndarray
+            r_desc : :obj:`numpy.ndarray`
                     1D array containing the descriptor for the query
                     geometry.
 
@@ -139,7 +144,7 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
         # Note: It's faster to process equally sized chunks.
         c_size = b_stop - b_start
         if c_size < dim_c:
-            diff_ab_perms = diff_ab_perms[:c_size,:]
+            diff_ab_perms = diff_ab_perms[:c_size, :]
             a_x2 = a_x2[:c_size]
             mat52_base = mat52_base[:c_size]
 
@@ -186,7 +191,9 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
 
 
 class GDMLPredict:
-    def __init__(self, model, batch_size=None, num_workers=1, max_processes=None, use_torch=False):
+    def __init__(
+        self, model, batch_size=None, num_workers=1, max_processes=None, use_torch=False
+    ):
         """
         Query trained sGDML force fields.
 
@@ -234,6 +241,8 @@ class GDMLPredict:
 
         self.n_atoms = model['z'].shape[0]
 
+        self.ucell_size = lat_diag[0] if 'lattice' in model else None
+
         self.n_train = model['R_desc'].shape[1]
         sig = model['sig']
 
@@ -269,7 +278,6 @@ class GDMLPredict:
             alphas_E_lin = np.tile(model['alphas_E'][:, None], (1, n_perms)).ravel()
             glob['alphas_E_lin'], glob['alphas_E_lin_shape'] = share_array(alphas_E_lin)
 
-        
         # GPU support
 
         self.use_torch = use_torch
@@ -277,15 +285,15 @@ class GDMLPredict:
         if self.use_torch:
             try:
                 import torch
-            except ImportError: # dependency missing, issue a warning
+            except ImportError:  # dependency missing, issue a warning
                 raise ValueError(
                     'PyTorch calculations requested, without having optional PyTorch dependency installed!'
                     + '\n       Please \'pip install torch\' or disable PyTorch calculations.'
                 )
 
             from .torchtools import GDMLTorchPredict
-            self.torch_predict = GDMLTorchPredict(model)
 
+            self.torch_predict = GDMLTorchPredict(model)
 
         # Parallel processing configuration
 
@@ -409,6 +417,8 @@ class GDMLPredict:
                         per second.
         """
 
+        global n_perms
+
         best_results = []
         last_i = None
 
@@ -422,8 +432,11 @@ class GDMLPredict:
 
             r_dummy = np.random.rand(n_bulk, self.n_atoms * 3)
 
+            #reps_done = 0
             def _dummy_predict():
                 self.predict(r_dummy)
+                # reps_done += 1
+                # print(reps_done)
 
             bulk_mp_rng = [True, False] if n_bulk > 1 else [False]
             for bulk_mp in bulk_mp_rng:
@@ -483,7 +496,15 @@ class GDMLPredict:
                             * n_reps
                             / (timeit.timeit(_dummy_predict, number=n_reps))
                         )
-                        # print '{:2d}@{:d} {:d} | {:7.2f} gps'.format(num_workers, batch_size, bulk_mp, gps)
+
+                        #print(
+                        #    '{:2d}@{:d} {:d} | {:7.2f} gps'.format(
+                        #        num_workers, batch_size, bulk_mp, gps
+                        #    )
+                        #)
+
+                        #print(batch_size * self.n_atoms * n_perms)
+
                         gps_rng = min(gps_rng[0], gps), max(gps_rng[1], gps)
 
                         # gps still going up?
@@ -496,12 +517,12 @@ class GDMLPredict:
                             ):  # do we turn?
                                 i -= 2 * i_dir
                                 i_dir = -1
-                                # print '><'
+                                #print('><')
                                 continue
                             else:
                                 # if batch_size == batch_size_rng_sizes[1]:
                                 # 	i -= 1*i_dir
-                                # print '>>break ' + str(i_done)
+                                #print('>>break ' + str(i_done))
                                 break
                         else:
                             best_gps = gps
@@ -535,10 +556,10 @@ class GDMLPredict:
                             break
 
                     gps_min = gps_rng[0]
-                    # print 'gps_min ' + str(gps_min)
+                    # print ('gps_min ' + str(gps_min))
 
-                    # print 'best_gps'
-                    # print best_gps
+                    # print ('best_gps')
+                    # print (best_gps)
 
                     if len(best_results) > 0 and best_gps < overall_best_gps:
                         break
@@ -550,7 +571,7 @@ class GDMLPredict:
         self.set_batch_size(batch_size)
         self.set_num_workers(num_workers)
         self._bulk_mp = bulk_mp
-        
+
         return gps
 
     def _predict_bulk(self, R):
@@ -586,6 +607,7 @@ class GDMLPredict:
                         std=self.std,
                         c=self.c,
                         chunk_size=self._chunk_size,
+                        ucell_size=self.ucell_size,
                     ),
                     R,
                 )
@@ -630,13 +652,13 @@ class GDMLPredict:
 
             # hack: add singleton dimension if input is (,3N)
             if r.ndim == 1:
-                r = r[None,:]
+                r = r[None, :]
 
             M = r.shape[0]
-            
+
             Rs = torch.from_numpy(r.reshape(M, -1, 3))
             e_pred, f_pred = self.torch_predict.forward(Rs)
-            
+
             E = e_pred.numpy()
             F = f_pred.numpy().reshape(M, -1)
 
@@ -646,12 +668,16 @@ class GDMLPredict:
             return self._predict_bulk(r)
 
         r = r.reshape(self.n_atoms, 3)
-        pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-        #pdist = scipy.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+        if self.ucell_size is None:
+            pdist = scipy.spatial.distance.pdist(r, 'euclidean')
+        else:
+            pdist = scipy.spatial.distance.pdist(
+                r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, self.ucell_size))
+            )
         pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
         r_desc = desc.r_to_desc(r, pdist)
-        #r_d_desc = desc.r_to_d_desc(r, pdist)
+        # r_d_desc = desc.r_to_d_desc(r, pdist)
 
         if self._num_workers == 1 or self._bulk_mp:
             res = _predict_wkr(self.wkr_starts_stops[0], self._chunk_size, r_desc)
@@ -665,6 +691,6 @@ class GDMLPredict:
         res *= self.std
 
         E = res[0].reshape(-1) + self.c
-        F = desc.r_to_d_desc_op(r, pdist, res[1:]).reshape(1, -1)
-        #F = res[1:].reshape(1,-1).dot(r_d_desc)
+        F = desc.r_to_d_desc_op(r, pdist, res[1:], self.ucell_size).reshape(1, -1)
+        # F = res[1:].reshape(1,-1).dot(r_d_desc)
         return E, F

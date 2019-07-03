@@ -37,7 +37,7 @@ import scipy as sp
 
 from . import __version__
 from .predict import GDMLPredict
-from .utils import ui, io, desc, perm
+from .utils import desc, io, perm, ui
 
 glob = {}
 
@@ -279,7 +279,9 @@ class GDMLTrain:
             )
             idxs_valid = np.random.choice(idxs_valid_all, n_valid, replace=False)
 
-        sys.stdout.write(ui.info_str('\r[DONE]') + ' Sampling training and validation subset...\n')
+        sys.stdout.write(
+            ui.info_str('\r[DONE]') + ' Sampling training and validation subset...\n'
+        )
         sys.stdout.flush()
 
         R_train = train_dataset['R'][idxs_train, :, :]
@@ -305,6 +307,9 @@ class GDMLTrain:
 
         if use_E:
             task['E_train'] = train_dataset['E'][idxs_train]
+
+        if 'lattice' in train_dataset:
+            task['lattice'] = train_dataset['lattice']
 
         if use_sym:
             task['perms'] = perm.sync_mat(
@@ -356,6 +361,12 @@ class GDMLTrain:
         -------
             :obj:`dict`
                 Data structure of custom type :obj:`model`.
+
+        Raises
+        ------
+            ValueError
+                If the provided dataset contains unsupported lattice
+                vectors.
         """
 
         sig = np.squeeze(task['sig'])
@@ -371,17 +382,35 @@ class GDMLTrain:
         perm_offsets = np.arange(n_perms)[:, None] * dim_d
         tril_perms_lin = (tril_perms + perm_offsets).flatten('F')
 
+        # check if lattice vectors are supported by this version of the code
+        ucell_size = None
+        if 'lattice' in task:
+            lat = task['lattice']
+            if is_lattice_supported(lat):
+                ucell_size = np.diag(lat)[0]
+            else:
+                raise ValueError(
+                    'Provided dataset contains unsupported lattice vectors!'
+                )
+
         R_desc = np.empty([n_train, dim_d])
         R_d_desc = np.empty([n_train, dim_d, dim_i])
 
         for i in range(n_train):
             r = task['R_train'][i]
             pdist = sp.spatial.distance.pdist(r, 'euclidean')
-            #pdist = sp.spatial.distance.pdist(r, lambda u, v: np.linalg.norm(desc.pbc_diff(u,v)))
+
+            # pairwise distance with or without minimum-image convention as periodic boundary condition
+            if ucell_size is not None:
+                pdist = sp.spatial.distance.pdist(
+                    r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, ucell_size))
+                )
+            else:
+                pdist = sp.spatial.distance.pdist(r, 'euclidean')
             pdist = sp.spatial.distance.squareform(pdist)
 
             R_desc[i, :] = desc.r_to_desc(r, pdist)
-            R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist)
+            R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist, ucell_size)
 
         if task['use_cprsn'] and n_perms > 1:
             _, cprsn_keep_idxs = np.unique(
@@ -478,7 +507,7 @@ class GDMLTrain:
 
         r_dim = R_d_desc.shape[2]
         r_d_desc_alpha = [
-            rj_d_desc.dot(alphas_F[(j * r_dim):((j + 1) * r_dim)])
+            rj_d_desc.dot(alphas_F[(j * r_dim) : ((j + 1) * r_dim)])
             for j, rj_d_desc in enumerate(R_d_desc)
         ]
 
@@ -513,6 +542,9 @@ class GDMLTrain:
                 model['alphas_E'] = alphas_E
             else:
                 model['c'] = self._recov_int_const(model, task)
+
+        if 'lattice' in task:
+            model['lattice'] = task['lattice']
 
         return model
 
@@ -749,7 +781,7 @@ class GDMLTrain:
         if T.size == n:
             return np.arange(n)
 
-            # Freedman-Diaconis rule
+        # Freedman-Diaconis rule
         h = 2 * np.subtract(*np.percentile(T, [75, 25])) / np.cbrt(n)
         n_bins = int(np.ceil((np.max(T) - np.min(T)) / h)) if h > 0 else 1
         n_bins = min(
@@ -771,7 +803,7 @@ class GDMLTrain:
             cnts_all = np.delete(cnts_all, excl_bin_idx)
             uniq_all = np.delete(uniq_all, excl_bin_idx)
 
-            # Compute reduced bin counts.
+        # Compute reduced bin counts.
         reduced_cnts = np.ceil(cnts_all / np.sum(cnts_all, dtype=float) * n).astype(int)
         reduced_cnts = np.minimum(
             reduced_cnts, cnts_all
@@ -805,7 +837,7 @@ class GDMLTrain:
             )
             reduced_cnts_delta = n - np.sum(reduced_cnts)
 
-            # Draw examples for each bin.
+        # Draw examples for each bin.
         idxs_train = np.empty((0,), dtype=int)
         for uniq_idx, bin_cnt in zip(uniq_all, reduced_cnts):
             idx_in_bin_all = np.where(idxs.ravel() == uniq_idx)[0]

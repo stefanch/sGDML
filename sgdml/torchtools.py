@@ -60,7 +60,7 @@ class GDMLTorchPredict(nn.Module):
 
         super(GDMLTorchPredict, self).__init__()
 
-        model = dict(model) # hack
+        model = dict(model)  # hack
 
         self._batch_size = batch_size
         self._max_memory = int(2 ** 30 * max_memory)
@@ -88,29 +88,29 @@ class GDMLTorchPredict(nn.Module):
     def _forward(self, Rs):
         sig = self._sig
         q = np.sqrt(5) / sig
-        
+
         diffs = Rs[:, :, None, :] - Rs[:, None, :, :]
         dists = diffs.norm(dim=-1)
         i, j = np.diag_indices(self._n_atoms)
-        
+
         dists[:, i, j] = np.inf
         i, j = np.tril_indices(self._n_atoms, k=-1)
-        
+
         xs = 1 / dists[:, i, j]
         x_diffs = (q * xs)[:, None, :] - q * self._xs_train
         x_dists = x_diffs.norm(dim=-1)
-        exp_xs = 5. / (3 * sig ** 2) * torch.exp(-x_dists)
+        exp_xs = 5.0 / (3 * sig ** 2) * torch.exp(-x_dists)
         dot_x_diff_Jx_alphas = (x_diffs * self._Jx_alphas).sum(dim=-1)
         exp_xs_1_x_dists = exp_xs * (1 + x_dists)
         F1s_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
         F2s_x = exp_xs_1_x_dists.mm(self._Jx_alphas)
         Fs_x = (F1s_x - F2s_x) * self._std
-        
+
         Fs = ((expand_tril(Fs_x) / dists ** 3)[..., None] * diffs).sum(dim=1)
-        
+
         Es = (exp_xs_1_x_dists * dot_x_diff_Jx_alphas).sum(dim=-1) / q
         Es = self._c + Es * self._std
-        
+
         return Es, Fs
 
     def forward(self, Rs, batch_size=None, max_memory=None):
@@ -132,11 +132,11 @@ class GDMLTorchPredict(nn.Module):
 
         assert Rs.dim() == 3
         assert Rs.shape[1:] == (self._n_atoms, 3)
-        
+
         dtype = Rs.dtype
         Rs = Rs.double()
         batch_size = self._batch_size or self._max_memory // self._memory_per_sample()
 
         Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
-        
+
         return torch.cat(Es).to(dtype), torch.cat(Fs).to(dtype)

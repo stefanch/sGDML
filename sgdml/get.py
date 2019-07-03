@@ -28,10 +28,12 @@ import argparse
 import os
 import re
 import sys
+
+from .utils import ui
+
 if sys.version[0] == '3':
     raw_input = input
 
-from .utils import ui
 
 try:
     from urllib.request import urlopen

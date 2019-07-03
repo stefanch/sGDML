@@ -4,6 +4,7 @@ import argparse
 import os
 import re
 import sys
+
 if sys.version[0] == '3':
     raw_input = input
 
@@ -75,7 +76,9 @@ def progr_toggle(done, duration_s=None, disp_str=''):
             Task description.
     """
 
-    sys.stdout.write('\r%s ' % (info_str('[DONE]') if done else '['+blink_str(' .. ')+']'))
+    sys.stdout.write(
+        '\r%s ' % (info_str('[DONE]') if done else '[' + blink_str(' .. ') + ']')
+    )
     sys.stdout.write(disp_str)
 
     if duration_s is not None:
@@ -125,6 +128,35 @@ def fail_str(str):
 # USER INPUT VALIDATION
 
 
+def filter_file_type(dir, type, md5_match=None):
+
+    file_names = []
+    for file_name in sorted(os.listdir(dir)):
+        if file_name.endswith('.npz'):
+            file_path = os.path.join(dir, file_name)
+            try:
+                file = np.load(file_path)
+            except Exception:
+                raise argparse.ArgumentTypeError(
+                    '{0} contains unreadable .npz files'.format(arg)
+                )
+
+            if 'type' in file and file['type'].astype(str) == type[0]:
+
+                # if md5_match is not None:
+                #    print(file_name)
+                #    print (file['md5'])
+
+                if md5_match is None:
+                    file_names.append(file_name)
+                elif 'md5' in file and file['md5'] == md5_match:
+                    file_names.append(file_name)
+
+            file.close()
+
+    return file_names
+
+
 def is_file_type(arg, type):
     """
     Validate file path and check if the file is of the specified type.
@@ -151,7 +183,47 @@ def is_file_type(arg, type):
             If the file is not readable.
         ArgumentTypeError
             If the file is of wrong type.
+        ArgumentTypeError
+            If path/fingerprint is provided, but the path is not valid.
+        ArgumentTypeError
+            If fingerprint could not be resolved.
+        ArgumentTypeError
+            If multiple files with the same fingerprint exist.
+
     """
+
+    # Replace MD5 dataset fingerprint with file name, if necessary.
+    if type == 'dataset' and not arg.endswith('.npz') and not os.path.isdir(arg):
+        dir = '.'
+        if re.search(r'^[a-f0-9]{32}$', arg):  # arg looks similar to MD5 hash string
+            md5_str = arg
+        else:  # is it a path with a MD5 hash at the end?
+            md5_str = os.path.basename(os.path.normpath(arg))
+            dir = os.path.dirname(os.path.normpath(arg))
+
+            if re.search(r'^[a-f0-9]{32}$', md5_str) and not os.path.isdir(
+                dir
+            ):  # path has MD5 hash string at the end, but directory is not valid
+                raise argparse.ArgumentTypeError('{0} is not a directory'.format(dir))
+
+        file_names = filter_file_type(dir, type, md5_match=md5_str)
+
+        if not len(file_names):
+            raise argparse.ArgumentTypeError(
+                "No {0} files with fingerprint '{1}' found in '{2}'".format(
+                    type, md5_str, dir
+                )
+            )
+        elif len(file_names) > 1:
+            error_str = "Multiple {0} files with fingerprint '{1}' found in '{2}'".format(
+                type, md5_str, dir
+            )
+            for file_name in file_names:
+                error_str += '\n       {0}'.format(file_name)
+
+            raise argparse.ArgumentTypeError(error_str)
+        else:
+            arg = os.path.join(dir, file_names[0])
 
     if not arg.endswith('.npz'):
         argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
@@ -163,18 +235,6 @@ def is_file_type(arg, type):
 
     if 'type' not in file or file['type'].astype(str) != type[0]:
         raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg, type))
-
-        # Legacy support
-        # if type == 'task':
-        #     file = dict(file)
-        #     file['use_E'] = file['use_E'] if 'use_E' in file else True
-        #     file['use_E_cstr'] = file['use_E_cstr'] if 'use_E_cstr' in file else False
-        #     file['use_cprsn'] = file['use_cprsn'] if 'use_cprsn' in file else False
-
-        # if type == 'model':
-        #     file = dict(file)
-        #     file['use_E'] = file['use_E'] if 'use_E' in file else True
-        #     file['use_cprsn'] = file['use_cprsn'] if 'use_cprsn' in file else False
 
     return arg, file
 
@@ -252,21 +312,23 @@ def is_dir_with_file_type(arg, type, or_file=False):
         if not os.path.isdir(arg):
             raise argparse.ArgumentTypeError('{0} is not a directory'.format(arg))
 
-        file_names = []
-        for file_name in sorted(os.listdir(arg)):
-            if file_name.endswith('.npz'):
-                file_path = os.path.join(arg, file_name)
-                try:
-                    file = np.load(file_path)
-                except Exception:
-                    raise argparse.ArgumentTypeError(
-                        '{0} contains unreadable .npz files'.format(arg)
-                    )
+        file_names = filter_file_type(arg, type)
 
-                if 'type' in file and file['type'].astype(str) == type[0]:
-                    file_names.append(file_name)
+        # file_names = []
+        # for file_name in sorted(os.listdir(arg)):
+        #     if file_name.endswith('.npz'):
+        #         file_path = os.path.join(arg, file_name)
+        #         try:
+        #             file = np.load(file_path)
+        #         except Exception:
+        #             raise argparse.ArgumentTypeError(
+        #                 '{0} contains unreadable .npz files'.format(arg)
+        #             )
 
-                file.close()
+        #         if 'type' in file and file['type'].astype(str) == type[0]:
+        #             file_names.append(file_name)
+
+        #         file.close()
 
         if not len(file_names):
             raise argparse.ArgumentTypeError(
@@ -410,3 +472,16 @@ def is_task_dir_resumeable(
                     return False
 
     return True
+
+
+def is_lattice_supported(lat):
+
+    is_supported = False
+    if (
+        np.all(lat == np.diag(np.diagonal(lat)))
+        and len(set(np.diag(lat)))  # diagonal matrix?
+        == 1  # all diagonal elements all the same?
+    ):
+        is_supported = True
+
+    return is_supported
