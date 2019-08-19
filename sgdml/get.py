@@ -29,6 +29,7 @@ import os
 import re
 import sys
 
+from . import __version__
 from .utils import ui
 
 if sys.version[0] == '3':
@@ -66,7 +67,6 @@ def download(command, file_name):
             sec_disp_str='(%s bytes)' % filesize
         )
     file.close()
-    print('')
 
 
 def main():
@@ -107,7 +107,7 @@ def main():
 
     if args.name is not None:
 
-        url = '%sget.php?%s=%s' % (base_url, args.command, args.name)
+        url = '%sget.php?version=%s&%s=%s' % (base_url, __version__, args.command, args.name)
         print("Contacting server (%s)..." % base_url)
         response = urlopen(url)
         match, score = response.read().decode().split(',')
@@ -119,7 +119,7 @@ def main():
     else:
 
         print('Contacting server (%s)...' % base_url)
-        response = urlopen('%sget.php?%s' % (base_url, args.command))
+        response = urlopen('%sget.php?version=%s&%s' % (base_url, __version__, args.command))
         line = response.readlines()
         response.close()
 
@@ -153,7 +153,7 @@ def main():
 
         for idx in down_idxs:
             if idx not in range(len(items)):
-                print('Index ' + str(idx) + ' out of range, skipping.')
+                print(ui.warn_str('[WARN]') + ' Index ' + str(idx) + ' out of range, skipping.')
             else:
                 name = items[idx].split(b',')[0].decode("utf-8")
                 if os.path.exists(name):
@@ -161,6 +161,7 @@ def main():
                     continue
 
                 download(args.command, name + '.npz')
+    print('')
 
 
 if __name__ == "__main__":
