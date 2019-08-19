@@ -211,7 +211,7 @@ class GDMLPredict(object):
                 The parameters `batch_size` and `num_workers` are only
                 relevant if this code runs on a CPU. Both can be set
                 automatically via the function
-                `set_opt_num_workers_and_batch_size_fast`. Enabling
+                `prepare_parallel`. Enabling
                 calculations via PyTorch is only recommended with GPU
                 support. CPU calcuations are faster with our NumPy
                 implementation.
@@ -354,7 +354,7 @@ class GDMLPredict(object):
         Note
         ----
                 This parameter can be optimally determined using
-                `set_opt_num_workers_and_batch_size_fast`.
+                `prepare_parallel`.
 
         Parameters
         ----------
@@ -414,7 +414,7 @@ class GDMLPredict(object):
         Note
         ----
                 This parameter can be optimally determined using
-                `set_opt_num_workers_and_batch_size_fast`.
+                `prepare_parallel`.
 
         Parameters
         ----------
@@ -441,6 +441,8 @@ class GDMLPredict(object):
 
     def set_opt_num_workers_and_batch_size_fast(self, n_bulk=1, n_reps=1): # deprecated
         """
+        Warning
+        -------
         Deprecated! Please use the function `prepare_parallel` in future projects.
         
         Parameters
@@ -497,7 +499,11 @@ class GDMLPredict(object):
                 n_reps : int, optional
                         Number of repetitions (bigger value: more
                         accurate, but also slower).
-
+                return_is_from_cache : bool, optional
+                        If enabled, this function returns a second value
+                        indicating if the returned results were obtained
+                        from cache.
+    
         Returns
         -------
                 int
@@ -883,4 +889,3 @@ class GDMLPredict(object):
         F = desc.r_to_d_desc_op(r, pdist, res[1:], self.ucell_size).reshape(1, -1)
         # F = res[1:].reshape(1,-1).dot(r_d_desc)
         return E, F
-        

@@ -1181,6 +1181,7 @@ def reset(command=None, **kwargs):
             print(ui.info_str('[INFO]') + ' Benchmark cache is already empty.')
     else:
         print(' Cancelled.')
+    print('')
 
 
 def main():

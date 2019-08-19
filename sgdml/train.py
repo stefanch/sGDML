@@ -486,12 +486,6 @@ class GDMLTrain(object):
             j_end=M if use_cg else None,
         )
 
-        # if use_cg:
-        #    print(
-        #        ui.info_str('[INFO]')
-        #        + ' Nystroem preconditioner uses %s training points.' % M
-        #        )
-
         # test 2
 
         # use_ny = True
@@ -512,24 +506,13 @@ class GDMLTrain(object):
 
             lam = 1e-8
 
-            # print(M*R_d_desc.shape[2])
-
             # ny_idxs = np.random.choice(K.shape[0], M*R_d_desc.shape[2], replace=False)
-
             # K_mm = K[ny_idxs, :]
             # K_mm = K_mm[:, ny_idxs]
-
             # K_nm = K[:, ny_idxs]
-
-            # P_inv3 = -(1.0/(-lam)) * (np.eye(K.shape[0]) - K_nm.dot(np.linalg.solve((K_mm + K_nm.T.dot(K_nm)),K_nm.T)))
-
-            # P_inv3_new = (-1.0/lam)*np.eye(K.shape[0]) - (-1.0/lam)*K_nm.dot(np.linalg.solve(((-lam)*K_mm + K_nm.T.dot(K_nm)),K_nm.T))
-            # P_inv3 = P_inv3_new
 
             _lup = sp.linalg.lu_factor((-lam) * K_mm + K_nm.T.dot(K_nm))
             def mv(v):
-                # M = (-1.0/lam)*np.eye(K.shape[0]) - (-1.0/lam)*K_nm.dot(np.linalg.solve(((-lam)*K_mm + K_nm.T.dot(K_nm)),K_nm.T))
-                # M = (-1.0/lam)*np.eye(K.shape[0]) - (-1.0/lam)*K_nm.dot(np.linalg.solve(((-lam)*K_mm + K_nm.T.dot(K_nm)),K_nm.T.dot(v)))
                 P_v = -(-1.0 / lam) * (
                     K_nm.dot(sp.linalg.lu_solve(_lup, K_nm.T.dot(v))) - v
                 )
@@ -683,31 +666,9 @@ class GDMLTrain(object):
 
                 del K
 
-                # from scipy.sparse.linalg import cg
-
-                # alphas, status = cg(
-                #     -K_op,
-                #     y,
-                #     tol=1e-4,
-                #     maxiter=3 * n_atoms * n_train,
-                #     M=P_op,
-                #     callback=callback,
-                # )  # M=P_inv3
-                # alphas = -alphas
-
-
-                #import scipy.sparse.linalg as spla
-
-                #M2 = spla.spilu(-K_op)
-                #M = spla.LinearOperator(K_op.shape, M2.solve)
-
-
                 from scipy.sparse.linalg import cg
                 alphas, status = cg(-K_op, y, M=P_op, tol=1e-4, maxiter=3 * n_atoms * n_train, callback=callback)
                 alphas = -alphas
-
-                # sys.stdout.flush()
-                # print('\n')
 
         # test 2
 
