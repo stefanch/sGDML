@@ -647,12 +647,12 @@ class GDMLTrain(object):
 
             else:
 
-                global num_iters, K_op, y
+                global num_iters
 
                 num_iters = 0
 
                 def callback(xk):
-                    global num_iters, K_op, y
+                    global num_iters
                     if num_iters % 10 == 0:
 
                         solve_callback(

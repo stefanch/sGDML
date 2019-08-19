@@ -1004,8 +1004,9 @@ def test(
                 model_path = os.path.join(model_dir, model_file_names[i])
                 print(
                     ui.warn_str('[WARN]')
-                    + ' Model has previously been tested on %d points. Errors for current run with %d points have NOT been recorded in model file.'
+                    + ' Model has previously been tested on %d points. Errors for current run with %d points'
                     % (model['n_test'], len(test_idxs))
+                    + '\n       have NOT been recorded in model file.'
                     + '\n       Run \'%s test -o %s %s %s\' to overwrite.\n'
                     % (PACKAGE_NAME, os.path.relpath(model_path), dataset_path, n_test)
                 )
