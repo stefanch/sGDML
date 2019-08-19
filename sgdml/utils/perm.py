@@ -95,10 +95,12 @@ def sync_mat(R, z, max_processes=None):
     ):
         match_perms_all.update(match_perms)
 
-        progr = float(i) / (n_train - 1)
-        sys.stdout.write('\r[%3d%%] Bi-partite matching...' % (progr * 100))
-        sys.stdout.flush()
-    print('')
+        #progr = float(i) / (n_train - 1)
+        #sys.stdout.write('\r[%3d%%] Bi-partite matching...' % (progr * 100))
+        #sys.stdout.flush()
+        ui.progr_bar(i, n_train - 1, disp_str='Bi-partite matching...')
+
+    #print('')
     pool.close()
 
     match_cost = np.frombuffer(glob['match_cost']).reshape(glob['match_cost_shape'])
@@ -115,7 +117,7 @@ def sync_mat(R, z, max_processes=None):
         if perm is not None:
             perms = np.vstack((perms, perm))
     perms = np.unique(perms, axis=0)
-    sys.stdout.write(ui.info_str('\r[DONE]') + ' Permutation synchronization...')
+    sys.stdout.write(ui.pass_str('\r[DONE]') + ' Permutation synchronization...')
     sys.stdout.flush()
 
     return perms

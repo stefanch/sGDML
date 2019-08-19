@@ -58,13 +58,15 @@ def download(command, file_name):
             break
         size += len(buffer)
         file.write(buffer)
+
         ui.progr_bar(
             size,
             filesize,
-            disp_str='Downloading: %s (%s bytes)' % (file_name, filesize),
+            disp_str='Downloading: %s' % file_name,
+            sec_disp_str='(%s bytes)' % filesize
         )
-    print('')
     file.close()
+    print('')
 
 
 def main():

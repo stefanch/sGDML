@@ -240,6 +240,7 @@ def all(
     n_valid,
     n_test,
     sigs,
+
     gdml,
     use_E,
     use_E_cstr,
@@ -247,6 +248,7 @@ def all(
     overwrite,
     max_processes,
     use_torch,
+    use_cg,
     task_dir=None,
     model_file=None,
     **kwargs
@@ -299,7 +301,7 @@ def all(
 
     print(ui.white_back_str(' STEP 2 ') + ' Training\n' + '-' * 100)
     task_dir_arg = ui.is_dir_with_file_type(task_dir, 'task')
-    model_dir_or_file_path = train(task_dir_arg, overwrite, max_processes, **kwargs)
+    model_dir_or_file_path = train(task_dir_arg, overwrite, use_cg, max_processes, **kwargs)
 
     print(ui.white_back_str(' STEP 3 ') + ' Validation\n' + '-' * 100)
     model_dir_arg = ui.is_dir_with_file_type(
@@ -339,8 +341,8 @@ def all(
         **kwargs
     )
 
-    print(ui.pass_str('[ OK ]') + ' Training assistant finished sucessfully.')
-    print('       Here is your model: \'%s\'' % model_file_name)
+    print(ui.green_back_str('  DONE  ') + ' Training assistant finished sucessfully.')
+    print('         Here is your model: \'%s\'\n' % model_file_name)
 
 
 # if training job exists and is a subset of the requested cv range, add new tasks
@@ -460,7 +462,7 @@ def create(  # noqa: C901
 
     if task_file_names:
 
-        with np.load(os.path.join(task_dir, task_file_names[0])) as task:
+        with np.load(os.path.join(task_dir, task_file_names[0]), allow_pickle=True) as task:
             tmpl_task = dict(task)
     else:
         if not use_E:
@@ -471,20 +473,20 @@ def create(  # noqa: C901
                 '       Note: If available in the dataset file, the energy labels will however still be used to '
             )
             print(
-                '             generate stratified training, test and validation datasets. Otherwise a uniform '
+                '             generate stratified training, test and validation datasets. Otherwise a random '
             )
             print('             sampling is used.')
 
         if 'E' not in dataset:
             print(
                 ui.warn_str('[WARN]')
-                + ' Training dataset will be sampled with no guidance from energy labels (uniformly)!'
+                + ' Training dataset will be sampled with no guidance from energy labels (randomly)!'
             )
 
         if 'E' not in valid_dataset:
             print(
                 ui.warn_str('[WARN]')
-                + ' Validation dataset will be sampled with no guidance from energy labels (uniformly)!'
+                + ' Validation dataset will be sampled with no guidance from energy labels (randomly)!'
             )
             print(
                 '       Note: Larger validation datasets are recommended due to slower convergence of the error.'
@@ -534,7 +536,7 @@ def create(  # noqa: C901
             n_written += 1
     if n_written > 0:
         print(
-            ui.info_str('[DONE]')
+            ui.pass_str('[DONE]')
             + ' Writing %d/%d tasks with %s training points each.'
             % (n_written, len(sigs), tmpl_task['R_train'].shape[0])
         )
@@ -549,7 +551,7 @@ def create(  # noqa: C901
     return task_dir
 
 
-def train(task_dir, overwrite, max_processes, command=None, **kwargs):
+def train(task_dir, overwrite, use_cg, max_processes, command=None, **kwargs):
 
     task_dir, task_file_names = task_dir
     n_tasks = len(task_file_names)
@@ -579,7 +581,7 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
 
         task_file_path = os.path.join(task_dir, task_file_name)
         # task_file_relpath = os.path.relpath(task_file_path, BASE_DIR)
-        with np.load(task_file_path) as task:
+        with np.load(task_file_path, allow_pickle=True) as task:
 
             model_file_name = io.model_file_name(task, is_extended=False)
             model_file_path = os.path.join(task_dir, model_file_name)
@@ -598,9 +600,15 @@ def train(task_dir, overwrite, max_processes, command=None, **kwargs):
                 print()
                 continue
 
+            if use_cg:
+                print(
+                    ui.info_str('[INFO]')
+                    + ' Using CG solver with Nystroem preconditioner.'
+                )
+
             try:
                 model = gdml_train.train(
-                    task, cprsn_callback, ker_progr_callback, solve_callback
+                    task, use_cg, cprsn_callback, ker_progr_callback, solve_callback
                 )
             except Exception as err:
                 sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
@@ -756,7 +764,7 @@ def test(
                 ui.white_bold_str(
                     '%s model %d of %d'
                     % ('Testing' if is_test else 'Validating', i + 1, n_models)
-                )
+                )  # + ' (%s)' % ((model_file_name[:75] + '...') if len(model_file_name) > 75 else model_file_name)
             )
 
         if not overwrite and not needs_valid and not is_test:
@@ -824,7 +832,7 @@ def test(
             else:
                 print(
                     ui.warn_str('[WARN]')
-                    + ' Test dataset will be sampled with no guidance from energy labels (uniformly)!'
+                    + ' Test dataset will be sampled with no guidance from energy labels (randomly)!'
                 )
                 print(
                     '       Note: Larger test datasets are recommended due to slower convergence of the error.'
@@ -847,15 +855,10 @@ def test(
 
         if not use_torch:
             if num_workers == 0 or batch_size == 0:
-                sys.stdout.write(
-                    '\r[' + ui.blink_str(' .. ') + '] Running benchmark...'
-                )
-                sys.stdout.flush()
+                ui.progr_toggle(is_done=False, disp_str='Optimizing parallelism...')
 
-                # n_reps = min(max(int(n_valid*0.1),3),10) # 10% of the n_valid, at least 3, no more than 5
-                n_reps = 1
-                gps = gdml_predict.set_opt_num_workers_and_batch_size_fast(
-                    n_bulk=1000, n_reps=n_reps
+                gps, is_from_cache = gdml_predict.prepare_parallel(
+                    n_bulk=1000, return_is_from_cache=True
                 )
                 num_workers, batch_size, bulk_mp = (
                     gdml_predict._num_workers,
@@ -863,19 +866,15 @@ def test(
                     gdml_predict._bulk_mp,
                 )
 
-                sys.stdout.write(
-                    ui.info_str('\r[DONE]')
-                    + ' Running benchmark... '
-                    + ui.gray_str(
-                        '(best: %d wkr %s/ chunks of %d @ %.1f geo/s)\n'
-                        % (num_workers, '[MP] ' if bulk_mp else '', batch_size, gps)
-                    )
+                ui.progr_toggle(
+                    is_done=True,
+                    disp_str='Optimizing parallelism' + (' (from cache)...' if is_from_cache else '...'),
+                    sec_disp_str='(%d wkr %s/ chunks of %d)' % (num_workers, '[MP] ' if bulk_mp else '', batch_size),
                 )
-                sys.stdout.flush()
             else:
-                gdml_predict.set_num_workers(num_workers)
-                gdml_predict.set_batch_size(batch_size)
-                gdml_predict._bulk_mp = bulk_mp  # TODO: implement setter
+                gdml_predict._set_num_workers(num_workers)
+                gdml_predict._set_batch_size(batch_size)
+                gdml_predict._set_bulk_mp(bulk_mp)
 
         n_atoms = z.shape[0]
 
@@ -926,21 +925,16 @@ def test(
                 cos_err, n_atoms, n_done, cos_mae_sum, cos_rmse_sum
             )
 
-            progr = float(n_done) / len(test_idxs)
             sps = n_done / (
                 time.time() - t
-            )  # samples per second (don't time the benchmark predictions)
+            )  # samples per second
+            disp_str = 'Energy: %.3f/%.3f - ' % (e_mae, e_rmse) if model['use_E'] else ''
+            disp_str += 'Forces: %.3f/%.3f (MAE, RMSE)' % (f_mae, f_rmse)
+            sec_disp_str = '@ %.1f geo/s' % sps if b_range is not None else ''
 
-            sys.stdout.write('\r[%3d%%] >> ' % (progr * 100))
-            if model['use_E']:
-                sys.stdout.write('Energy: %.3f/%.3f - ' % (e_mae, e_rmse))
-            sys.stdout.write('Forces: %.3f/%.3f (MAE, RMSE)' % (f_mae, f_rmse))
-            # sys.stdout.write('\r[%3d%%] >> Energy: %.3f/%.3f - Forces: %.3f/%.3f (MAE, RMSE)' % (progr * 100,e_mae,e_rmse,f_mae,f_rmse))
-            if b_range is not None:
-                sys.stdout.write(ui.gray_str(' @ %.1f geo/s' % sps))
-            sys.stdout.flush()
-        print('\n')
-
+            ui.progr_bar(n_done, len(test_idxs), disp_str=disp_str, sec_disp_str=sec_disp_str)
+        print('')
+        
         if model['use_E']:
             e_rmse_pct = (e_rmse / e_err['rmse'] - 1.0) * 100
         f_rmse_pct = (f_rmse / f_err['rmse'] - 1.0) * 100
@@ -1109,7 +1103,7 @@ def select(
     if model_file == None:
 
         # generate model file name based on model properties
-        best_model = np.load(best_model_path)
+        best_model = np.load(best_model_path, allow_pickle=True)
         model_file = io.model_file_name(best_model, is_extended=True)
         best_model.close()
 
@@ -1166,6 +1160,27 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
     if file['type'] == b'm':
         print(ui.white_bold_str('Model properties'))
         _print_model_properties(file)
+
+
+def reset(command=None, **kwargs):
+
+    if ui.yes_or_no('\nDo you really want to purge all caches and temporary files?'):
+
+        pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        bmark_file = '_bmark_cache.npz'
+        bmark_path = os.path.join(pkg_dir, bmark_file)
+
+        if os.path.exists(bmark_path):
+            try:
+                os.remove(bmark_path)
+            except OSError as e:
+                sys.exit(ui.fail_str('[FAIL]') + ' Unable to delete benchmark cache.')
+
+            print(ui.pass_str('[DONE]') + ' Benchmark cache deleted.')
+        else:
+            print(ui.info_str('[INFO]') + ' Benchmark cache is already empty.')
+    else:
+        print(' Cancelled.')
 
 
 def main():
@@ -1249,6 +1264,11 @@ def main():
     parser_show = subparsers.add_parser(
         'show',
         help='print details about dataset, task or model file',
+        parents=[parent_parser],
+    )
+    parser_reset = subparsers.add_parser(
+        'reset',
+        help='delete all caches and temporary files',
         parents=[parent_parser],
     )
 
@@ -1338,6 +1358,15 @@ def main():
             metavar='<model_file>',
             dest='model_file',
             help='user-defined model output file name',
+        )
+
+    for subparser in [parser_all, parser_train]:
+        subparser.add_argument(
+            '--cg',
+            dest='use_cg',
+            action='store_true',
+            #help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
+            help=argparse.SUPPRESS
         )
 
     # train

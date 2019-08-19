@@ -30,12 +30,12 @@ def yes_or_no(question):
         return True
 
 
-def progr_bar(current, total, duration_s=None, disp_str=''):
+def progr_bar(current, total, disp_str='', sec_disp_str=None):
     """
     Print progress bar.
 
     Example:
-    ``[ 45%] Task description (1.2 s)``
+    ``[ 45%] Task description (secondary string)``
 
     Parameters
     ----------
@@ -43,54 +43,69 @@ def progr_bar(current, total, duration_s=None, disp_str=''):
             How many items already processed?
         total : int
             Total number of items?
-        duration_s : float, optional
-            Additionally show number of seconds passed.
         disp_str : :obj:`str`, optional
             Task description.
+        sec_disp_str : :obj:`str`, optional
+            Additional string shown in gray.
     """
+
+    is_done = np.isclose(current-total, 0.0)
     progr = float(current) / total
-    sys.stdout.write('\r[%3d%%] %s' % (progr * 100, disp_str))
+
+    str_color = pass_str if is_done else info_str
+    sys.stdout.write(('\r' + str_color('[%3d%%]') + ' %s') % (progr * 100, disp_str))
+
+    if sec_disp_str is not None:
+        sys.stdout.write(' \x1b[90m%s\x1b[0m' % sec_disp_str)
+
+    if is_done:
+        sys.stdout.write('\n')
+
     sys.stdout.flush()
 
-    if duration_s is not None:
-        print(' \x1b[90m(%.1f s)\x1b[0m' % duration_s)
 
-
-def progr_toggle(done, duration_s=None, disp_str=''):
+def progr_toggle(is_done, disp_str='', sec_disp_str=None):
     """
     Print progress toggle.
 
     Example (not done):
-    ``[ .. ] Task description (1.2 s)``
+    ``[ .. ] Task description (secondary string)``
 
     Example (done):
-    ``[DONE] Task description (2.0 s)``
+    ``[DONE] Task description (secondary string)``
 
     Parameters
     ----------
-        done : bool
+        is_done : bool
             Task done?
-        duration_s : float, optional
-            Additionally show number of seconds passed.
         disp_str : :obj:`str`, optional
             Task description.
+        sec_disp_str : :obj:`str`, optional
+            Additional string shown in gray.
     """
 
     sys.stdout.write(
-        '\r%s ' % (info_str('[DONE]') if done else '[' + blink_str(' .. ') + ']')
+        '\r%s ' % (pass_str('[DONE]') if is_done else info_str('[') + info_str(blink_str(' .. ')) + info_str(']'))
     )
     sys.stdout.write(disp_str)
 
-    if duration_s is not None:
-        sys.stdout.write(' \x1b[90m(%.1f s)\x1b[0m\n' % duration_s)
+    if sec_disp_str is not None:
+        sys.stdout.write(' \x1b[90m%s\x1b[0m' % sec_disp_str)
+
+    if is_done:
+        sys.stdout.write('\n')
+
     sys.stdout.flush()
 
 
 # COLORS
 
-
 def white_back_str(str):
     return '\x1b[1;7m' + str + '\x1b[0m'
+
+
+def green_back_str(str):
+    return '\x1b[1;30;42m' + str + '\x1b[0m'
 
 
 def white_bold_str(str):
@@ -135,7 +150,7 @@ def filter_file_type(dir, type, md5_match=None):
         if file_name.endswith('.npz'):
             file_path = os.path.join(dir, file_name)
             try:
-                file = np.load(file_path)
+                file = np.load(file_path, allow_pickle=True)
             except Exception:
                 raise argparse.ArgumentTypeError(
                     '{0} contains unreadable .npz files'.format(arg)
@@ -229,7 +244,7 @@ def is_file_type(arg, type):
         argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
 
     try:
-        file = np.load(arg)
+        file = np.load(arg, allow_pickle=True)
     except Exception:
         raise argparse.ArgumentTypeError('{0} is not readable'.format(arg))
 
@@ -245,7 +260,6 @@ def is_valid_file_type(arg_in):
     try:
         arg, file = is_file_type(arg_in, 'dataset')
     except argparse.ArgumentTypeError:
-        print('dataset raise')
         pass
 
     if file is None:
@@ -454,7 +468,7 @@ def is_task_dir_resumeable(
     for file_name in sorted(os.listdir(train_dir)):
         if file_name.endswith('.npz'):
             file_path = os.path.join(train_dir, file_name)
-            file = np.load(file_path)
+            file = np.load(file_path, allow_pickle=True)
 
             if 'type' not in file:
                 continue
