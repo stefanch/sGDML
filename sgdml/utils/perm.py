@@ -94,13 +94,7 @@ def sync_mat(R, z, max_processes=None):
         )
     ):
         match_perms_all.update(match_perms)
-
-        #progr = float(i) / (n_train - 1)
-        #sys.stdout.write('\r[%3d%%] Bi-partite matching...' % (progr * 100))
-        #sys.stdout.flush()
         ui.progr_bar(i, n_train - 1, disp_str='Bi-partite matching...')
-
-    #print('')
     pool.close()
 
     match_cost = np.frombuffer(glob['match_cost']).reshape(glob['match_cost_shape'])
@@ -147,6 +141,10 @@ def inv_perm(perm):
     inv_perm[perm] = np.arange(perm.size)
 
     return inv_perm
+
+
+#def match_me_if_you_can(r, z, model):
+
 
 
 # def to_tril_perm(perm):

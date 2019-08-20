@@ -59,32 +59,34 @@ xyz_exists = os.path.isfile(dataset_file_name)
 if xyz_exists and args.overwrite:
     print(ui.info_str('[INFO]') + ' Overwriting existing xyz dataset file.')
 if not xyz_exists or args.overwrite:
-    print('Writing dataset to \'%s\'...' % dataset_file_name)
+    print(ui.info_str('[INFO]') + ' Writing dataset to \'%s\'...' % dataset_file_name)
 else:
     sys.exit(
         ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name
     )
 
-z = dataset['z']
 R = dataset['R']
+z = dataset['z']
 F = dataset['F']
-E = dataset['E']
-n = R.shape[0]
+
+lattice = dataset['lattice'] if 'lattice' in dataset else None
 
 try:
-    with open(dataset_file_name, 'w') as f:
+    with open(dataset_file_name, 'w') as file:
+
+        n = R.shape[0]
         for i, r in enumerate(R):
 
-            f.write(str(len(r)) + '\n' + str(np.squeeze(E[i])))
-            for j, atom in enumerate(r):
-                f.write('\n' + io._z_to_z_str_dict[z[j]] + '\t')
-                f.write('\t'.join(str(x) for x in atom) + '\t')
-                f.write('\t'.join(str(x) for x in F[i][j]))
-            f.write('\n')
+            e = np.squeeze(dataset['E'][i]) if 'E' in dataset else None
+            f = dataset['F'][i,:,:]
+            ext_xyz_str = io.generate_xyz_str(r, z, e=e, f=f, lattice=lattice)
+
+            file.write(ext_xyz_str)
+            file.write('\n')
 
             progr = float(i) / (n - 1)
             ui.progr_bar(i, n - 1, disp_str='Exporting %d data points...' % n)
 except IOError:
     sys.exit("ERROR: Writing xyz file failed.")
 
-print('\n' + ui.pass_str('DONE'))
+print()

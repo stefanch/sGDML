@@ -26,6 +26,7 @@ from __future__ import print_function
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import time
@@ -57,14 +58,31 @@ def _print_splash():
     )
 
 
-def _print_dataset_properties(dataset):
+# def _needs_update():
+
+#     try:
+#         from urllib.request import urlopen
+#     except ImportError:
+#         from urllib2 import urlopen
+
+#     base_url = 'http://www.quantum-machine.org/gdml/'
+#     url = '%scheck_update.php?version=%s' % (base_url, __version__)
+
+#     response = urlopen(url)
+#     can_update, must_update, latest_version = response.read().decode().split(',')
+#     response.close()
+
+
+def _print_dataset_properties(dataset, alt_title_str='Dataset properties'):
+
+    print(ui.white_bold_str(alt_title_str))
 
     n_mols, n_atoms, _ = dataset['R'].shape
     print(
         ' {:<16} {} ({:<d} atoms)'.format('Name:', dataset['name'].astype(str), n_atoms)
     )
     print(' {:<16} {}'.format('Theory:', dataset['theory']))
-    print(' {:<16} {:<d}'.format('Size:', n_mols))
+    print(' {:<16} {:<d} data points'.format('Size:', n_mols))
 
     lat_label = 'Lattice:'
     if 'lattice' in dataset:
@@ -115,6 +133,27 @@ def _print_dataset_properties(dataset):
     print('  {:<15} {:<.3} '.format('Variance:', TG_var))
 
     print(' {:<16} {}'.format('Fingerprint:', dataset['md5'].astype(str)))
+    print()
+
+    idx = np.random.choice(n_mols, 1)[0]
+    r = dataset['R'][idx,:,:]
+    e = np.squeeze(dataset['E'][idx]) if 'E' in dataset else None
+    f = dataset['F'][idx,:,:]
+    lattice = dataset['lattice'] if 'lattice' in dataset else None
+
+    print(ui.white_bold_str('Example geometry') + ' (no. {:<d}, chosen randomly)'.format(idx+1))
+    print('  Copy&paste the string below into Jmol (www.jmol.org), Avogadro (www.avogadro.cc), etc.')
+    print('  to visualize this geometry. A new example geometry will be drawn on each call.\n')
+
+    xyz_str = io.generate_xyz_str(r, dataset['z'], e=e, f=f, lattice=lattice)
+    xyz_str = re.sub('^', ' '*3, xyz_str, flags=re.MULTILINE)
+
+    cutline_str = ui.gray_str(' ' + ' -- CUT HERE' * 8 + ' --')
+    
+    print(cutline_str)
+    print(xyz_str)
+    print(cutline_str)
+
     print()
 
 
@@ -256,14 +295,14 @@ def all(
 
     print('\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-' * 100)
 
-    print(ui.white_bold_str('Properties'))
+    #print(ui.white_bold_str('Properties'))
     _, dataset_extracted = dataset
-    _print_dataset_properties(dataset_extracted)
+    _print_dataset_properties(dataset_extracted, alt_title_str='Properties')
 
     if valid_dataset is not None:
-        print(ui.white_bold_str('Properties (validation)'))
+       #print(ui.white_bold_str('Properties (validation)'))
         _, valid_dataset_extracted = valid_dataset
-        _print_dataset_properties(valid_dataset_extracted)
+        _print_dataset_properties(valid_dataset_extracted, alt_title_str='Properties (validation)')
 
         if not np.array_equal(dataset_extracted['z'], valid_dataset_extracted['z']):
             raise AssistantError(
@@ -271,9 +310,9 @@ def all(
             )
 
     if test_dataset is not None:
-        print(ui.white_bold_str('Properties (test)'))
+        #print(ui.white_bold_str('Properties (test)'))
         _, test_dataset_extracted = test_dataset
-        _print_dataset_properties(test_dataset_extracted)
+        _print_dataset_properties(test_dataset_extracted, alt_title_str='Properties (test)')
 
         if not np.array_equal(dataset_extracted['z'], test_dataset_extracted['z']):
             raise AssistantError(
@@ -372,7 +411,6 @@ def create(  # noqa: C901
     )  # has this function been called from command line or from 'all'?
     if func_called_directly:
         print(ui.white_back_str('\n TASK CREATION \n') + '-' * 100)
-        print(ui.white_bold_str('Dataset properties'))
         _print_dataset_properties(dataset)
 
     print(ui.white_bold_str('Properties'))
@@ -662,7 +700,6 @@ def validate(
     )  # has this function been called from command line or from 'all'?
     if func_called_directly:
         print(ui.white_back_str('\n MODEL VALIDATION \n') + '-' * 100)
-        print(ui.white_bold_str('Dataset properties'))
         _print_dataset_properties(dataset_extracted)
 
     n_test = 0  # TODO remove?
@@ -716,7 +753,6 @@ def test(
     )  # has this function been called from command line or from 'all'?
     if func_called_directly:
         print(ui.white_back_str('\n MODEL TEST \n') + '-' * 100)
-        print(ui.white_bold_str('Dataset properties'))
         _print_dataset_properties(dataset)
 
     num_workers, batch_size = 0, 0
@@ -1146,7 +1182,6 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
     file_path, file = file
 
     if file['type'] == b'd':
-        print(ui.white_bold_str('Dataset properties'))
         _print_dataset_properties(file)
 
     if file['type'] == b't':

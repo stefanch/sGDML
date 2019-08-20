@@ -234,3 +234,30 @@ def write_geometry(filename, r, z, comment_str=''):
                 f.write('\t'.join(str(x) for x in atom))
     except IOError:
         sys.exit("ERROR: Writing xyz file failed.")
+
+
+# Write geometry file (xyz format).
+def generate_xyz_str(r, z, e=None, f=None, lattice=None):
+
+    comment_str = ''
+    if lattice is not None:
+        comment_str += 'Lattice=\"{}\" '.format(' '.join([str(l) for l in lattice.ravel()]))
+    if e is not None:
+        comment_str += 'Energy=\"{:.8f}\" '.format(e)
+    comment_str += 'Properties=species:S:1:pos:R:3'
+    if f is not None:
+        comment_str += ':force:R:3'
+
+    r = np.squeeze(r)
+
+    xyz_str = str(len(r)) + '\n' + comment_str
+    for i, atom in enumerate(r):
+        xyz_str += '\n' + _z_to_z_str_dict[z[i]] + '\t'
+        xyz_str += '\t'.join(('' if x < 0 else ' ') + '{:>.8f}'.format(x) for x in atom)
+        #xyz_str += ('\t{:.8f}'*3).format(*atom)
+
+        if f is not None:
+            #xyz_str += ('\t{:.8f}'*3).format(*f[i,:])
+            xyz_str += '\t' + '\t'.join(('' if x < 0 else ' ') + '{:>.8f}'.format(x) for x in f[i,:])
+
+    return xyz_str
