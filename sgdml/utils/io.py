@@ -246,7 +246,7 @@ def generate_xyz_str(r, z, e=None, f=None, lattice=None):
         comment_str += 'Energy=\"{:.8f}\" '.format(e)
     comment_str += 'Properties=species:S:1:pos:R:3'
     if f is not None:
-        comment_str += ':force:R:3'
+        comment_str += ':forces:R:3'
 
     r = np.squeeze(r)
 
