@@ -465,7 +465,7 @@ class GDMLTrain(object):
         # test
 
         # for nystrom precondiner if cg solver is used
-        M = int(np.ceil(np.sqrt(n_train)))*3
+        M = int(np.ceil(np.sqrt(n_train)))
         #M = 100
 
         y = Ft
@@ -505,7 +505,7 @@ class GDMLTrain(object):
             K_mm = K[: M * dim_i, :]
             K_nm = K
 
-            lam = 1e-5
+            lam = 1e-4
 
             # ny_idxs = np.random.choice(K.shape[0], M*R_d_desc.shape[2], replace=False)
             # K_mm = K[ny_idxs, :]

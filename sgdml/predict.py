@@ -35,7 +35,7 @@ import numpy as np
 import scipy.spatial.distance
 
 from . import __version__
-from .utils import desc
+from .utils import desc, ui
 
 glob = {}
 
@@ -297,7 +297,11 @@ class GDMLPredict(object):
 
             from .torchtools import GDMLTorchPredict
 
-            self.torch_predict = GDMLTorchPredict(model)
+            self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            self.torch_predict = GDMLTorchPredict(model).to(self.torch_device)
+
+            is_cuda = next(self.torch_predict.parameters()).is_cuda
+            print(ui.info_str('[INFO]') + ' PyTorch running on the ' + ('GPU' if is_cuda else 'CPU') + ' will be used to query this model.')
 
         # Parallel processing configuration
 
@@ -851,11 +855,11 @@ class GDMLPredict(object):
 
             M = r.shape[0]
 
-            Rs = torch.from_numpy(r.reshape(M, -1, 3))
+            Rs = torch.from_numpy(r.reshape(M, -1, 3)).to(self.torch_device)
             e_pred, f_pred = self.torch_predict.forward(Rs)
 
-            E = e_pred.numpy()
-            F = f_pred.numpy().reshape(M, -1)
+            E = e_pred.cpu().numpy()
+            F = f_pred.cpu().numpy().reshape(M, -1)
 
             return E, F
 
