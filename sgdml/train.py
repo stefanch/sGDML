@@ -284,12 +284,6 @@ class GDMLTrain(object):
         )
 
         R_train = train_dataset['R'][idxs_train, :, :]
-
-
-        #model = {'R': R_train,}
-        #np.savez_compressed('ethanol_200_s22_gdml_R', **model)
-        #sys.exit()
-
         task = {
             'type': 't',
             'code_version': __version__,
@@ -317,8 +311,15 @@ class GDMLTrain(object):
             task['lattice'] = train_dataset['lattice']
 
         if use_sym:
+
+            n_train = R_train.shape[0]
+            R_train_sync_mat = R_train
+            if n_train > 1000:
+                R_train_sync_mat = R_train[np.random.choice(n_train, 1000),:,:]
+                print(ui.info_str('[INFO]') + ' Symmetry search is limited to a random subset of 1000/' + str(n_train) +' training points for faster convergence.')
+
             task['perms'] = perm.sync_mat(
-                R_train, train_dataset['z'], self._max_processes
+                R_train_sync_mat, train_dataset['z'], self._max_processes
             )
             task['perms'] = perm.complete_group(task['perms'])
         else:
@@ -464,7 +465,7 @@ class GDMLTrain(object):
         # test
 
         # for nystrom precondiner if cg solver is used
-        M = int(np.ceil(np.sqrt(n_train))) * 3
+        M = int(np.ceil(np.sqrt(n_train)))*3
         #M = 100
 
         y = Ft
@@ -504,7 +505,7 @@ class GDMLTrain(object):
             K_mm = K[: M * dim_i, :]
             K_nm = K
 
-            lam = 1e-8
+            lam = 1e-5
 
             # ny_idxs = np.random.choice(K.shape[0], M*R_d_desc.shape[2], replace=False)
             # K_mm = K[ny_idxs, :]
@@ -625,10 +626,6 @@ class GDMLTrain(object):
 
                 K[np.diag_indices_from(K)] -= lam  # regularize
 
-                #model = {'K': K,'F': y}
-                #np.savez_compressed('ethanol_200_s22_gdml_KF', **model)
-                #sys.exit()
-
                 try:
                     # Cholesky
                     L, lower = sp.linalg.cho_factor(
@@ -686,7 +683,7 @@ class GDMLTrain(object):
         if solve_callback is not None:
 
             sec_disp_str = (
-                '(%d: residual: %.5f)' % (num_iters, np.mean(np.abs(K_op.dot(alphas) - y)))
+                '(iter: %d: residual: %.5f)' % (num_iters, np.mean(np.abs(K_op.dot(alphas) - y)))
                 if use_cg
                 else '(%.1f s)' % ((stop - start) / 2)
             )

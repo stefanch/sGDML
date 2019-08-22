@@ -143,10 +143,6 @@ def inv_perm(perm):
     return inv_perm
 
 
-#def match_me_if_you_can(r, z, model):
-
-
-
 # def to_tril_perm(perm):
 
 # 	n = len(perm)
