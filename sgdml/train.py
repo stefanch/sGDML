@@ -146,7 +146,7 @@ def _assemble_kernel_mat_wkr(
         if (
             i < j_end
         ):  # symmetric extension is not always possible, if a partial kernel is assembled
-            K[blk_j, blk_i] = R_d_desc[i, :, :].T.dot(diff_ab_outer_perms)
+            K[blk_j, blk_i] = K[blk_i, blk_j]
 
     if use_E_cstr:
         for i in range(n_train):
@@ -397,7 +397,7 @@ class GDMLTrain(object):
         ucell_size = None
         if 'lattice' in task:
             lat = task['lattice']
-            if is_lattice_supported(lat):
+            if ui.is_lattice_supported(lat):
                 ucell_size = np.diag(lat)[0]
             else:
                 raise ValueError(
@@ -512,10 +512,12 @@ class GDMLTrain(object):
             # K_mm = K_mm[:, ny_idxs]
             # K_nm = K[:, ny_idxs]
 
-            _lup = sp.linalg.lu_factor((-lam) * K_mm + K_nm.T.dot(K_nm))
+            #print('factor')
+            _lup = sp.linalg.lu_factor((-lam) * K_mm + K_nm.T.dot(K_nm), overwrite_a=True, check_finite=False)
+            #print('factor done')
             def mv(v):
-                P_v = -(-1.0 / lam) * (
-                    K_nm.dot(sp.linalg.lu_solve(_lup, K_nm.T.dot(v))) - v
+                P_v = (1.0 / lam) * (
+                    K_nm.dot(sp.linalg.lu_solve(_lup, K_nm.T.dot(v), overwrite_b=True, check_finite=False)) - v
                 )
                 return P_v
 
@@ -523,71 +525,68 @@ class GDMLTrain(object):
 
             P_op = LinearOperator((n_train * dim_i, n_train * dim_i), matvec=mv)
 
-            global mv_K_first, gdml_predict
-            mv_K_first = True
+            global gdml_predict
             gdml_predict = None
 
             def mv_K(v):
 
-                global mv_K_first, gdml_predict
+                global gdml_predict
 
                 r_dim = R_d_desc.shape[2]
-                r_d_desc_alpha = [
-                    rj_d_desc.dot(v[(j * r_dim) : ((j + 1) * r_dim)])
-                    for j, rj_d_desc in enumerate(R_d_desc)
-                ]
+                #r_d_desc_alpha = [
+                #    rj_d_desc.dot(v[(j * r_dim) : ((j + 1) * r_dim)])
+                #    for j, rj_d_desc in enumerate(R_d_desc)
+                #]
+                r_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, v.reshape(-1,r_dim))
 
-                model = {
-                    'type': 'm',
-                    'code_version': __version__,
-                    'dataset_name': task['dataset_name'],
-                    'dataset_theory': task['dataset_theory'],
-                    'z': task['z'],
-                    'idxs_train': task['idxs_train'],
-                    'md5_train': task['md5_train'],
-                    'idxs_valid': task['idxs_valid'],
-                    'md5_valid': task['md5_valid'],
-                    'n_test': 0,
-                    'md5_test': None,
-                    'f_err': {'mae': np.nan, 'rmse': np.nan},
-                    'R_desc': R_desc.T,
-                    'R_d_desc_alpha': r_d_desc_alpha,
-                    'c': 0.0,
-                    'std': 1.0,
-                    'sig': sig,
-                    'perms': task['perms'],
-                    'tril_perms_lin': tril_perms_lin,
-                    'use_E': task['use_E'],
-                    'use_cprsn': task['use_cprsn'],
-                }
+                if gdml_predict is None:
 
-                if mv_K_first == True:
+                    model = {
+                        'type': 'm',
+                        'code_version': __version__,
+                        'dataset_name': task['dataset_name'],
+                        'dataset_theory': task['dataset_theory'],
+                        'z': task['z'],
+                        'idxs_train': task['idxs_train'],
+                        'md5_train': task['md5_train'],
+                        'idxs_valid': task['idxs_valid'],
+                        'md5_valid': task['md5_valid'],
+                        'n_test': 0,
+                        'md5_test': None,
+                        'f_err': {'mae': np.nan, 'rmse': np.nan},
+                        'R_desc': R_desc.T,
+                        'R_d_desc': R_d_desc,
+                        'R_d_desc_alpha': r_d_desc_alpha,
+                        'c': 0.0,
+                        'std': 1.0,
+                        'sig': sig,
+                        'perms': task['perms'],
+                        'tril_perms_lin': tril_perms_lin,
+                        'use_E': task['use_E'],
+                        'use_cprsn': task['use_cprsn'],
+                    }
 
                     from .predict import GDMLPredict
 
                     gdml_predict = GDMLPredict(model)
                     gdml_predict.prepare_parallel(n_bulk=n_train)
+                    
+                    #gdml_predict._set_bulk_mp(True)
+                    #gdml_predict._set_batch_size(1) # biggest possible
+                    #gdml_predict._set_num_workers(None) # all of them
 
-                    mv_K_first = False
                 else:
-                    gdml_predict.set_alphas(r_d_desc_alpha, model)
+                    #print('set alphas')
+                    gdml_predict.set_alphas(r_d_desc_alpha)
 
                 R = task['R_train'].reshape(n_train, -1)
-                _, f_pred = gdml_predict.predict(R)
+                _, f_pred = gdml_predict.predict(R, train=False)
+                
+                #_, f_pred = gdml_predict.predict(None, train=True)
 
                 return f_pred.ravel() - lam * v
 
             K_op = LinearOperator((n_train * dim_i, n_train * dim_i), matvec=mv_K)
-
-        # import matplotlib.pyplot as plt
-
-        # plt.imshow(sp.linalg.solve(K, K2, overwrite_a=False, overwrite_b=False, check_finite=True))
-        # plt.imshow(P_inv3.dot(K))
-        # plt.imshow(K.dot(np.linalg.inv(K_mm)))
-        # plt.colorbar()
-        # plt.show()
-
-        # print(np.linalg.inv(K) - np.linalg.inv(K2))
 
         # test
 
@@ -663,9 +662,14 @@ class GDMLTrain(object):
 
                 del K
 
+                start = timeit.default_timer()
+
                 from scipy.sparse.linalg import cg
                 alphas, status = cg(-K_op, y, M=P_op, tol=1e-4, maxiter=3 * n_atoms * n_train, callback=callback)
                 alphas = -alphas
+
+                stop = timeit.default_timer()
+                print('time per it: ' + str(((stop - start) / 2) / num_iters) + 's')
 
         # test 2
 
