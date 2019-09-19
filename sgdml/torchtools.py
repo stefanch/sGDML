@@ -27,6 +27,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from .utils import desc
+
 
 def expand_tril(xs):
     n = int((1 + np.sqrt(8 * xs.shape[-1] + 1)) / 2)
@@ -45,7 +47,7 @@ class GDMLTorchPredict(nn.Module):
     :class:`torch.nn.Module`. Contains no trainable parameters.
     """
 
-    def __init__(self, model, batch_size=None, max_memory=1.0):
+    def __init__(self, model, lat_and_inv=None, batch_size=None, max_memory=1.0):
         """
         Parameters
         ----------
@@ -54,6 +56,8 @@ class GDMLTorchPredict(nn.Module):
         batch_size : int, optional
             Maximum batch size of geometries for prediction. Calculated from
             :paramref:`max_memory` if not given.
+        lat_and_inv : tuple of :obj:`numpy.ndarray`
+            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
         max_memory : float, optional
             (unit GB) Maximum allocated memory for prediction.
         """
@@ -62,6 +66,7 @@ class GDMLTorchPredict(nn.Module):
 
         model = dict(model)  # hack
 
+        self._lat_and_inv = None if lat_and_inv is None else (torch.tensor(lat_and_inv[0]), torch.tensor(lat_and_inv[1]))
         self._batch_size = batch_size
         self._max_memory = int(2 ** 30 * max_memory)
         self._sig = int(model['sig'])
@@ -90,6 +95,11 @@ class GDMLTorchPredict(nn.Module):
         q = np.sqrt(5) / sig
 
         diffs = Rs[:, :, None, :] - Rs[:, None, :, :]
+
+        if self._lat_and_inv is not None:
+            diffs_shape = diffs.shape
+            diffs = desc.pbc_diff_torch(diffs.reshape(-1,3), self._lat_and_inv).reshape(diffs_shape)
+
         dists = diffs.norm(dim=-1)
         i, j = np.diag_indices(self._n_atoms)
 

@@ -32,13 +32,14 @@ import numpy as np
 
 from sgdml.utils import io, ui
 
+
 parser = argparse.ArgumentParser(
     description='Converts a native dataset file to extended XYZ format.'
 )
 parser.add_argument(
     'dataset',
     metavar='<dataset>',
-    type=lambda x: ui.is_file_type(x, 'dataset'),
+    type=lambda x: io.is_file_type(x, 'dataset'),
     help='path to dataset file',
 )
 parser.add_argument(
@@ -79,13 +80,13 @@ try:
 
             e = np.squeeze(dataset['E'][i]) if 'E' in dataset else None
             f = dataset['F'][i,:,:]
-            ext_xyz_str = io.generate_xyz_str(r, z, e=e, f=f, lattice=lattice)
+            ext_xyz_str = io.generate_xyz_str(r, z, e=e, f=f, lattice=lattice) + '\n'
 
             file.write(ext_xyz_str)
-            file.write('\n')
 
             progr = float(i) / (n - 1)
             ui.progr_bar(i, n - 1, disp_str='Exporting %d data points...' % n)
+            
 except IOError:
     sys.exit("ERROR: Writing xyz file failed.")
 

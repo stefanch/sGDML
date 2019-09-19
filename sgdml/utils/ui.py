@@ -1,7 +1,29 @@
+#!/usr/bin/python
+
+# MIT License
+#
+# Copyright (c) 2018-2019 Stefan Chmiela
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 from __future__ import print_function
 
-import argparse
-import os
 import re
 import sys
 
@@ -108,6 +130,10 @@ def green_back_str(str):
     return '\x1b[1;30;42m' + str + '\x1b[0m'
 
 
+def yellow_back_str(str):
+    return '\x1b[1;30;43m' + str + '\x1b[0m'
+
+
 def white_bold_str(str):
     return '\x1b[1;37m' + str + '\x1b[0m'
 
@@ -140,362 +166,157 @@ def fail_str(str):
     return '\x1b[1;31m' + str + '\x1b[0m'
 
 
-# USER INPUT VALIDATION
+# def is_lattice_supported(lat):  # TODO: remove me
+
+#     is_supported = False
+#     if (
+#         np.all(lat == np.diag(np.diagonal(lat)))
+#         and len(set(np.diag(lat)))  # diagonal matrix?
+#         == 1  # all diagonal elements all the same?
+#     ):
+#         is_supported = True
+
+#     return is_supported
 
 
-def filter_file_type(dir, type, md5_match=None):
+def gen_lattice_str(lat):
 
-    file_names = []
-    for file_name in sorted(os.listdir(dir)):
-        if file_name.endswith('.npz'):
-            file_path = os.path.join(dir, file_name)
-            try:
-                file = np.load(file_path, allow_pickle=True)
-            except Exception:
-                raise argparse.ArgumentTypeError(
-                    '{0} contains unreadable .npz files'.format(arg)
-                )
+    lat_str, col_widths = gen_mat_str(lat)
+    desc_str = (' '.join([('{:' + str(w) + '}') for w in col_widths])).format('a','b','c') + '\n'
 
-            if 'type' in file and file['type'].astype(str) == type[0]:
-
-                # if md5_match is not None:
-                #    print(file_name)
-                #    print (file['md5'])
-
-                if md5_match is None:
-                    file_names.append(file_name)
-                elif 'md5' in file and file['md5'] == md5_match:
-                    file_names.append(file_name)
-
-            file.close()
-
-    return file_names
+    return desc_str + lat_str
 
 
-def is_file_type(arg, type):
+def gen_shifted_str_w_label(label, str, indent=None):
     """
-    Validate file path and check if the file is of the specified type.
+    Shifts all lines of a multiline string right by a given number of
+    characters and overwrites the leading characters of the first line
+    with the given label.
 
     Parameters
     ----------
-        arg : :obj:`str`
-            File path.
-        type : {'dataset', 'task', 'model'}
-            Possible file types.
+        label : :obj:`str`
+            Label string.
+        str : :obj:`str`
+            Multiline string.
+        indent : int
+            Number of characters added in front of each line. 
 
     Returns
     -------
-        (:obj:`str`, :obj:`dict`)
-            Tuple of file path (as provided) and data stored in the
-            file. The returned instance of NpzFile class must be
-            closed to avoid leaking file descriptors.
-
-    Raises
-    ------
-        ArgumentTypeError
-            If the provided file path does not lead to a NpzFile.
-        ArgumentTypeError
-            If the file is not readable.
-        ArgumentTypeError
-            If the file is of wrong type.
-        ArgumentTypeError
-            If path/fingerprint is provided, but the path is not valid.
-        ArgumentTypeError
-            If fingerprint could not be resolved.
-        ArgumentTypeError
-            If multiple files with the same fingerprint exist.
+        :obj:`str`
 
     """
 
-    # Replace MD5 dataset fingerprint with file name, if necessary.
-    if type == 'dataset' and not arg.endswith('.npz') and not os.path.isdir(arg):
-        dir = '.'
-        if re.search(r'^[a-f0-9]{32}$', arg):  # arg looks similar to MD5 hash string
-            md5_str = arg
-        else:  # is it a path with a MD5 hash at the end?
-            md5_str = os.path.basename(os.path.normpath(arg))
-            dir = os.path.dirname(os.path.normpath(arg))
+    if indent is None:
+        indent = len(label) + 1
 
-            if re.search(r'^[a-f0-9]{32}$', md5_str) and not os.path.isdir(
-                dir
-            ):  # path has MD5 hash string at the end, but directory is not valid
-                raise argparse.ArgumentTypeError('{0} is not a directory'.format(dir))
-
-        file_names = filter_file_type(dir, type, md5_match=md5_str)
-
-        if not len(file_names):
-            raise argparse.ArgumentTypeError(
-                "No {0} files with fingerprint '{1}' found in '{2}'".format(
-                    type, md5_str, dir
-                )
-            )
-        elif len(file_names) > 1:
-            error_str = "Multiple {0} files with fingerprint '{1}' found in '{2}'".format(
-                type, md5_str, dir
-            )
-            for file_name in file_names:
-                error_str += '\n       {0}'.format(file_name)
-
-            raise argparse.ArgumentTypeError(error_str)
-        else:
-            arg = os.path.join(dir, file_names[0])
-
-    if not arg.endswith('.npz'):
-        argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
-
-    try:
-        file = np.load(arg, allow_pickle=True)
-    except Exception:
-        raise argparse.ArgumentTypeError('{0} is not readable'.format(arg))
-
-    if 'type' not in file or file['type'].astype(str) != type[0]:
-        raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg, type))
-
-    return arg, file
+    str = re.sub('^', ' '*indent, str, flags=re.MULTILINE)
+    return label + str[len(label):]
 
 
-def is_valid_file_type(arg_in):
-
-    arg, file = None, None
-    try:
-        arg, file = is_file_type(arg_in, 'dataset')
-    except argparse.ArgumentTypeError:
-        pass
-
-    if file is None:
-        try:
-            arg, file = is_file_type(arg_in, 'task')
-        except argparse.ArgumentTypeError:
-            pass
-
-    if file is None:
-        try:
-            arg, file = is_file_type(arg_in, 'model')
-        except argparse.ArgumentTypeError:
-            pass
-
-    if file is None:
-        raise argparse.ArgumentTypeError(
-            '{0} is neither a dataset, task, nor model file'.format(arg)
-        )
-
-    return arg, file
-
-
-# if file is provided, this function acts like its a directory with just one file
-def is_dir_with_file_type(arg, type, or_file=False):
+def merge_col_str(col_str1, col_str2): # merge two multiline strings that represent columns in a table
     """
-    Validate directory path and check if it contains files of the specified type.
+    Merges two multiline strings that represent columns in a table by
+    concatenating each pair of lines.
+
+    Note
+    ----
+        Both strings must have the same number of lines.
 
     Parameters
     ----------
-        arg : :obj:`str`
-            File path.
-        type : {'dataset', 'task', 'model'}
-            Possible file types.
-        or_file : bool
-            If `arg` contains a file path, act like it's a directory
-            with just a single file inside.
+        col_str1 : :obj:`str`
+            First multiline string.
+        col_str2 : :obj:`str`
+            Second multiline string.
 
     Returns
     -------
-        (:obj:`str`, :obj:`list` of :obj:`str`)
-            Tuple of directory path (as provided) and a list of
-            contained file names of the specified type.
+        :obj:`str`
 
-    Raises
-    ------
-        ArgumentTypeError
-            If the provided directory path does not lead to a directory.
-        ArgumentTypeError
-            If directory contains unreadable files.
-        ArgumentTypeError
-            If directory contains no files of the specified type.
     """
 
-    if or_file and os.path.isfile(arg):  # arg: file path
-        _, file = is_file_type(
-            arg, type
-        )  # raises exception if there is a problem with file
-        file.close()
-        file_name = os.path.basename(arg)
-        file_dir = os.path.dirname(arg)
-        return file_dir, [file_name]
-    else:  # arg: dir
-
-        if not os.path.isdir(arg):
-            raise argparse.ArgumentTypeError('{0} is not a directory'.format(arg))
-
-        file_names = filter_file_type(arg, type)
-
-        # file_names = []
-        # for file_name in sorted(os.listdir(arg)):
-        #     if file_name.endswith('.npz'):
-        #         file_path = os.path.join(arg, file_name)
-        #         try:
-        #             file = np.load(file_path)
-        #         except Exception:
-        #             raise argparse.ArgumentTypeError(
-        #                 '{0} contains unreadable .npz files'.format(arg)
-        #             )
-
-        #         if 'type' in file and file['type'].astype(str) == type[0]:
-        #             file_names.append(file_name)
-
-        #         file.close()
-
-        if not len(file_names):
-            raise argparse.ArgumentTypeError(
-                '{0} contains no {1} files'.format(arg, type)
-            )
-
-        return arg, file_names
+    return '\n'.join([' '.join([c1, c2]) for c1,c2 in zip(col_str1.split('\n'), col_str2.split('\n'))])
 
 
-def is_strict_pos_int(arg):
+def gen_mat_str(mat):
     """
-    Validate strictly positive integer input.
+    Converts a matrix to a multiline string such that the decimal points
+    align in each column. Trailing zeros are replaced with spaces.
 
     Parameters
     ----------
-        arg : :obj:`str`
-            Integer as string.
+        mat : :obj:`numpy.ndarray`
 
     Returns
     -------
-        int
-            Parsed integer.
+        :obj:`str`
+            String representation of matrix.
 
-    Raises
-    ------
-        ArgumentTypeError
-            If integer is not > 0.
     """
-    x = int(arg)
-    if x <= 0:
-        raise argparse.ArgumentTypeError('must be strictly positive')
-    return x
+
+    def _int_len(x): # length of string representation before decimal point (including sign)
+        return len(str(int(abs(x)))) + (0 if x >= 0 else 1)
+
+    def _dec_len(x): # length of string representation after decimal point
+
+        x_str_split = '{:g}'.format(x).split('.')
+        return len(x_str_split[1]) if len(x_str_split) > 1 else 0
+
+    def _max_int_len_for_col(mat, col): # length of string representation before decimal point for each col
+        col_min = np.min(mat[:,col])
+        col_max = np.max(mat[:,col])
+        return max(_int_len(col_min), _int_len(col_max))
+
+    def _max_dec_len_for_col(mat, col): # length of string representation after decimal point for each col
+        return max([_dec_len(cell) for cell in mat[:,col]])
+
+    n_cols = mat.shape[1]
+    col_int_widths = [_max_int_len_for_col(mat, i) for i in range(n_cols)]
+    col_dec_widths = [_max_dec_len_for_col(mat, i) for i in range(n_cols)]
+    col_widths = [iw+cd+1 for iw,cd in zip(col_int_widths, col_dec_widths)]
+
+    mat_str = ''
+    for row in mat:
+        if mat_str != '':
+            mat_str += '\n'
+        mat_str += ' '.join(' '*max(col_int_widths[j] - _int_len(x), 0) + ('{: <' + str(_int_len(x)+col_dec_widths[j]+1) + 'g}').format(x) for j,x in enumerate(row))
+
+    return mat_str, col_widths
 
 
-def parse_list_or_range(arg):
+def gen_range_str(arr):
     """
-    Parses a string that represents either an integer or a range in
-    the notation ``<start>:<step>:<stop>``.
+    Generates a string that shows the minimum and maximum values in the 
+    given array, as well as the range.
+
+    Example:
+    ``<min> |-- <range> --| <max>``
 
     Parameters
     ----------
-        arg : :obj:`str`
-            Integer or range string.
+        arr : :obj:`numpy.ndarray`
 
     Returns
     -------
-        int or :obj:`list` of int
+        :obj:`str`
 
-    Raises
-    ------
-        ArgumentTypeError
-            If input can neither be interpreted as an integer nor a valid range.
     """
 
-    if re.match(r'^\d+:\d+:\d+$', arg) or re.match(r'^\d+:\d+$', arg):
-        rng_params = list(map(int, arg.split(':')))
-
-        step = 1
-        if len(rng_params) == 2:  # start, stop
-            start, stop = rng_params
-        else:  # start, step, stop
-            start, step, stop = rng_params
-
-        rng = list(range(start, stop + 1, step))  # include last stop-element in range
-        if len(rng) == 0:
-            raise argparse.ArgumentTypeError('{0} is an empty range'.format(arg))
-
-        return rng
-    elif re.match(r'^\d+$', arg):
-        return int(arg)
-
-    raise argparse.ArgumentTypeError(
-        '{0} is neither a integer list, nor valid range in the form <start>:[<step>:]<stop>'.format(
-            arg
-        )
-    )
+    arr_min, arr_max = np.min(arr), np.max(arr)
+    return '{:<.3} |-- {:^8.3} --| {:<9.3}'.format(arr_min, arr_max - arr_min, arr_max)
 
 
-def is_task_dir_resumeable(
-    train_dir, train_dataset, test_dataset, n_train, n_test, sigs, gdml
-):
-    r"""
-    Check if a directory contains `task` and/or `model` files that
-    match the configuration of a training process specified in the
-    remaining arguments.
+def print_lattice(lat=None):
 
-    Check if the training and test datasets in each task match
-    `train_dataset` and `test_dataset`, if the number of training and
-    test points matches and if the choices for the kernel
-    hyper-parameter :math:`\sigma` are contained in the list. Check
-    also, if the existing tasks/models contain symmetries and if
-    that's consistent with the flag `gdml`. This function is useful
-    for determining if a training process can be resumed using the
-    existing files or not.
+    from . import io
 
-    Parameters
-    ----------
-        train_dir : :obj:`str`
-            Path to training directory.
-        train_dataset : :obj:`dataset`
-            Dataset from which training points are sampled.
-        test_dataset : :obj:`test_dataset`
-            Dataset from which test points are sampled (may be the
-            same as `train_dataset`).
-        n_train : int
-            Number of training points to sample.
-        n_test : int
-            Number of test points to sample.
-        sigs : :obj:`list` of int
-            List of :math:`\sigma` kernel hyper-parameter choices
-            (usually: the hyper-parameter search grid)
-        gdml : bool
-            If `True`, don't include any symmetries in model (GDML),
-            otherwise do (sGDML).
-
-    Returns
-    -------
-        bool
-            False, if any of the files in the directory do not match
-            the training configuration.
-    """
-
-    for file_name in sorted(os.listdir(train_dir)):
-        if file_name.endswith('.npz'):
-            file_path = os.path.join(train_dir, file_name)
-            file = np.load(file_path, allow_pickle=True)
-
-            if 'type' not in file:
-                continue
-            elif file['type'] == 't' or file['type'] == 'm':
-
-                if (
-                    file['md5_train'] != train_dataset['md5']
-                    or file['md5_valid'] != test_dataset['md5']
-                    or len(file['idxs_train']) != n_train
-                    or len(file['idxs_valid']) != n_test
-                    or gdml
-                    and file['perms'].shape[0] > 1
-                    or file['sig'] not in sigs
-                ):
-                    return False
-
-    return True
-
-
-def is_lattice_supported(lat):
-
-    is_supported = False
-    if (
-        np.all(lat == np.diag(np.diagonal(lat)))
-        and len(set(np.diag(lat)))  # diagonal matrix?
-        == 1  # all diagonal elements all the same?
-    ):
-        is_supported = True
-
-    return is_supported
+    lat_str = '-'
+    if lat is not None:
+        lat_str = gen_lattice_str(lat)
+        lengths,angles = io.lattice_vec_to_par(lat)
+    print(gen_shifted_str_w_label(' Lattice:', lat_str, indent=18))
+    if lat is not None:
+        print('  {:<15} a = {:g}, b = {:g}, c = {:g}'.format('Lengths:', *lengths))
+        print('  {:<15} alpha = {:g}, beta = {:g}, gamma = {:g}'.format('Angles [deg]:', *angles))

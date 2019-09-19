@@ -1,10 +1,35 @@
+#!/usr/bin/python
+
+# MIT License
+#
+# Copyright (c) 2018-2019 Stefan Chmiela, Luis Galvez
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import numpy as np
+import scipy as sp
 
 d_desc_mask = None
 
 
 def init(n_atoms):
-    global d_dim, d_desc_mask
+    global d_dim, d_desc_mask, M, A, d_desc
 
     # Descriptor space dimension.
     d_dim = (n_atoms * (n_atoms - 1)) // 2
@@ -17,35 +42,81 @@ def init(n_atoms):
             [np.where(rows == a)[0], np.where(cols == a)[0]]
         )
 
+    M = np.arange(1,n_atoms) # indexes matrix row-wise, skipping diagonal
+    for a in range(1,n_atoms):
+        M = np.concatenate((M, np.delete(np.arange(n_atoms), a)))
 
-# Difference with periodic boundary conditions
-# b_size = 9.91241 # box size (lattice)
+    A = (np.ones((n_atoms,n_atoms-1), int) * np.arange(n_atoms)[:,None]).ravel() # [0, 0, ..., 1, 1, ..., 2, 2, ...]
+
+    d_desc = np.zeros((d_dim, n_atoms, 3)) # template for descriptor matrix (zeros are important)
 
 
-def pbc_diff(u, v, size):
+def pbc_diff(diffs, lat_and_inv): # diffs: -> N x 3 matrix
     """
-    Compute the difference of two vectors, while appling the
-    minimum-image convention as periodic boundary condition.
+    Clamp differences of vectors to super cell.
 
     Parameters
     ----------
-        u : :obj:`numpy.ndarray`
-            First vector.
+        diffs : :obj:`numpy.ndarray`
+            N x 3 matrix of N pairwise differences between vectors `u - v`
         v : :obj:`numpy.ndarray`
             Second vector.
-        size : float
-            Edge length of (cubic) unit cell.
+        lat_and_inv : tuple of :obj:`numpy.ndarray`
+            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
 
     Returns
     -------
         :obj:`numpy.ndarray`
-            Difference between two vectors `u - v`.
+            N x 3 matrix clamped differences
     """
 
-    diff = u - v
-    diff -= size * np.rint(diff / size)
+    lat, lat_inv = lat_and_inv
 
-    return diff
+    c =  lat_inv.dot(diffs.T)
+    diffs -= lat.dot(np.rint(c)).T
+
+    return diffs
+
+
+def pbc_diff_torch(diffs, lat_and_inv): # diffs: -> N x 3 matrix
+    """
+    Clamp differences of vectors to super cell (for torch tensors).
+
+    Parameters
+    ----------
+        diffs : :obj:`numpy.ndarray`
+            N x 3 matrix of N pairwise differences between vectors `u - v`
+        v : :obj:`numpy.ndarray`
+            Second vector.
+        lat_and_inv : tuple of :obj:`numpy.ndarray`
+            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
+
+    Returns
+    -------
+        :obj:`numpy.ndarray`
+            N x 3 matrix clamped differences
+    """
+
+    import torch
+
+    lat, lat_inv = lat_and_inv
+
+    c =  lat_inv.mm(diffs.t())
+    diffs -= lat.mm(c.round()).t()
+
+    return diffs
+
+
+def pdist(r, lat_and_inv = None): # r: -> N x 3 matrix
+
+    if lat_and_inv is None:
+        pdist = sp.spatial.distance.pdist(r, 'euclidean')
+    else:
+        pdist = sp.spatial.distance.pdist(
+            r, lambda u, v: np.linalg.norm(pbc_diff(u-v, lat_and_inv))
+        )
+    
+    return sp.spatial.distance.squareform(pdist, checks=False)
 
 
 def r_to_desc(r, pdist):
@@ -68,13 +139,69 @@ def r_to_desc(r, pdist):
             Descriptor representation as 1D array of size N(N-1)/2
     """
 
-    n_atoms = r.shape[0]
+    n_atoms = r.shape[0] 
     return 1.0 / pdist[np.tril_indices(n_atoms, -1)]
 
 
-def r_to_d_desc(r, pdist, ucell_size=None):
+# def r_to_d_desc2(r, pdist, lat_and_inv=None):
+#     """
+#     Generate Jacobian of descriptor for a set of atom positions in
+#     Cartesian coordinates.
+#     This method can apply the minimum-image convention as periodic
+#     boundary condition for distances between atoms, given the edge
+#     length of the (square) unit cell.
+
+#     Parameters
+#     ----------
+#         r : :obj:`numpy.ndarray`
+#             Array of size 1 x 3N containing the Cartesian coordinates of
+#             each atom.
+#         pdist : :obj:`numpy.ndarray`
+#             Array of size N x N containing the Euclidean distance
+#             (2-norm) for each pair of atoms.
+#         lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
+#             Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
+
+#     Returns
+#     -------
+#         :obj:`numpy.ndarray`
+#             Array of size N(N-1)/2 x 3N containing all partial
+#             derivatives of the descriptor.
+#     """
+
+#     global d_dim, d_desc_mask
+
+#     n_atoms = r.shape[0]
+#     if d_desc_mask is None or d_desc_mask.shape[0] != n_atoms:
+#         init(n_atoms)
+
+#     np.seterr(divide='ignore', invalid='ignore')  # ignore division by zero below
+#     grad = np.zeros((d_dim, 3*n_atoms))
+#     for a in range(n_atoms):
+
+#         if lat_and_inv is None:
+
+#             d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
+#             #d_dist = pdiff[:,a,:] / (pdist[a, :] ** 3)[:, None]
+#             #d_dist = ttt[:,a,:]
+
+#         else:
+#             d_dist = pbc_diff(r-r[a, :], lat_and_inv) / (pdist[a, :] ** 3)[:, None]
+
+#         idx = d_desc_mask[a, :]
+
+#         #mask = np.ones((n_atoms,), bool)
+#         #mask[a] = False
+
+#         grad[idx, (3 * a) : (3 * a + 3)] = np.delete(d_dist, a, axis=0)
+#         #grad[idx, (3 * a) : (3 * a + 3)] = d_dist[mask]
+
+#     return grad
+
+
+def r_to_d_desc(r, pdist, lat_and_inv=None):
     """
-    Generate Jacobian of descriptor for a set of atom positions in
+    Generate descriptor Jacobian for a set of atom positions in
     Cartesian coordinates.
     This method can apply the minimum-image convention as periodic
     boundary condition for distances between atoms, given the edge
@@ -88,8 +215,8 @@ def r_to_d_desc(r, pdist, ucell_size=None):
         pdist : :obj:`numpy.ndarray`
             Array of size N x N containing the Euclidean distance
             (2-norm) for each pair of atoms.
-        ucell_size : float, optional
-            Edge length of the (cubic) unit cell.
+        lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
+            Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
 
     Returns
     -------
@@ -98,78 +225,22 @@ def r_to_d_desc(r, pdist, ucell_size=None):
             derivatives of the descriptor.
     """
 
-    global d_dim, d_desc_mask
+    global d_dim, d_desc_mask, M, A, d_desc
 
     n_atoms = r.shape[0]
-
     if d_desc_mask is None or d_desc_mask.shape[0] != n_atoms:
         init(n_atoms)
 
-    np.seterr(divide='ignore', invalid='ignore')  # ignore division by zero below
-    grad = np.zeros((d_dim, 3 * n_atoms))
-    for a in range(n_atoms):
+    np.seterr(divide='ignore', invalid='ignore')
 
-        if ucell_size is None:
-            d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
-        else:
-            d_dist = pbc_diff(r, r[a, :], ucell_size) / (pdist[a, :] ** 3)[:, None]
+    pdiff = r[:, None] - r[None, :] # pairwise differences ri - rj
+    if lat_and_inv is not None:
+        pdiff = pbc_diff(pdiff.reshape(n_atoms**2,3), lat_and_inv).reshape(n_atoms, n_atoms, 3)
 
-        idx = d_desc_mask[a, :]
-        grad[idx, (3 * a) : (3 * a + 3)] = np.delete(d_dist, a, axis=0)
+    d_desc_elem = pdiff / (pdist ** 3)[:,:,None]
+    d_desc[d_desc_mask.ravel(), A, :] = d_desc_elem[M, A, :]
 
-    return grad
-
-
-def r_to_d_desc_op(r, pdist, F_d, ucell_size=None):
-    """
-    Compute vector-matrix product with descriptor Jacobian.
-
-    The descriptor Jacobian will be generated and directly applied
-    without storing it.
-    This method can apply the minimum-image convention as periodic
-    boundary condition for distances between atoms, given the edge
-    length of the (square) unit cell.
-
-    Parameters
-    ----------
-        r : :obj:`numpy.ndarray`
-            Array of size 1 x 3N containing the Cartesian coordinates of
-            each atom.
-        pdist : :obj:`numpy.ndarray`
-            Array of size N x N containing the Euclidean distance
-            (2-norm) for each pair of atoms.
-        F_d : :obj:`numpy.ndarray`
-            Array of size N(N-1)/2.
-        ucell_size : float, optional
-            Edge length of the (cubic) unit cell.
-
-    Returns
-    -------
-        :obj:`numpy.ndarray`
-            Array of size 3N containing the dot product of `F_d` and the
-            descriptor Jacobian.
-    """
-
-    global d_dim, d_desc_mask
-
-    n_atoms = r.shape[0]
-
-    if d_desc_mask is None or d_desc_mask.shape[0] != n_atoms:
-        init(n_atoms)
-
-    np.seterr(divide='ignore', invalid='ignore')  # ignore division by zero below
-    F_i = np.empty((3 * n_atoms,))
-    for a in range(n_atoms):
-
-        if ucell_size is None:
-            d_dist = (r - r[a, :]) / (pdist[a, :] ** 3)[:, None]
-        else:
-            d_dist = pbc_diff(r, r[a, :], ucell_size) / (pdist[a, :] ** 3)[:, None]
-
-        idx = d_desc_mask[a, :]
-        F_d[idx].dot(np.delete(d_dist, a, axis=0), out=F_i[(3 * a) : (3 * a + 3)])
-
-    return F_i
+    return d_desc.reshape(d_dim, 3*n_atoms)
 
 
 def perm(perm):

@@ -32,6 +32,7 @@ import timeit
 from functools import partial
 
 import numpy as np
+import scipy as sp
 import scipy.spatial.distance
 
 from . import __version__
@@ -58,212 +59,220 @@ def share_array(arr_np):
     arr = mp.RawArray('d', arr_np.ravel())
     return arr, arr_np.shape
 
-def _predict_train(i, n_train, std, c, chunk_size, ucell_size):
+# def _predict_train(i, n_train, std, c, chunk_size, lat_and_inv):
 
-    #r = r.reshape(-1, 3)
+#     #r = r.reshape(-1, 3)
 
-    #if ucell_size is None:
-    #    pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-    #else:
-    #    pdist = scipy.spatial.distance.pdist(
-    #        r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, ucell_size))
-    #    )
-    #pdist = scipy.spatial.distance.squareform(pdist, checks=False)
+#     #if ucell_size is None:
+#     #    pdist = scipy.spatial.distance.pdist(r, 'euclidean')
+#     #else:
+#     #    pdist = scipy.spatial.distance.pdist(
+#     #        r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, ucell_size))
+#     #    )
+#     #pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
-    #r_desc = desc.r_to_desc(r, pdist)
-    # r_d_desc = desc.r_to_d_desc(r, pdist)
+#     #r_desc = desc.r_to_desc(r, pdist)
+#     # r_d_desc = desc.r_to_d_desc(r, pdist)
 
-    #r_d_desc = self.R_d_desc[i, :, :]
+#     #r_d_desc = self.R_d_desc[i, :, :]
 
-    res = _predict_train_wkr(i, (0, n_train), chunk_size)
-    res *= std
+#     res = _predict_train_wkr(i, (0, n_train), chunk_size)
+#     res *= std
 
-    #F = desc.r_to_d_desc_op(r, pdist, res[1:], ucell_size).reshape(1, -1)
-    #F = res[1:].reshape(1,-1).dot(r_d_desc)
-    #F = res.reshape(1,-1)
-    F = res
-    return F
-
-
-def _predict_train_wkr(i, wkr_start_stop, chunk_size):
-    """
-    Compute part of a prediction.
-
-    The workload will be processed in `b_size` chunks.
-
-    Parameters
-    ----------
-            wkr_start_stop : tuple of int
-                    Indices of first and last (exclusive) sum element.
-            r_desc : :obj:`numpy.ndarray`
-                    1D array containing the descriptor for the query
-                    geometry.
-
-    Returns
-    -------
-            :obj:`numpy.ndarray`
-                    Partial prediction of all force components and
-                    energy (appended to array as last element).
-    """
-
-    global glob, sig, n_perms
-
-    wkr_start, wkr_stop = wkr_start_stop
-
-    n_train = wkr_stop # NEW
-
-    R_desc_perms = np.frombuffer(glob['R_desc_perms']).reshape(
-        glob['R_desc_perms_shape']
-    )
-    R_d_desc_alpha_perms = np.frombuffer(glob['R_d_desc_alpha_perms']).reshape(
-        glob['R_d_desc_alpha_perms_shape']
-    )
-
-    #F = np.frombuffer(glob['F']).reshape(glob['F_shape'])
-
-    #if 'alphas_E_lin' in glob:
-    #    alphas_E_lin = np.frombuffer(glob['alphas_E_lin']).reshape(
-    #        glob['alphas_E_lin_shape']
-    #    )
-
-    r_desc = np.squeeze(R_desc_perms[i*n_perms])
-    
-
-    dim_d = r_desc.shape[0]
-    dim_c = chunk_size * n_perms
-
-    # pre-allocation
-
-    diff_ab_perms = np.empty((dim_c, dim_d))
-    a_x2 = np.empty((dim_c,))
-    a_x2i = np.empty((dim_c,))
-    mat52_base = np.empty((dim_c,))
-
-    mat52_base_fact = 5.0 / (3 * sig ** 3)
-    diag_scale_fact = 5.0 / sig
-    sqrt5 = np.sqrt(5.0)
-
-    F = np.zeros((n_train, dim_d))
-    #F = E_F[1:]
-
-    wkr_start *= n_perms
-    wkr_stop *= n_perms
+#     #F = desc.r_to_d_desc_op(r, pdist, res[1:], ucell_size).reshape(1, -1)
+#     #F = res[1:].reshape(1,-1).dot(r_d_desc)
+#     #F = res.reshape(1,-1)
+#     F = res
+#     return F
 
 
+# def _predict_train_wkr(i, wkr_start_stop, chunk_size):
+#     """
+#     Compute part of a prediction.
 
-    #print(chunk_size)
+#     The workload will be processed in `b_size` chunks.
 
-    b_start = wkr_start
+#     Parameters
+#     ----------
+#             wkr_start_stop : tuple of int
+#                     Indices of first and last (exclusive) sum element.
+#             r_desc : :obj:`numpy.ndarray`
+#                     1D array containing the descriptor for the query
+#                     geometry.
+
+#     Returns
+#     -------
+#             :obj:`numpy.ndarray`
+#                     Partial prediction of all force components and
+#                     energy (appended to array as last element).
+#     """
+
+#     global glob, sig, n_perms
+
+#     wkr_start, wkr_stop = wkr_start_stop
+
+#     n_train = wkr_stop # NEW
+
+#     R_desc_perms = np.frombuffer(glob['R_desc_perms']).reshape(
+#         glob['R_desc_perms_shape']
+#     )
+#     R_d_desc_alpha_perms = np.frombuffer(glob['R_d_desc_alpha_perms']).reshape(
+#         glob['R_d_desc_alpha_perms_shape']
+#     )
+
+#     #F = np.frombuffer(glob['F']).reshape(glob['F_shape'])
+
+#     #if 'alphas_E_lin' in glob:
+#     #    alphas_E_lin = np.frombuffer(glob['alphas_E_lin']).reshape(
+#     #        glob['alphas_E_lin_shape']
+#     #    )
+
+#     r_desc = np.squeeze(R_desc_perms[i*n_perms])
+
+#     dim_d = r_desc.shape[0]
+#     dim_c = chunk_size * n_perms
+
+#     # pre-allocation
+
+#     diff_ab_perms = np.empty((dim_c, dim_d))
+#     a_x2 = np.empty((dim_c,))
+#     a_x2i = np.empty((dim_c,))
+#     mat52_base = np.empty((dim_c,))
+
+#     mat52_base_fact = 5.0 / (3 * sig ** 3)
+#     diag_scale_fact = 5.0 / sig
+#     sqrt5 = np.sqrt(5.0)
+
+#     F = np.zeros((n_train, dim_d))
+#     #F = E_F[1:]
+
+#     wkr_start *= n_perms
+#     wkr_stop *= n_perms
 
 
-    ri_d_desc_alpha_perms = R_d_desc_alpha_perms[(i*n_perms):(i*n_perms+dim_c), :] # NEW
 
-    #for b_stop in list(range(wkr_start + dim_c, wkr_stop, dim_c)) + [wkr_stop]:
-    for j in range(i,n_train):
+#     #print(chunk_size)
 
-        b_start = j*n_perms
-        b_stop = b_start + dim_c
+#     b_start = wkr_start
 
-        rj_desc_perms = R_desc_perms[b_start:b_stop, :]
-        rj_d_desc_alpha_perms = R_d_desc_alpha_perms[b_start:b_stop, :]
 
-        # Resize pre-allocated memory for last iteration, if chunk_size is not a divisor of the training set size.
-        # Note: It's faster to process equally sized chunks.
-        c_size = b_stop - b_start
-        if c_size < dim_c:
-            diff_ab_perms = diff_ab_perms[:c_size, :]
-            a_x2 = a_x2[:c_size]
-            mat52_base = mat52_base[:c_size]
+#     ri_d_desc_alpha_perms = R_d_desc_alpha_perms[(i*n_perms):(i*n_perms+dim_c), :] # NEW
 
-        # diff_ab_perms = r_desc - rj_desc_perms
-        np.subtract(
-            np.broadcast_to(r_desc, rj_desc_perms.shape),
-            rj_desc_perms,
-            out=diff_ab_perms,
-        )
-        norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
+#     #for b_stop in list(range(wkr_start + dim_c, wkr_stop, dim_c)) + [wkr_stop]:
+#     for j in range(i,n_train):
 
-        #print(R_desc_perms.shape)
-        #print(diff_ab_perms.shape)
-        #print(norm_ab_perms.shape)
+#         b_start = j*n_perms
+#         b_stop = b_start + dim_c
 
-        # mat52_base = np.exp(-norm_ab_perms / sig) * mat52_base_fact
-        np.exp(-norm_ab_perms / sig, out=mat52_base)
-        mat52_base *= mat52_base_fact
-        # a_x2 = np.einsum('ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms) # colum wise dot product
-        np.einsum(
-            'ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms, out=a_x2
-        )  # colum wise dot product
-        # a_x2 = np.einsum('ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms) * mat52_base # colum wise dot product
+#         rj_desc_perms = R_desc_perms[b_start:b_stop, :]
+#         rj_d_desc_alpha_perms = R_d_desc_alpha_perms[b_start:b_stop, :]
 
-        #print((a_x2 * mat52_base).shape)
-        #print(diff_ab_perms.shape)
+#         # Resize pre-allocated memory for last iteration, if chunk_size is not a divisor of the training set size.
+#         # Note: It's faster to process equally sized chunks.
+#         c_size = b_stop - b_start
+#         if c_size < dim_c:
+#             diff_ab_perms = diff_ab_perms[:c_size, :]
+#             a_x2 = a_x2[:c_size]
+#             mat52_base = mat52_base[:c_size]
 
-        #j = b_start/n_perms
+#         # diff_ab_perms = r_desc - rj_desc_perms
+#         np.subtract(
+#             np.broadcast_to(r_desc, rj_desc_perms.shape),
+#             rj_desc_perms,
+#             out=diff_ab_perms,
+#         )
+#         norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
 
-        # F += np.linalg.multi_dot([a_x2 * mat52_base, diff_ab_perms, r_d_desc]) * diag_scale_fact
-        #
 
-        F[i,:] += (a_x2 * mat52_base).dot(diff_ab_perms) * diag_scale_fact
-        if i != j:
-            np.einsum(
-            'ji,ji->j', diff_ab_perms, ri_d_desc_alpha_perms, out=a_x2i
-            )
 
-            F[j,:] += (a_x2i * mat52_base).dot(diff_ab_perms) * diag_scale_fact
+#         #print(R_desc_perms.shape)
+#         #print(diff_ab_perms.shape)
+#         #print(norm_ab_perms.shape)
+
+#         # mat52_base = np.exp(-norm_ab_perms / sig) * mat52_base_fact
+#         np.exp(-norm_ab_perms / sig, out=mat52_base)
+#         mat52_base *= mat52_base_fact
+#         # a_x2 = np.einsum('ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms) # colum wise dot product
+#         np.einsum(
+#             'ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms, out=a_x2
+#         )  # colum wise dot product
+#         # a_x2 = np.einsum('ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms) * mat52_base # colum wise dot product
+
+
+
+
+#         #print((a_x2 * mat52_base).shape)
+#         #print(diff_ab_perms.shape)
+
+#         #j = b_start/n_perms
+
+#         # F += np.linalg.multi_dot([a_x2 * mat52_base, diff_ab_perms, r_d_desc]) * diag_scale_fact
+#         #
+
+#         F[i,:] += (a_x2 * mat52_base).dot(diff_ab_perms) * diag_scale_fact
+#         if i != j:
+#             np.einsum(
+#             'ji,ji->j', diff_ab_perms, ri_d_desc_alpha_perms, out=a_x2i
+#             )
+
+#             F[j,:] += (a_x2i * mat52_base).dot(diff_ab_perms) * diag_scale_fact
         
-        # F += a_x2.dot(diff_ab_perms) * diag_scale_fact
-        mat52_base *= norm_ab_perms + sig
+#         # F += a_x2.dot(diff_ab_perms) * diag_scale_fact
+#         mat52_base *= norm_ab_perms + sig
 
-        # F -= np.linalg.multi_dot([mat52_base, rj_d_desc_alpha_perms, r_d_desc])
-
-        F[i,:] -= mat52_base.dot(rj_d_desc_alpha_perms)
-        if i != j:
-             F[j,:] -= mat52_base.dot(ri_d_desc_alpha_perms)
+#         # F -= np.linalg.multi_dot([mat52_base, rj_d_desc_alpha_perms, r_d_desc])
 
 
-        #if i != j:
-        #    F[j,:] += A1 - A2
 
-        #E_F[0] += a_x2.dot(mat52_base)  # this one
-        # E_F[0] += np.sum(a_x2)
+#         mat52_base_rj_d_desc_alpha_perms = mat52_base.dot(rj_d_desc_alpha_perms)
 
-
-        #if 'alphas_E_lin' in glob:
-
-        #    K_fe = diff_ab_perms * mat52_base[:, None]
-        #    F += alphas_E_lin[b_start:b_stop].dot(K_fe)
-
-        #    K_ee = (
-        #        1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
-        #    ) * np.exp(-norm_ab_perms / sig)
-        #    E_F[0] += K_ee.dot(alphas_E_lin[b_start:b_stop])
-
-        b_start = b_stop
-
-    return F
+#         F[i,:] -= mat52_base_rj_d_desc_alpha_perms
+#         if i != j:
+#              F[j,:] -= mat52_base_rj_d_desc_alpha_perms
 
 
-def _predict(r, n_train, std, c, chunk_size, ucell_size):
+
+
+
+
+
+
+#         #if i != j:
+#         #    F[j,:] += A1 - A2
+
+#         #E_F[0] += a_x2.dot(mat52_base)  # this one
+#         # E_F[0] += np.sum(a_x2)
+
+
+#         #if 'alphas_E_lin' in glob:
+
+#         #    K_fe = diff_ab_perms * mat52_base[:, None]
+#         #    F += alphas_E_lin[b_start:b_stop].dot(K_fe)
+
+#         #    K_ee = (
+#         #        1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
+#         #    ) * np.exp(-norm_ab_perms / sig)
+#         #    E_F[0] += K_ee.dot(alphas_E_lin[b_start:b_stop])
+
+#         b_start = b_stop
+
+
+
+#     return F
+
+
+def _predict(r, n_train, std, c, chunk_size, lat_and_inv):
 
     r = r.reshape(-1, 3)
 
-    if ucell_size is None:
-        pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-    else:
-        pdist = scipy.spatial.distance.pdist(
-            r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, ucell_size))
-        )
-    pdist = scipy.spatial.distance.squareform(pdist, checks=False)
-
+    pdist = desc.pdist(r, lat_and_inv)
     r_desc = desc.r_to_desc(r, pdist)
-    # r_d_desc = desc.r_to_d_desc(r, pdist)
+    r_d_desc = desc.r_to_d_desc(r, pdist, lat_and_inv)
 
     res = _predict_wkr((0, n_train), chunk_size, r_desc)
     res *= std
 
-    F = desc.r_to_d_desc_op(r, pdist, res[1:], ucell_size).reshape(1, -1)
-    # F = res[1:].reshape(1,-1).dot(r_d_desc)
+    F = res[1:].reshape(1,-1).dot(r_d_desc)
     return (res[0] + c).reshape(-1), F
 
 
@@ -430,7 +439,7 @@ class GDMLPredict(object):
 
         self.n_atoms = model['z'].shape[0]
 
-        self.ucell_size = np.diag(model['lattice'])[0] if 'lattice' in model else None
+        self.lat_and_inv = (model['lattice'], np.linalg.inv(model['lattice'])) if 'lattice' in model else None
 
         self.n_train = model['R_desc'].shape[1]
         sig = model['sig']
@@ -441,7 +450,7 @@ class GDMLPredict(object):
         n_perms = model['perms'].shape[0]
         self.tril_perms_lin = model['tril_perms_lin']
 
-        self.R_d_desc = model['R_d_desc'] if 'R_d_desc' in model else None # NEW (remove me)
+        #self.R_d_desc = model['R_d_desc'] if 'R_d_desc' in model else None # NEW (remove me)
 
         # Precompute permuted training descriptors and its first derivatives multiplied with the coefficients (only needed for cached variant).
         R_desc_perms = np.reshape(
@@ -486,7 +495,7 @@ class GDMLPredict(object):
             from .torchtools import GDMLTorchPredict
 
             self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            self.torch_predict = GDMLTorchPredict(model).to(self.torch_device)
+            self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv).to(self.torch_device)
 
             is_cuda = next(self.torch_predict.parameters()).is_cuda
             print(ui.info_str('[INFO]') + ' PyTorch running on the ' + ('GPU' if is_cuda else 'CPU') + ' will be used to query this model.')
@@ -624,6 +633,7 @@ class GDMLPredict(object):
         self, bulk_mp = False
     ): 
 
+        bulk_mp = bool(bulk_mp)
         if self._bulk_mp is not bulk_mp:
             self._bulk_mp = bulk_mp
 
@@ -891,7 +901,7 @@ class GDMLPredict(object):
         bmark_file = '_bmark_cache.npz'
         bmark_path = os.path.join(pkg_dir, bmark_file)
 
-        bkey = '{}-{}-{}'.format(self.n_train, n_bulk, self._max_processes)
+        bkey = '{}-{}-{}-{}'.format(self.n_atoms, self.n_train, n_bulk, self._max_processes)
 
         if os.path.exists(bmark_path):
 
@@ -922,7 +932,7 @@ class GDMLPredict(object):
         bmark_file = '_bmark_cache.npz'
         bmark_path = os.path.join(pkg_dir, bmark_file)
 
-        bkey = '{}-{}-{}'.format(self.n_train, n_bulk, self._max_processes)
+        bkey = '{}-{}-{}-{}'.format(self.n_atoms, self.n_train, n_bulk, self._max_processes)
 
         if not os.path.exists(bmark_path):
             return None
@@ -960,7 +970,7 @@ class GDMLPredict(object):
         return None
 
 
-    def _predict_bulk(self, R, train=False):
+    def _predict_bulk(self, R):
         """
         Predict energy and forces for multiple geometries.
 
@@ -979,72 +989,79 @@ class GDMLPredict(object):
                         Forces stored in an 2D arry of size M x 3N.
         """
 
-        n_pred, dim_i = R.shape if train == False else (self.n_train,self.n_atoms*3)
+        #n_pred, dim_i = R.shape if train == False else (self.n_train,self.n_atoms*3)
+        n_pred, dim_i = R.shape
 
         F = np.empty((n_pred, dim_i))
         E = np.empty((n_pred,))
 
-        if train == True: # NEW (TODO: remove me)
+        #print(F.shape)
 
-            dim_d = (self.n_atoms*(self.n_atoms-1)) / 2
-            F_d = np.zeros((self.n_train, dim_d))
+        #if train == True: # NEW (TODO: remove me)
 
-            #F_d = mp.RawArray('d', self.n_train * dim_d)
-            #glob['F'], glob['F_shape'] = F_d, (self.n_train, dim_d)
+            # dim_d = (self.n_atoms*(self.n_atoms-1)) / 2
+            # F_d = np.zeros((self.n_train, dim_d))
 
-            for i, F_d_i in enumerate(
+            # #F_d = mp.RawArray('d', self.n_train * dim_d)
+            # #glob['F'], glob['F_shape'] = F_d, (self.n_train, dim_d)
+
+            # for i, F_d_i in enumerate(
+            #     self.pool.imap(
+            #         partial(
+            #             _predict_train,
+            #             n_train=self.n_train,
+            #             std=self.std,
+            #             c=self.c,
+            #             chunk_size=self._chunk_size,
+            #             lat_and_inv=self.lat_and_inv
+            #         ),
+            #         range(n_pred)
+            #     )
+            # ):
+            #     #_, F_d = E_F
+
+
+
+            #     #print(F_d_i)
+            #     F_d += F_d_i
+
+            #     #print(i)
+                
+            #     #F_d[i, :] = F_d.dot(r_d_desc)
+
+
+            # #glob.pop('F', None)
+            # #F_d = np.frombuffer(F_d).reshape(glob['F_shape'])
+
+
+
+            # F = np.einsum('kji,kj->ki', self.R_d_desc, F_d)
+
+        #else:
+
+        if self._bulk_mp is True:
+            for i, E_F in enumerate(
                 self.pool.imap(
                     partial(
-                        _predict_train,
+                        _predict,
                         n_train=self.n_train,
                         std=self.std,
                         c=self.c,
                         chunk_size=self._chunk_size,
-                        ucell_size=self.ucell_size,
+                        lat_and_inv=self.lat_and_inv,
                     ),
-                    range(n_pred)
+                    R,
                 )
             ):
-                #_, F_d = E_F
-
-                #print(F_d_i)
-                F_d += F_d_i
-
-                #print(i)
-                
-                #F_d[i, :] = F_d.dot(r_d_desc)
-
-
-            #glob.pop('F', None)
-            #F_d = np.frombuffer(F_d).reshape(glob['F_shape'])
-
-            F = np.einsum('kji,kj->ki', self.R_d_desc, F_d)
-
+                E[i], F[i, :] = E_F
         else:
-
-            if self._bulk_mp is True:
-                for i, E_F in enumerate(
-                    self.pool.imap(
-                        partial(
-                            _predict,
-                            n_train=self.n_train,
-                            std=self.std,
-                            c=self.c,
-                            chunk_size=self._chunk_size,
-                            ucell_size=self.ucell_size,
-                        ),
-                        R,
-                    )
-                ):
-                    E[i], F[i, :] = E_F
-            else:
-                for i, r in enumerate(R):
-                    E[i], F[i, :] = self.predict(r)
+            for i, r in enumerate(R):
+                E[i], F[i, :] = self.predict(r)
 
         return E, F
 
 
-    def predict(self, r, train=False):
+    def predict(self, r):
         """
         Predict energy and forces for multiple geometries. This function
         can run on the GPU, if the optional PyTorch dependency is
@@ -1089,20 +1106,14 @@ class GDMLPredict(object):
 
             return E, F
 
-        if train==True or (r.ndim == 2 and r.shape[0] > 1):
-            return self._predict_bulk(r, train)
+        if r.ndim == 2 and r.shape[0] > 1:
+            return self._predict_bulk(r)
 
         r = r.reshape(self.n_atoms, 3)
-        if self.ucell_size is None:
-            pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-        else:
-            pdist = scipy.spatial.distance.pdist(
-                r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, self.ucell_size))
-            )
-        pdist = scipy.spatial.distance.squareform(pdist, checks=False)
 
+        pdist = desc.pdist(r, self.lat_and_inv)
         r_desc = desc.r_to_desc(r, pdist)
-        # r_d_desc = desc.r_to_d_desc(r, pdist)
+        r_d_desc = desc.r_to_d_desc(r, pdist, self.lat_and_inv)
 
         if self._num_workers == 1 or self._bulk_mp:
             res = _predict_wkr((0, self.n_train), self._chunk_size, r_desc)
@@ -1116,6 +1127,5 @@ class GDMLPredict(object):
         res *= self.std
 
         E = res[0].reshape(-1) + self.c
-        F = desc.r_to_d_desc_op(r, pdist, res[1:], self.ucell_size).reshape(1, -1)
-        # F = res[1:].reshape(1,-1).dot(r_d_desc)
+        F = res[1:].reshape(1,-1).dot(r_d_desc)
         return E, F

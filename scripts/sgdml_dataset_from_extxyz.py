@@ -28,48 +28,10 @@ import argparse
 import os
 import sys
 
+from ase.io import read
 import numpy as np
 
 from sgdml.utils import io, ui
-
-
-# Assumes that the atoms in each molecule are in the same order.
-def read_concat_ext_xyz(f):
-    n_atoms = None
-
-    R, z, E, F = [], [], [], []
-    for i, line in enumerate(f):
-        line = line.strip()
-        if not n_atoms:
-            n_atoms = int(line)
-            print('Number atoms per geometry:      {:>7d}'.format(n_atoms))
-
-        file_i, line_i = divmod(i, n_atoms + 2)
-
-        if line_i == 1:
-            E.append(float(line))
-
-        cols = line.split()
-        if line_i >= 2:
-            R.append(list(map(float, cols[1:4])))
-            if file_i == 0:  # first molecule
-                z.append(io._z_str_to_z_dict[cols[0]])
-            F.append(list(map(float, cols[4:7])))
-
-        if file_i % 1000 == 0:
-            sys.stdout.write("\rNumber geometries found so far: {:>7d}".format(file_i))
-            sys.stdout.flush()
-    sys.stdout.write("\rNumber geometries found so far: {:>7d}".format(file_i))
-    sys.stdout.flush()
-    print('')
-
-    R = np.array(R).reshape(-1, n_atoms, 3)
-    z = np.array(z)
-    E = np.array(E)
-    F = np.array(F).reshape(-1, n_atoms, 3)
-
-    f.close()
-    return (R, z, E, F)
 
 
 parser = argparse.ArgumentParser(
@@ -79,7 +41,7 @@ parser.add_argument(
     'dataset',
     metavar='<dataset>',
     type=argparse.FileType('r'),
-    help='path to xyz dataset file',
+    help='path to extended xyz dataset file',
 )
 parser.add_argument(
     '-o',
@@ -105,17 +67,29 @@ else:
         ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name
     )
 
-R, z, E, F = read_concat_ext_xyz(dataset)
+mols = read(dataset, index=':')
+print("\rNumber geometries found: {:>7d}\n".format(len(mols)))
+
+#cell = np.array(mols[0].get_cell())
+#print(cell)
+
+Z = np.array([mol.get_atomic_numbers() for mol in mols])
+all_z_the_same = (Z == Z[0]).all()
+if not all_z_the_same:
+  sys.exit(
+    ui.fail_str('[FAIL]') + ' Order of atoms changes within dataset.'
+  )
 
 # Base variables contained in every model file.
 base_vars = {
-    'type': 'd',
-    'R': R,
-    'z': z,
-    'E': E[:, None],
-    'F': F,
-    'name': name,
-    'theory': 'unknown',
+   'type': 'd',
+   'lattice': np.array(mols[0].get_cell()),
+   'R': np.array([mol.get_positions() for mol in mols]),
+   'z': Z[0],
+   'E': np.array([mol.get_potential_energy() for mol in mols])[:, None],
+   'F': np.array([mol.get_forces() for mol in mols]),
+   'name': name,
+   'theory': 'unknown',
 }
 base_vars['md5'] = io.dataset_md5(base_vars)
 

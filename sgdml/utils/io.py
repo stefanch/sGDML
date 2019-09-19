@@ -1,8 +1,36 @@
+#!/usr/bin/python
+
+# MIT License
+#
+# Copyright (c) 2018-2019 Stefan Chmiela
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+import argparse
 import hashlib
+import os
 import re
 import sys
 
 import numpy as np
+
+from . import ui
 
 _z_str_to_z_dict = {
     'H': 1,
@@ -241,23 +269,418 @@ def generate_xyz_str(r, z, e=None, f=None, lattice=None):
 
     comment_str = ''
     if lattice is not None:
-        comment_str += 'Lattice=\"{}\" '.format(' '.join([str(l) for l in lattice.ravel()]))
+        comment_str += 'Lattice=\"{}\" '.format(' '.join(['{:.12g}'.format(l) for l in lattice.T.ravel()]))
     if e is not None:
-        comment_str += 'Energy=\"{:.8f}\" '.format(e)
+        comment_str += 'Energy=\"{:.12g}\" '.format(e)
     comment_str += 'Properties=species:S:1:pos:R:3'
     if f is not None:
         comment_str += ':forces:R:3'
 
-    r = np.squeeze(r)
+    species_str = '\n'.join([_z_to_z_str_dict[z_i] for z_i in z])
+    r_f_str = ui.merge_col_str(ui.gen_mat_str(r)[0], ui.gen_mat_str(f)[0])
 
-    xyz_str = str(len(r)) + '\n' + comment_str
-    for i, atom in enumerate(r):
-        xyz_str += '\n' + _z_to_z_str_dict[z[i]] + '\t'
-        xyz_str += '\t'.join(('' if x < 0 else ' ') + '{:>.8f}'.format(x) for x in atom)
-        #xyz_str += ('\t{:.8f}'*3).format(*atom)
-
-        if f is not None:
-            #xyz_str += ('\t{:.8f}'*3).format(*f[i,:])
-            xyz_str += '\t' + '\t'.join(('' if x < 0 else ' ') + '{:>.8f}'.format(x) for x in f[i,:])
+    xyz_str = str(len(r)) + '\n' + comment_str + '\n'
+    xyz_str += ui.merge_col_str(species_str, r_f_str)
 
     return xyz_str
+
+
+def lattice_vec_to_par(lat):
+
+    cell = lat.T
+    lengths = [np.linalg.norm(v) for v in cell]
+
+    angles = []
+    for i in range(3):
+        j = i - 1
+        k = i - 2
+
+        ll = lengths[j] * lengths[k]
+        if ll > 1e-16:
+            x = np.dot(cell[j], cell[k]) / ll
+            angle = 180.0 / np.pi * np.arccos(x)
+        else:
+            angle = 90.0
+        angles.append(angle)
+
+    return lengths, angles
+
+
+### FILE HANDLING
+
+def is_file_type(arg, type):
+    """
+    Validate file path and check if the file is of the specified type.
+
+    Parameters
+    ----------
+        arg : :obj:`str`
+            File path.
+        type : {'dataset', 'task', 'model'}
+            Possible file types.
+
+    Returns
+    -------
+        (:obj:`str`, :obj:`dict`)
+            Tuple of file path (as provided) and data stored in the
+            file. The returned instance of NpzFile class must be
+            closed to avoid leaking file descriptors.
+
+    Raises
+    ------
+        ArgumentTypeError
+            If the provided file path does not lead to a NpzFile.
+        ArgumentTypeError
+            If the file is not readable.
+        ArgumentTypeError
+            If the file is of wrong type.
+        ArgumentTypeError
+            If path/fingerprint is provided, but the path is not valid.
+        ArgumentTypeError
+            If fingerprint could not be resolved.
+        ArgumentTypeError
+            If multiple files with the same fingerprint exist.
+
+    """
+
+    # Replace MD5 dataset fingerprint with file name, if necessary.
+    if type == 'dataset' and not arg.endswith('.npz') and not os.path.isdir(arg):
+        dir = '.'
+        if re.search(r'^[a-f0-9]{32}$', arg):  # arg looks similar to MD5 hash string
+            md5_str = arg
+        else:  # is it a path with a MD5 hash at the end?
+            md5_str = os.path.basename(os.path.normpath(arg))
+            dir = os.path.dirname(os.path.normpath(arg))
+
+            if re.search(r'^[a-f0-9]{32}$', md5_str) and not os.path.isdir(
+                dir
+            ):  # path has MD5 hash string at the end, but directory is not valid
+                raise argparse.ArgumentTypeError('{0} is not a directory'.format(dir))
+
+        file_names = filter_file_type(dir, type, md5_match=md5_str)
+
+        if not len(file_names):
+            raise argparse.ArgumentTypeError(
+                "No {0} files with fingerprint '{1}' found in '{2}'".format(
+                    type, md5_str, dir
+                )
+            )
+        elif len(file_names) > 1:
+            error_str = "Multiple {0} files with fingerprint '{1}' found in '{2}'".format(
+                type, md5_str, dir
+            )
+            for file_name in file_names:
+                error_str += '\n       {0}'.format(file_name)
+
+            raise argparse.ArgumentTypeError(error_str)
+        else:
+            arg = os.path.join(dir, file_names[0])
+
+    if not arg.endswith('.npz'):
+        argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
+
+    try:
+        file = np.load(arg, allow_pickle=True)
+    except Exception:
+        raise argparse.ArgumentTypeError('{0} is not readable'.format(arg))
+
+    if 'type' not in file or file['type'].astype(str) != type[0]:
+        raise argparse.ArgumentTypeError('{0} is not a {1} file'.format(arg, type))
+
+    return arg, file
+
+
+def filter_file_type(dir, type, md5_match=None):
+    """
+    Filters all files from a directory that match a given type and (optionally)
+    a given fingerprint.
+
+    Parameters
+    ----------
+        arg : :obj:`str`
+            File path.
+        type : {'dataset', 'task', 'model'}
+            Possible file types.
+        md5_match : :obj:`str`, optional
+            Fingerprint string.
+
+    Returns
+    -------
+        :obj:`list` of :obj:`str`
+            List of file names that match the specified type and fingerprint
+            (if provided).
+
+    Raises
+    ------
+        ArgumentTypeError
+            If the directory contains unreadable .npz files.
+
+    """
+
+    file_names = []
+    for file_name in sorted(os.listdir(dir)):
+        if file_name.endswith('.npz'):
+            file_path = os.path.join(dir, file_name)
+            try:
+                file = np.load(file_path, allow_pickle=True)
+            except Exception:
+                raise argparse.ArgumentTypeError(
+                    '{0} contains unreadable .npz files'.format(arg)
+                )
+
+            if 'type' in file and file['type'].astype(str) == type[0]:
+
+                if md5_match is None:
+                    file_names.append(file_name)
+                elif 'md5' in file and file['md5'] == md5_match:
+                    file_names.append(file_name)
+
+            file.close()
+
+    return file_names
+
+
+def is_valid_file_type(arg_in):
+    """
+    Check if file is either a valid dataset, task or model file.
+
+    Parameters
+    ----------
+        arg_in : :obj:`str`
+            File path.
+
+    Returns
+    -------
+        (:obj:`str`, :obj:`dict`)
+            Tuple of file path (as provided) and data stored in the
+            file. The returned instance of NpzFile class must be
+            closed to avoid leaking file descriptors.
+
+    Raises
+    ------
+        ArgumentTypeError
+            If the provided file path does not point to a supported
+            file type.
+
+    """
+
+    arg, file = None, None
+    try:
+        arg, file = is_file_type(arg_in, 'dataset')
+    except argparse.ArgumentTypeError:
+        pass
+
+    if file is None:
+        try:
+            arg, file = is_file_type(arg_in, 'task')
+        except argparse.ArgumentTypeError:
+            pass
+
+    if file is None:
+        try:
+            arg, file = is_file_type(arg_in, 'model')
+        except argparse.ArgumentTypeError:
+            pass
+
+    if file is None:
+        raise argparse.ArgumentTypeError(
+            '{0} is neither a dataset, task, nor model file'.format(arg)
+        )
+
+    return arg, file
+
+
+def is_dir_with_file_type(arg, type, or_file=False):
+    """
+    Validate directory path and check if it contains files of the specified type.
+
+    Note
+    ----
+        If a file path is provided, this function acts like its a directory with
+        just one file.
+
+    Parameters
+    ----------
+        arg : :obj:`str`
+            File path.
+        type : {'dataset', 'task', 'model'}
+            Possible file types.
+        or_file : bool
+            If `arg` contains a file path, act like it's a directory
+            with just a single file inside.
+
+    Returns
+    -------
+        (:obj:`str`, :obj:`list` of :obj:`str`)
+            Tuple of directory path (as provided) and a list of
+            contained file names of the specified type.
+
+    Raises
+    ------
+        ArgumentTypeError
+            If the provided directory path does not lead to a directory.
+        ArgumentTypeError
+            If directory contains unreadable files.
+        ArgumentTypeError
+            If directory contains no files of the specified type.
+    """
+
+    if or_file and os.path.isfile(arg):  # arg: file path
+        _, file = is_file_type(
+            arg, type
+        )  # raises exception if there is a problem with file
+        file.close()
+        file_name = os.path.basename(arg)
+        file_dir = os.path.dirname(arg)
+        return file_dir, [file_name]
+    else:  # arg: dir
+
+        if not os.path.isdir(arg):
+            raise argparse.ArgumentTypeError('{0} is not a directory'.format(arg))
+
+        file_names = filter_file_type(arg, type)
+
+        if not len(file_names):
+            raise argparse.ArgumentTypeError(
+                '{0} contains no {1} files'.format(arg, type)
+            )
+
+        return arg, file_names
+
+
+def is_task_dir_resumeable(
+    train_dir, train_dataset, test_dataset, n_train, n_test, sigs, gdml
+):
+    r"""
+    Check if a directory contains `task` and/or `model` files that
+    match the configuration of a training process specified in the
+    remaining arguments.
+
+    Check if the training and test datasets in each task match
+    `train_dataset` and `test_dataset`, if the number of training and
+    test points matches and if the choices for the kernel
+    hyper-parameter :math:`\sigma` are contained in the list. Check
+    also, if the existing tasks/models contain symmetries and if
+    that's consistent with the flag `gdml`. This function is useful
+    for determining if a training process can be resumed using the
+    existing files or not.
+
+    Parameters
+    ----------
+        train_dir : :obj:`str`
+            Path to training directory.
+        train_dataset : :obj:`dataset`
+            Dataset from which training points are sampled.
+        test_dataset : :obj:`test_dataset`
+            Dataset from which test points are sampled (may be the
+            same as `train_dataset`).
+        n_train : int
+            Number of training points to sample.
+        n_test : int
+            Number of test points to sample.
+        sigs : :obj:`list` of int
+            List of :math:`\sigma` kernel hyper-parameter choices
+            (usually: the hyper-parameter search grid)
+        gdml : bool
+            If `True`, don't include any symmetries in model (GDML),
+            otherwise do (sGDML).
+
+    Returns
+    -------
+        bool
+            False, if any of the files in the directory do not match
+            the training configuration.
+    """
+
+    for file_name in sorted(os.listdir(train_dir)):
+        if file_name.endswith('.npz'):
+            file_path = os.path.join(train_dir, file_name)
+            file = np.load(file_path, allow_pickle=True)
+
+            if 'type' not in file:
+                continue
+            elif file['type'] == 't' or file['type'] == 'm':
+
+                if (
+                    file['md5_train'] != train_dataset['md5']
+                    or file['md5_valid'] != test_dataset['md5']
+                    or len(file['idxs_train']) != n_train
+                    or len(file['idxs_valid']) != n_test
+                    or gdml
+                    and file['perms'].shape[0] > 1
+                    or file['sig'] not in sigs
+                ):
+                    return False
+
+    return True
+
+
+### ARGUMENT VALIDATION
+
+def is_strict_pos_int(arg):
+    """
+    Validate strictly positive integer input.
+
+    Parameters
+    ----------
+        arg : :obj:`str`
+            Integer as string.
+
+    Returns
+    -------
+        int
+            Parsed integer.
+
+    Raises
+    ------
+        ArgumentTypeError
+            If integer is not > 0.
+    """
+    x = int(arg)
+    if x <= 0:
+        raise argparse.ArgumentTypeError('must be strictly positive')
+    return x
+
+
+def parse_list_or_range(arg):
+    """
+    Parses a string that represents either an integer or a range in
+    the notation ``<start>:<step>:<stop>``.
+
+    Parameters
+    ----------
+        arg : :obj:`str`
+            Integer or range string.
+
+    Returns
+    -------
+        int or :obj:`list` of int
+
+    Raises
+    ------
+        ArgumentTypeError
+            If input can neither be interpreted as an integer nor a valid range.
+    """
+
+    if re.match(r'^\d+:\d+:\d+$', arg) or re.match(r'^\d+:\d+$', arg):
+        rng_params = list(map(int, arg.split(':')))
+
+        step = 1
+        if len(rng_params) == 2:  # start, stop
+            start, stop = rng_params
+        else:  # start, step, stop
+            start, step, stop = rng_params
+
+        rng = list(range(start, stop + 1, step))  # include last stop-element in range
+        if len(rng) == 0:
+            raise argparse.ArgumentTypeError('{0} is an empty range'.format(arg))
+
+        return rng
+    elif re.match(r'^\d+$', arg):
+        return int(arg)
+
+    raise argparse.ArgumentTypeError(
+        '{0} is neither a integer list, nor valid range in the form <start>:[<step>:]<stop>'.format(
+            arg
+        )
+    )

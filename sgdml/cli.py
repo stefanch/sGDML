@@ -48,29 +48,48 @@ class AssistantError(Exception):
 
 
 def _print_splash():
+
+    can_update,latest_version = _check_update()
+
+    version_str = __version__
+    version_str += ' ' + ui.yellow_back_str(' Latest: ' + latest_version + ' ') if can_update else ''
+
     print(
         r"""         __________  __  _____
    _____/ ____/ __ \/  |/  / /
   / ___/ / __/ / / / /|_/ / /
  (__  ) /_/ / /_/ / /  / / /___
 /____/\____/_____/_/  /_/_____/  """
-        + __version__
+        + version_str
     )
 
+    if can_update:
+        print('\n' + ui.yellow_back_str(' UPDATE AVAILABLE ') + '\n' + '-' * 100)
 
-# def _needs_update():
+        print('A new stable release v{} of this software is available.'.format(latest_version))
+        print('You can update your installation by running \'pip install sgdml --upgrade\'.')
 
-#     try:
-#         from urllib.request import urlopen
-#     except ImportError:
-#         from urllib2 import urlopen
 
-#     base_url = 'http://www.quantum-machine.org/gdml/'
-#     url = '%scheck_update.php?version=%s' % (base_url, __version__)
+def _check_update():
 
-#     response = urlopen(url)
-#     can_update, must_update, latest_version = response.read().decode().split(',')
-#     response.close()
+    try:
+        from urllib.request import urlopen
+    except ImportError:
+        from urllib2 import urlopen
+
+    base_url = 'http://www.quantum-machine.org/gdml/'
+    url = '%supdate.php?v=%s' % (base_url, __version__)
+
+    can_update, must_update = '0', '0'
+    latest_version = ''
+    try:
+        response = urlopen(url, timeout=1)
+        can_update, must_update, latest_version = response.read().decode().split(',')
+        response.close()
+    except:
+        pass
+
+    return can_update == '1', latest_version
 
 
 def _print_dataset_properties(dataset, alt_title_str='Dataset properties'):
@@ -84,29 +103,12 @@ def _print_dataset_properties(dataset, alt_title_str='Dataset properties'):
     print(' {:<16} {}'.format('Theory:', dataset['theory']))
     print(' {:<16} {:<d} data points'.format('Size:', n_mols))
 
-    lat_label = 'Lattice:'
-    if 'lattice' in dataset:
-        for i in range(3):
-            print(
-                ' {:<15} {:5.2f} {:5.2f} {:5.2f}'.format(
-                    lat_label, *dataset['lattice'][i]
-                )
-            )
-            if i == 0:
-                lat_label = ''
-    else:
-        print(' {:<16} {}'.format(lat_label, '-'))
+    ui.print_lattice(dataset['lattice'] if 'lattice' in dataset else None)
 
     if 'E' in dataset:
         print(' Energies [a.u.]:')
-        T_min, T_max = np.min(dataset['E']), np.max(dataset['E'])
-        print(
-            '  {:<15} {:<.3} '.format('Range:', T_min)
-            + '|--'
-            + ' {:^8.3} '.format(T_max - T_min)
-            + '--|'
-            + ' {:<9.3}'.format(T_max)
-        )
+        E_range_str = ui.gen_range_str(dataset['E'])
+        print(ui.gen_shifted_str_w_label('  Range:', E_range_str, indent=18))
 
         T_mean = np.mean(dataset['E'])
         print('  {:<15} {:<.3} '.format('Mean:', T_mean))
@@ -116,15 +118,9 @@ def _print_dataset_properties(dataset, alt_title_str='Dataset properties'):
     else:
         print(' {:<16} {}'.format('Energies:', 'n/a'))
 
-    TG_min, TG_max = np.min(dataset['F'].ravel()), np.max(dataset['F'].ravel())
     print(' Forces [a.u.]:')
-    print(
-        '  {:<15} {:<.3} '.format('Range:', TG_min)
-        + '|--'
-        + ' {:8.3} '.format(TG_max - TG_min)
-        + '--|'
-        + ' {:<9.3}'.format(TG_max)
-    )
+    F_range_str = ui.gen_range_str(dataset['F'].ravel())
+    print(ui.gen_shifted_str_w_label('  Range:', F_range_str, indent=18))
 
     TG_mean = np.mean(dataset['F'].ravel())
     print('  {:<15} {:<.3} '.format('Mean:', TG_mean))
@@ -146,9 +142,9 @@ def _print_dataset_properties(dataset, alt_title_str='Dataset properties'):
     print('  to visualize this geometry. A new example geometry will be drawn on each call.\n')
 
     xyz_str = io.generate_xyz_str(r, dataset['z'], e=e, f=f, lattice=lattice)
-    xyz_str = re.sub('^', ' '*3, xyz_str, flags=re.MULTILINE)
+    xyz_str = re.sub('^', ' '*2, xyz_str, flags=re.MULTILINE)
 
-    cutline_str = ui.gray_str(' ' + ' -- CUT HERE' * 8 + ' --')
+    cutline_str = ui.gray_str('-' + '-- CUT HERE ' * 8 + '---')
     
     print(cutline_str)
     print(xyz_str)
@@ -191,18 +187,7 @@ def _print_model_properties(model):
     n_atoms = len(model['z'])
     print(' {:<16} {:<d}'.format('Atoms:', n_atoms))
 
-    lat_label = 'Lattice:'
-    if 'lattice' in model:
-        for i in range(3):
-            print(
-                ' {:<15} {:5.2f} {:5.2f} {:5.2f}'.format(
-                    lat_label, *model['lattice'][i]
-                )
-            )
-            if i == 0:
-                lat_label = ''
-    else:
-        print(' {:<16} {}'.format(lat_label, '-'))
+    ui.print_lattice(model['lattice'] if 'lattice' in model else None)
 
     print(' {:<16} {:<d}'.format('Symmetries:', len(model['perms'])))
 
@@ -231,7 +216,6 @@ def _print_model_properties(model):
     f_err = model['f_err'].item()
 
     n_valid = len(model['idxs_valid'])
-    # is_tested = not np.isnan(e_err['mae']) and not np.isnan(e_err['rmse']) and not np.isnan(f_err['mae']) and not np.isnan(f_err['rmse'])
     is_valid = not np.isnan(f_err['mae']) and not np.isnan(f_err['rmse'])
     print(
         ' {:<16} {}{:<d} points from \'{}\''.format(
@@ -252,7 +236,6 @@ def _print_model_properties(model):
         )
     else:
         print(' {:<16} {}'.format('Test:', '[pending]'))
-        # print ' {:<14} {}'.format('Test:', '{} points'.format(n_valid) if is_valid else '[pending]')
 
     if is_valid:
         action_str = 'Validation' if not is_valid else 'Expected test'
@@ -279,7 +262,6 @@ def all(
     n_valid,
     n_test,
     sigs,
-
     gdml,
     use_E,
     use_E_cstr,
@@ -287,7 +269,7 @@ def all(
     overwrite,
     max_processes,
     use_torch,
-    use_cg,
+    solver,
     task_dir=None,
     model_file=None,
     **kwargs
@@ -295,12 +277,10 @@ def all(
 
     print('\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-' * 100)
 
-    #print(ui.white_bold_str('Properties'))
     _, dataset_extracted = dataset
     _print_dataset_properties(dataset_extracted, alt_title_str='Properties')
 
     if valid_dataset is not None:
-       #print(ui.white_bold_str('Properties (validation)'))
         _, valid_dataset_extracted = valid_dataset
         _print_dataset_properties(valid_dataset_extracted, alt_title_str='Properties (validation)')
 
@@ -310,7 +290,6 @@ def all(
             )
 
     if test_dataset is not None:
-        #print(ui.white_bold_str('Properties (test)'))
         _, test_dataset_extracted = test_dataset
         _print_dataset_properties(test_dataset_extracted, alt_title_str='Properties (test)')
 
@@ -339,11 +318,11 @@ def all(
     )
 
     print(ui.white_back_str(' STEP 2 ') + ' Training\n' + '-' * 100)
-    task_dir_arg = ui.is_dir_with_file_type(task_dir, 'task')
-    model_dir_or_file_path = train(task_dir_arg, overwrite, use_cg, max_processes, **kwargs)
+    task_dir_arg = io.is_dir_with_file_type(task_dir, 'task')
+    model_dir_or_file_path = train(task_dir_arg, overwrite, solver, max_processes, **kwargs)
 
     print(ui.white_back_str(' STEP 3 ') + ' Validation\n' + '-' * 100)
-    model_dir_arg = ui.is_dir_with_file_type(
+    model_dir_arg = io.is_dir_with_file_type(
         model_dir_or_file_path, 'model', or_file=True
     )
     if valid_dataset is None:
@@ -367,7 +346,7 @@ def all(
     # 	print ui.info_str('[INFO]') + ' Skipping step because only one model is being trained.\n'
 
     print(ui.white_back_str(' STEP 5 ') + ' Test.\n' + '-' * 100)
-    model_dir_arg = ui.is_dir_with_file_type(model_file_name, 'model', or_file=True)
+    model_dir_arg = io.is_dir_with_file_type(model_file_name, 'model', or_file=True)
     if test_dataset is None:
         test_dataset = dataset
     test(
@@ -469,7 +448,7 @@ def create(  # noqa: C901
             shutil.rmtree(task_dir, ignore_errors=True)
             os.makedirs(task_dir)
         else:
-            if ui.is_task_dir_resumeable(
+            if io.is_task_dir_resumeable(
                 task_dir, dataset, valid_dataset, n_train, n_valid, sigs, gdml
             ):
                 print(
@@ -479,7 +458,7 @@ def create(  # noqa: C901
 
                 # Get all task file names.
                 try:
-                    _, task_file_names = ui.is_dir_with_file_type(task_dir, 'task')
+                    _, task_file_names = io.is_dir_with_file_type(task_dir, 'task')
                 except Exception:
                     pass
             else:
@@ -589,7 +568,7 @@ def create(  # noqa: C901
     return task_dir
 
 
-def train(task_dir, overwrite, use_cg, max_processes, command=None, **kwargs):
+def train(task_dir, overwrite, solver, max_processes, command=None, **kwargs):
 
     task_dir, task_file_names = task_dir
     n_tasks = len(task_file_names)
@@ -618,12 +597,10 @@ def train(task_dir, overwrite, use_cg, max_processes, command=None, **kwargs):
             print(ui.white_bold_str('Training task %d of %d' % (i + 1, n_tasks)))
 
         task_file_path = os.path.join(task_dir, task_file_name)
-        # task_file_relpath = os.path.relpath(task_file_path, BASE_DIR)
         with np.load(task_file_path, allow_pickle=True) as task:
 
             model_file_name = io.model_file_name(task, is_extended=False)
             model_file_path = os.path.join(task_dir, model_file_name)
-            # model_file_relpath = os.path.relpath(model_file_path, BASE_DIR)
 
             if not overwrite and os.path.isfile(model_file_path):
                 print(
@@ -638,15 +615,23 @@ def train(task_dir, overwrite, use_cg, max_processes, command=None, **kwargs):
                 print()
                 continue
 
-            if use_cg:
+            if solver == 'cg':
                 print(
                     ui.info_str('[INFO]')
-                    + ' Using CG solver with Nystroem preconditioner.'
+                    + ' Using CG solver with Nystroem *preconditioner*.'
+                )
+            elif solver == 'fk':
+                print(
+                    ui.info_str('[INFO]')
+                    + ' Using CG solver on Nystroem *approximation* with M support points.' #TODO: complete
                 )
 
+            #model = gdml_train.train(
+            #    task, solver, cprsn_callback, ker_progr_callback, solve_callback
+            #)
             try:
                 model = gdml_train.train(
-                    task, use_cg, cprsn_callback, ker_progr_callback, solve_callback
+                    task, solver, cprsn_callback, ker_progr_callback, solve_callback
                 )
             except Exception as err:
                 sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
@@ -759,7 +744,7 @@ def test(
     for i, model_file_name in enumerate(model_file_names):
 
         model_path = os.path.join(model_dir, model_file_name)
-        _, model = ui.is_file_type(model_path, 'model')
+        _, model = io.is_file_type(model_path, 'model')
 
         if i == 0 and command != 'all':
             print(ui.white_bold_str('Model properties'))
@@ -1040,9 +1025,10 @@ def test(
                 model_path = os.path.join(model_dir, model_file_names[i])
                 print(
                     ui.warn_str('[WARN]')
-                    + ' Model has previously been tested on %d points. Errors for current run with %d points'
-                    % (model['n_test'], len(test_idxs))
-                    + '\n       have NOT been recorded in model file.'
+                    + ' This model has previously been tested on %d points. This is why the errors'
+                    % model['n_test']
+                    + '\n       for the current run with %d points have NOT been recorded in the model file.'
+                    % len(test_idxs)
                     + '\n       Run \'%s test -o %s %s %s\' to overwrite.\n'
                     % (PACKAGE_NAME, os.path.relpath(model_path), dataset_path, n_test)
                 )
@@ -1066,7 +1052,7 @@ def select(
     data_names = ['sig', 'MAE', 'RMSE', 'MAE', 'RMSE']
     for i, model_file_name in enumerate(model_file_names):
         model_path = os.path.join(model_dir, model_file_name)
-        _, model = ui.is_file_type(model_path, 'model')
+        _, model = io.is_file_type(model_path, 'model')
 
         use_E = model['use_E']
 
@@ -1105,13 +1091,11 @@ def select(
 
     rows = sorted(rows, key=lambda col: col[0])  # sort according to sigma
     print(ui.white_bold_str('Cross-validation errors'))
-    print(' ' * 7 + 'Energy' + ' ' * 6 + 'Forces')
+    print(' '*7 + 'Energy' + ' '*6 + 'Forces')
     print((' {:>3} ' + '{:>5} ' * 4).format(*data_names))
-    print(' ' + '-' * 27)
-    # format_str = ' {:>3} ' + '{:>5.2f} ' * 4
-    # format_str_no_E = ' {:>3}     -     - ' + '{:>5.2f} ' * 2
-    format_str = ' {} ' + '{:5.2f} ' * 4
-    format_str_no_E = ' {}     -     - ' + '{:5.2f} ' * 2
+    print(' ' + '-'*27)
+    format_str = ' {:>3} ' + '{:5.2f} '*4
+    format_str_no_E = ' {:>3}     -     - ' + '{:5.2f} '*2
     for row in rows:
         if use_E:
             row_str = format_str.format(*row)
@@ -1225,7 +1209,7 @@ def main():
         parser.add_argument(
             'dataset',
             metavar='<dataset_file>',
-            type=lambda x: ui.is_file_type(x, 'dataset'),
+            type=lambda x: io.is_file_type(x, 'dataset'),
             help=help,
         )
 
@@ -1233,7 +1217,7 @@ def main():
         subparser.add_argument(
             'n_%s' % subset_str,
             metavar='<n_%s>' % subset_str,
-            type=ui.is_strict_pos_int,
+            type=io.is_strict_pos_int,
             help='%s sample size' % subset_str,
         )
 
@@ -1241,7 +1225,7 @@ def main():
         parser.add_argument(
             '%s_dir' % type,
             metavar='<%s_dir%s>' % (type, '_or_file' if or_file else ''),
-            type=lambda x: ui.is_dir_with_file_type(x, type, or_file=or_file),
+            type=lambda x: io.is_dir_with_file_type(x, type, or_file=or_file),
             help='path to %s directory%s' % (type, ' or file' if or_file else ''),
         )
 
@@ -1268,7 +1252,7 @@ def main():
         '-p',
         '--max_processes',
         metavar='<max_processes>',
-        type=ui.is_strict_pos_int,
+        type=io.is_strict_pos_int,
         help='limit the number of processes for this application',
     )
     parent_parser.add_argument(
@@ -1321,7 +1305,7 @@ def main():
             '--validation_dataset',
             metavar='<validation_dataset_file>',
             dest='valid_dataset',
-            type=lambda x: ui.is_file_type(x, 'dataset'),
+            type=lambda x: io.is_file_type(x, 'dataset'),
             help='path to validation dataset file',
         )
         subparser.add_argument(
@@ -1329,7 +1313,7 @@ def main():
             '--test_dataset',
             metavar='<test_dataset_file>',
             dest='test_dataset',
-            type=lambda x: ui.is_file_type(x, 'dataset'),
+            type=lambda x: io.is_file_type(x, 'dataset'),
             help='path to test dataset file',
         )
         subparser.add_argument(
@@ -1337,7 +1321,7 @@ def main():
             '--sig',
             metavar=('<s1>', '<s2>'),
             dest='sigs',
-            type=ui.parse_list_or_range,
+            type=io.parse_list_or_range,
             help='integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-parameter sigma',
             nargs='+',
         )
@@ -1383,7 +1367,7 @@ def main():
         subparser.add_argument(
             'n_test',
             metavar='<n_test>',
-            type=ui.is_strict_pos_int,
+            type=io.is_strict_pos_int,
             help='test sample size',
             nargs='?',
             default=None,
@@ -1398,12 +1382,20 @@ def main():
         )
 
     for subparser in [parser_all, parser_train]:
-        subparser.add_argument(
+        group = subparser.add_mutually_exclusive_group()
+        group.add_argument(
             '--cg',
             dest='use_cg',
             action='store_true',
-            #help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
-            help=argparse.SUPPRESS
+            help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
+            #help=argparse.SUPPRESS
+        )
+        group.add_argument(
+            '--fk',
+            dest='use_fk',
+            action='store_true',
+            help='use iterative solver (conjugate gradient) with Nystroem approximation',
+            #help=argparse.SUPPRESS
         )
 
     # train
@@ -1414,7 +1406,7 @@ def main():
 
     # show
     parser_show.add_argument(
-        'file', metavar='<file>', type=lambda x: ui.is_valid_file_type(x), help=help
+        'file', metavar='<file>', type=lambda x: io.is_valid_file_type(x), help=help
     )
 
     args = parser.parse_args()
@@ -1447,8 +1439,19 @@ def main():
                     + '\n       We recommend running CPU calculations without \'--torch\' for improved performance.'
                 )
 
+    # replace solver flags with keyword
+    args = vars(args)
+    args['solver'] = 'analytic'
+    if 'use_cg' in args and args['use_cg']:
+        args['solver'] = 'cg'
+    elif 'use_fk' in args and args['use_fk']:
+        args['solver'] = 'fk'
+    args.pop('use_cg', None)
+    args.pop('use_fk', None)
+
     try:
-        getattr(sys.modules[__name__], args.command)(**vars(args))
+        #getattr(sys.modules[__name__], args.command)(**vars(args))
+        getattr(sys.modules[__name__], args['command'])(**args)
     except AssistantError as err:
         sys.exit(ui.fail_str('[FAIL]') + ' %s' % err)
 

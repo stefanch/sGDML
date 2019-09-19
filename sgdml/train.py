@@ -66,7 +66,7 @@ def _share_array(arr_np, typecode_or_type):
 
 def _assemble_kernel_mat_wkr(
     j, n_perms, tril_perms_lin, sig, use_E_cstr=False, j_end=None
-):  # TODO document j_end
+):
     r"""
     Compute one row and column of the force field kernel matrix.
 
@@ -88,6 +88,12 @@ def _assemble_kernel_mat_wkr(
             copy of the object to be permuted.
         sig : int
             Hyper-parameter :math:`\sigma`.
+        use_E_cstr : bool, optional
+            True: include energy constraints in the kernel,
+            False: default (s)GDML kernel.
+        j_end : int
+            Only generate the columns up to 'j_end'. This creates a
+            M*3N x j_end*3N kernel matrix, instead of M*3N x M*3N.
 
     Returns
     -------
@@ -104,6 +110,13 @@ def _assemble_kernel_mat_wkr(
     K = np.frombuffer(glob['K']).reshape(glob['K_shape'])
 
     n_train, dim_d, dim_i = R_d_desc.shape
+    j_end = n_train if j_end is None else j_end
+
+    # TODO: document this exception
+    if use_E_cstr and not (j_end is None or j_end == n_train):
+        raise ValueError(
+            '\'use_E_cstr\'- and \'j_end\'-parameters are mutually exclusive!'
+        )
 
     mat52_base_div = 3 * sig ** 4
     sqrt5 = np.sqrt(5.0)
@@ -112,7 +125,7 @@ def _assemble_kernel_mat_wkr(
     base = np.arange(dim_i)  # base set of indices
     blk_j = base + j * dim_i
 
-    E_off = dim_i * n_train
+    E_off = dim_i * j_end
 
     # Create permutated variants of 'rj_desc' and 'rj_d_desc'.
     rj_desc_perms = np.reshape(
@@ -315,8 +328,13 @@ class GDMLTrain(object):
             n_train = R_train.shape[0]
             R_train_sync_mat = R_train
             if n_train > 1000:
-                R_train_sync_mat = R_train[np.random.choice(n_train, 1000),:,:]
-                print(ui.info_str('[INFO]') + ' Symmetry search is limited to a random subset of 1000/' + str(n_train) +' training points for faster convergence.')
+                R_train_sync_mat = R_train[np.random.choice(n_train, 1000), :, :]
+                print(
+                    ui.info_str('[INFO]')
+                    + ' Symmetry search is limited to a random subset of 1000/'
+                    + str(n_train)
+                    + ' training points for faster convergence.'
+                )
 
             task['perms'] = perm.sync_mat(
                 R_train_sync_mat, train_dataset['z'], self._max_processes
@@ -332,7 +350,7 @@ class GDMLTrain(object):
     def train(  # noqa: C901
         self,
         task,
-        use_cg,
+        solver,  # TODO: document me
         cprsn_callback=None,
         ker_progr_callback=None,
         solve_callback=None,
@@ -376,7 +394,7 @@ class GDMLTrain(object):
         Raises
         ------
             ValueError
-                If the provided dataset contains unsupported lattice
+                If the provided dataset contains invalid lattice
                 vectors.
         """
 
@@ -393,35 +411,57 @@ class GDMLTrain(object):
         perm_offsets = np.arange(n_perms)[:, None] * dim_d
         tril_perms_lin = (tril_perms + perm_offsets).flatten('F')
 
-        # check if lattice vectors are supported by this version of the code
-        ucell_size = None
+        # TODO: check if all atoms are in span of lattice vectors, otherwise suggest that
+        # rows and columns might have been switched.
+        lat_and_inv = None
         if 'lattice' in task:
-            lat = task['lattice']
-            if ui.is_lattice_supported(lat):
-                ucell_size = np.diag(lat)[0]
-            else:
-                raise ValueError(
-                    'Provided dataset contains unsupported lattice vectors!'
+
+            try:
+                lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
+            except np.linalg.LinAlgError:
+                raise ValueError(  # TODO: Document me
+                    'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
                 )
+
+            # TODO: check if all atoms are within unit cell
+            for r in task['R_train']:
+                r_lat = lat_and_inv[1].dot(r.T)
+                if not (r_lat >= 0).all():
+                    # raise ValueError( # TODO: Document me
+                    #    'Some atoms appear outside of the unit cell! Please check lattice vectors in dataset file.'
+                    # )
+                    pass
 
         R_desc = np.empty([n_train, dim_d])
         R_d_desc = np.empty([n_train, dim_d, dim_i])
 
         for i in range(n_train):
             r = task['R_train'][i]
-            pdist = sp.spatial.distance.pdist(r, 'euclidean')
 
-            # pairwise distance with or without minimum-image convention as periodic boundary condition
-            if ucell_size is not None:
-                pdist = sp.spatial.distance.pdist(
-                    r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, ucell_size))
-                )
-            else:
-                pdist = sp.spatial.distance.pdist(r, 'euclidean')
-            pdist = sp.spatial.distance.squareform(pdist)
+            pdist = desc.pdist(r, lat_and_inv)
 
             R_desc[i, :] = desc.r_to_desc(r, pdist)
-            R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist, ucell_size)
+            R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist, lat_and_inv)
+
+            #import timeit
+
+            #def _dummy_predict():
+
+            #    global r_to_d_desc
+
+            #    desc.r_to_d_desc(r, pdist, lat_and_inv)
+
+            #r_to_d_desc
+
+
+            
+
+
+            #print(timeit.timeit(partial(desc.r_to_d_desc2, r=r, pdist=pdist, lat_and_inv=lat_and_inv), number=1000))
+
+            
+            #import sys
+            #sys.exit()
 
         if task['use_cprsn'] and n_perms > 1:
             _, cprsn_keep_idxs = np.unique(
@@ -454,6 +494,13 @@ class GDMLTrain(object):
             task['F_train'] = task['F_train'][:, cprsn_keep_idxs, :]
             R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
 
+            # cprsn_keep_idxs_lin_full = ((np.arange(n_train) * dim_i)[None,:] + cprsn_keep_idxs_lin[:,None]).T.ravel() # new
+
+            if solver != 'analytic':
+                raise ValueError(
+                    'Iterative solvers and compression are mutually exclusive for now.'
+                )
+
         Ft = task['F_train'].ravel()
         Ft_std = np.std(Ft)
         Ft /= Ft_std
@@ -466,7 +513,8 @@ class GDMLTrain(object):
 
         # for nystrom precondiner if cg solver is used
         M = int(np.ceil(np.sqrt(n_train)))
-        #M = 100
+        # M = n_train
+        # M = 100
 
         y = Ft
         if task['use_E'] and task['use_E_cstr']:
@@ -484,7 +532,7 @@ class GDMLTrain(object):
             sig,
             use_E_cstr=task['use_E_cstr'],
             progr_callback=ker_progr_callback,
-            j_end=M if use_cg else None,
+            j_end=None if solver == 'analytic' else M,
         )
 
         # test 2
@@ -499,94 +547,6 @@ class GDMLTrain(object):
         # R_d_desc = R_d_desc[:M, :, :]
 
         # test 2
-
-        if use_cg:
-
-            K_mm = K[: M * dim_i, :]
-            K_nm = K
-
-            lam = 1e-4
-
-            # ny_idxs = np.random.choice(K.shape[0], M*R_d_desc.shape[2], replace=False)
-            # K_mm = K[ny_idxs, :]
-            # K_mm = K_mm[:, ny_idxs]
-            # K_nm = K[:, ny_idxs]
-
-            #print('factor')
-            _lup = sp.linalg.lu_factor((-lam) * K_mm + K_nm.T.dot(K_nm), overwrite_a=True, check_finite=False)
-            #print('factor done')
-            def mv(v):
-                P_v = (1.0 / lam) * (
-                    K_nm.dot(sp.linalg.lu_solve(_lup, K_nm.T.dot(v), overwrite_b=True, check_finite=False)) - v
-                )
-                return P_v
-
-            from scipy.sparse.linalg import LinearOperator
-
-            P_op = LinearOperator((n_train * dim_i, n_train * dim_i), matvec=mv)
-
-            global gdml_predict
-            gdml_predict = None
-
-            def mv_K(v):
-
-                global gdml_predict
-
-                r_dim = R_d_desc.shape[2]
-                #r_d_desc_alpha = [
-                #    rj_d_desc.dot(v[(j * r_dim) : ((j + 1) * r_dim)])
-                #    for j, rj_d_desc in enumerate(R_d_desc)
-                #]
-                r_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, v.reshape(-1,r_dim))
-
-                if gdml_predict is None:
-
-                    model = {
-                        'type': 'm',
-                        'code_version': __version__,
-                        'dataset_name': task['dataset_name'],
-                        'dataset_theory': task['dataset_theory'],
-                        'z': task['z'],
-                        'idxs_train': task['idxs_train'],
-                        'md5_train': task['md5_train'],
-                        'idxs_valid': task['idxs_valid'],
-                        'md5_valid': task['md5_valid'],
-                        'n_test': 0,
-                        'md5_test': None,
-                        'f_err': {'mae': np.nan, 'rmse': np.nan},
-                        'R_desc': R_desc.T,
-                        'R_d_desc': R_d_desc,
-                        'R_d_desc_alpha': r_d_desc_alpha,
-                        'c': 0.0,
-                        'std': 1.0,
-                        'sig': sig,
-                        'perms': task['perms'],
-                        'tril_perms_lin': tril_perms_lin,
-                        'use_E': task['use_E'],
-                        'use_cprsn': task['use_cprsn'],
-                    }
-
-                    from .predict import GDMLPredict
-
-                    gdml_predict = GDMLPredict(model)
-                    gdml_predict.prepare_parallel(n_bulk=n_train)
-                    
-                    #gdml_predict._set_bulk_mp(True)
-                    #gdml_predict._set_batch_size(1) # biggest possible
-                    #gdml_predict._set_num_workers(None) # all of them
-
-                else:
-                    #print('set alphas')
-                    gdml_predict.set_alphas(r_d_desc_alpha)
-
-                R = task['R_train'].reshape(n_train, -1)
-                _, f_pred = gdml_predict.predict(R, train=False)
-                
-                #_, f_pred = gdml_predict.predict(None, train=True)
-
-                return f_pred.ravel() - lam * v
-
-            K_op = LinearOperator((n_train * dim_i, n_train * dim_i), matvec=mv_K)
 
         # test
 
@@ -616,60 +576,22 @@ class GDMLTrain(object):
         if solve_callback is not None:
             solve_callback(is_done=False)
 
-        start = timeit.default_timer()
-
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-
-            if not use_cg:
-
-                K[np.diag_indices_from(K)] -= lam  # regularize
-
-                try:
-                    # Cholesky
-                    L, lower = sp.linalg.cho_factor(
-                        -K, overwrite_a=True, check_finite=False
-                    )
-                    alphas = -sp.linalg.cho_solve(
-                        (L, lower), y, overwrite_b=True, check_finite=False
-                    )
-                except Exception:
-                    # LU
-                    alphas = sp.linalg.solve(
-                        K, y, overwrite_a=True, overwrite_b=True, check_finite=False
-                    )
-
-                # alphas = np.linalg.lstsq(K,Ft)[0]
-
-            else:
-
-                global num_iters
-
-                num_iters = 0
-
-                def callback(xk):
-                    global num_iters
-                    if num_iters % 10 == 0:
-
-                        solve_callback(
-                            is_done=False,
-                            sec_disp_str=(
-                                '(iter: %d: residual: %.5f)'
-                                % (num_iters, np.mean(np.abs(K_op.dot(-xk) - y)))
-                            ),
-                        )
-                    num_iters += 1
-
-                del K
-
-                start = timeit.default_timer()
-
-                from scipy.sparse.linalg import cg
-                alphas, status = cg(-K_op, y, M=P_op, tol=1e-4, maxiter=3 * n_atoms * n_train, callback=callback)
-                alphas = -alphas
-
-                stop = timeit.default_timer()
-                print('time per it: ' + str(((stop - start) / 2) / num_iters) + 's')
+        if solver == 'analytic':
+            # K = K[:,cprsn_keep_idxs_lin_full]
+            # R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
+            alphas = self._solve_closed(K, y, lam, callback=solve_callback)
+        elif solver == 'cg':
+            alphas = self._solve_iterative_nystrom_precon(
+                K, y, R_desc, R_d_desc, task, tril_perms_lin, callback=solve_callback
+            )
+        elif solver == 'fk':
+            alphas = self._solve_iterative_fk(K, y, callback=solve_callback)
+        else:
+            raise ValueError(
+                'Unknown solver keyword \'{}\'.'.format(solver)
+            )  # TODO: refine
+            # K_nm = K[:,cprsn_keep_idxs_lin_full]
+            # K_mm = K_nm[cprsn_keep_idxs_lin_full,:]
 
         # test 2
 
@@ -677,21 +599,24 @@ class GDMLTrain(object):
 
         # test 2
 
-        stop = timeit.default_timer()
+        # stop = timeit.default_timer()
 
         alphas_F = alphas
         if task['use_E_cstr']:
             alphas_E = alphas[-n_train:]
             alphas_F = alphas[:-n_train]
 
-        if solve_callback is not None:
+        # test 2
 
-            sec_disp_str = (
-                '(iter: %d: residual: %.5f)' % (num_iters, np.mean(np.abs(K_op.dot(alphas) - y)))
-                if use_cg
-                else '(%.1f s)' % ((stop - start) / 2)
-            )
-            solve_callback(is_done=True, sec_disp_str=sec_disp_str)
+        if solver == 'fk':
+            R_desc = R_desc[:M, :]
+            R_d_desc = R_d_desc[:M]
+            # R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
+
+            task = dict(task)
+            task['idxs_train'] = task['idxs_train'][:M]
+
+        # test 2
 
         r_dim = R_d_desc.shape[2]
         r_d_desc_alpha = [
@@ -699,19 +624,12 @@ class GDMLTrain(object):
             for j, rj_d_desc in enumerate(R_d_desc)
         ]
 
-        # test 2
-
-        # task = dict(task)
-        # task['idxs_train'] = task['idxs_train'][:M] # remove me
-        # R_desc = R_desc[:M,:] # remove me
-
-        # test 2
-
         model = {
             'type': 'm',
             'code_version': __version__,
             'dataset_name': task['dataset_name'],
             'dataset_theory': task['dataset_theory'],
+            'solver': solver,
             'z': task['z'],
             'idxs_train': task['idxs_train'],
             'md5_train': task['md5_train'],
@@ -850,9 +768,8 @@ class GDMLTrain(object):
                 + '\n             transitions between example clusters)?\n'
             )
 
-            # Least squares estimate for integration constant.
+        # Least squares estimate for integration constant.
         return np.sum(E_ref - E_pred) / E_ref.shape[0]
-
 
     def _assemble_kernel_mat(
         self,
@@ -864,7 +781,7 @@ class GDMLTrain(object):
         use_E_cstr=False,
         progr_callback=None,
         j_end=None,
-    ):  # TODO: document j_end
+    ):
         r"""
         Compute force field kernel matrix.
 
@@ -902,6 +819,10 @@ class GDMLTrain(object):
                     done_str : :obj:`str`, optional
                         Once complete, this string contains the
                         time it took to assemble the kernel (seconds).
+            j_end : int
+                Only generate the columns up to 'j_end'. This creates a
+                M*3N x j_end*3N kernel matrix, instead of M*3N x M*3N.
+
 
         Returns
         -------
@@ -919,6 +840,7 @@ class GDMLTrain(object):
         dim_K = n_train * dim_i
         dim_K_ny = j_end * dim_i
         dim_K += n_train if use_E_cstr else 0
+        dim_K_ny += j_end if use_E_cstr else 0
 
         K = mp.RawArray('d', dim_K_ny * dim_K)
         glob['K'], glob['K_shape'] = K, (dim_K, dim_K_ny)
@@ -929,7 +851,6 @@ class GDMLTrain(object):
 
         pool = mp.Pool(self._max_processes)
 
-        # todo = (n_train ** 2 - n_train) // 2 + n_train
         todo = (j_end ** 2 - j_end) // 2 + j_end
 
         if j_end is not n_train:
@@ -952,7 +873,9 @@ class GDMLTrain(object):
             if progr_callback is not None:
                 if done_total == todo:
                     stop = timeit.default_timer()
-                    progr_callback(done_total, todo, sec_disp_str='(%.1f s)' % ((stop - start) / 2))
+                    progr_callback(
+                        done_total, todo, sec_disp_str='(%.1f s)' % ((stop - start) / 2)
+                    )
                 else:
                     progr_callback(done_total, todo)
 
@@ -1060,3 +983,36 @@ class GDMLTrain(object):
                 idxs_train, np.random.choice(idx_in_bin_all, bin_cnt, replace=False)
             )
         return idxs_train
+
+    def _solve_closed(self, K, y, lam, callback=None):
+
+        K[np.diag_indices_from(K)] -= lam  # regularize
+
+        start = timeit.default_timer()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+
+            try:
+                # Cholesky
+                L, lower = sp.linalg.cho_factor(
+                    -K, overwrite_a=True, check_finite=False
+                )
+                alphas = -sp.linalg.cho_solve(
+                    (L, lower), y, overwrite_b=True, check_finite=False
+                )
+            except Exception:
+                # LU
+                alphas = sp.linalg.solve(
+                    K, y, overwrite_a=True, overwrite_b=True, check_finite=False
+                )
+
+        # alphas = np.linalg.lstsq(K,y)[0]
+
+        stop = timeit.default_timer()
+
+        if callback is not None:
+            sec_disp_str = '(%.1f s)' % ((stop - start) / 2)
+            callback(is_done=True, sec_disp_str=sec_disp_str)
+
+        return alphas
