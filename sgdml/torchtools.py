@@ -66,7 +66,9 @@ class GDMLTorchPredict(nn.Module):
 
         model = dict(model)  # hack
 
-        self._lat_and_inv = None if lat_and_inv is None else (torch.tensor(lat_and_inv[0]), torch.tensor(lat_and_inv[1]))
+        torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self._lat_and_inv = None if lat_and_inv is None else (torch.tensor(lat_and_inv[0], device=torch_device), torch.tensor(lat_and_inv[1], device=torch_device))
+
         self._batch_size = batch_size
         self._max_memory = int(2 ** 30 * max_memory)
         self._sig = int(model['sig'])

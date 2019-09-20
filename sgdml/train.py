@@ -443,6 +443,37 @@ class GDMLTrain(object):
             R_desc[i, :] = desc.r_to_desc(r, pdist)
             R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist, lat_and_inv)
 
+
+
+            # #print(R_d_desc[i, 0, :][:,None].dot(R_d_desc[i, 1, :][None,:]))
+
+            # import matplotlib
+            # import matplotlib.pyplot as plt
+
+            # trilperm = np.random.permutation(dim_d)
+
+            # DESC = np.zeros((dim_d,dim_d))
+            # for b in range(0,1):
+            #     for a in range(36):
+                    
+            #         #ig, ax = plt.subplots()
+            #         #im = ax.imshow(R_d_desc[i, :, b][:,None].dot(R_d_desc[i, :, a][None,:]))
+
+            #         DESC += R_d_desc[i, :, a][:,None].dot(R_d_desc[i, :, b][None,:])
+
+            #         #DESC += R_d_desc[i, :, a][:,None].dot(R_d_desc[i, trilperm, b][None,:])
+
+            #         #plt.show()
+
+            # fig, ax = plt.subplots()
+            # im = ax.imshow(DESC, cmap=plt.get_cmap('bwr'))
+            # plt.show()
+
+            # import sys
+            # sys.exit()
+
+
+
             #import timeit
 
             #def _dummy_predict():
