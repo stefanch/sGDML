@@ -44,7 +44,7 @@ def share_array(arr_np, typecode):
     return arr, arr_np.shape
 
 
-def _sync_mat_wkr(i, n_train, same_z_cost):
+def _bipartite_match_wkr(i, n_train, same_z_cost):
 
     global glob
 
@@ -81,7 +81,7 @@ def _sync_mat_wkr(i, n_train, same_z_cost):
     return match_perms
 
 
-def sync_mat(R, z, max_processes=None):
+def bipartite_match(R, z, max_processes=None):
 
     global glob
 
@@ -113,7 +113,7 @@ def sync_mat(R, z, max_processes=None):
     match_perms_all = {}
     for i, match_perms in enumerate(
         pool.imap_unordered(
-            partial(_sync_mat_wkr, n_train=n_train, same_z_cost=same_z_cost),
+            partial(_bipartite_match_wkr, n_train=n_train, same_z_cost=same_z_cost),
             list(range(n_train)),
         )
     ):
@@ -126,6 +126,11 @@ def sync_mat(R, z, max_processes=None):
     match_cost[np.diag_indices_from(match_cost)] = np.inf
     match_cost = csr_matrix(match_cost)
 
+    return match_perms_all, match_cost
+
+
+def sync_perm_mat(match_perms_all, match_cost, n_atoms):
+
     tree = minimum_spanning_tree(match_cost, overwrite=True)
 
     perms = np.arange(n_atoms, dtype=int)[None, :]
@@ -135,13 +140,12 @@ def sync_mat(R, z, max_processes=None):
         if perm is not None:
             perms = np.vstack((perms, perm))
     perms = np.unique(perms, axis=0)
-    sys.stdout.write(ui.pass_str('\r[DONE]') + ' Permutation synchronization...')
-    sys.stdout.flush()
+    ui.progr_toggle(is_done=True, disp_str='Permutation synchronization')
 
     return perms
 
 
-def complete_group(perms):
+def complete_sym_group(perms):
 
     perm_added = True
     while perm_added:
@@ -155,8 +159,25 @@ def complete_group(perms):
                     perm_added = True
                     perms = np.vstack((perms, new_perm))
 
-    print(ui.gray_str(' (%d symmetries)' % perms.shape[0]))
+    ui.progr_toggle(is_done=True, disp_str='Symmetry group completion', sec_disp_str='{:d} symmetries'.format(perms.shape[0]))
+
     return perms
+
+
+def find_perms(R, z, max_processes=None):
+
+    n_atoms = len(z)
+
+    # find matching for all pairs
+    match_perms_all, match_cost = bipartite_match(R, z, max_processes)
+    
+    # remove inconsistencies
+    match_perms = sync_perm_mat(match_perms_all, match_cost, n_atoms)
+
+    # commplete symmetric group
+    sym_group_perms = complete_sym_group(match_perms)
+
+    return sym_group_perms
 
 
 def inv_perm(perm):

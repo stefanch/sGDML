@@ -26,16 +26,19 @@ This module contains all routines for training GDML and sGDML models.
 
 from __future__ import print_function
 
+import logging
 import multiprocessing as mp
+import inspect
 import sys
 import timeit
 import warnings
 from functools import partial
+from psutil import virtual_memory
 
 import numpy as np
 import scipy as sp
 
-from . import __version__
+from . import __version__, MAX_PRINT_WIDTH, LOG_LEVELNAME_WIDTH
 from .predict import GDMLPredict
 from .utils import desc, io, perm, ui
 
@@ -65,7 +68,13 @@ def _share_array(arr_np, typecode_or_type):
 
 
 def _assemble_kernel_mat_wkr(
-    j, n_perms, tril_perms_lin, sig, use_E_cstr=False, j_end=None
+    j,
+    n_perms,
+    tril_perms_lin,
+    sig,
+    use_E_cstr=False,
+    cols_m_limit=None,
+    cols_3n_keep_idxs=None,
 ):
     r"""
     Compute one row and column of the force field kernel matrix.
@@ -91,9 +100,13 @@ def _assemble_kernel_mat_wkr(
         use_E_cstr : bool, optional
             True: include energy constraints in the kernel,
             False: default (s)GDML kernel.
-        j_end : int
-            Only generate the columns up to 'j_end'. This creates a
-            M*3N x j_end*3N kernel matrix, instead of M*3N x M*3N.
+        cols_m_limit : int, optional
+            Only generate the columns up to 'cols_m_limit'. This creates a
+            M*3N x cols_m_limit*3N kernel matrix, instead of M*3N x M*3N.
+        cols_3n_keep_idxs : :obj:`numpy.ndarray`, optional
+            Only generate columns with the given indices in the 3N x 3N
+            kernel function. The resulting kernel matrix will have dimension
+            M*3N x M*len(cols_3n_keep_idxs).
 
     Returns
     -------
@@ -110,22 +123,35 @@ def _assemble_kernel_mat_wkr(
     K = np.frombuffer(glob['K']).reshape(glob['K_shape'])
 
     n_train, dim_d, dim_i = R_d_desc.shape
-    j_end = n_train if j_end is None else j_end
+    dim_keep = dim_i if cols_3n_keep_idxs is None else cols_3n_keep_idxs.size
+    cols_m_limit = n_train if cols_m_limit is None else cols_m_limit
 
     # TODO: document this exception
-    if use_E_cstr and not (j_end is None or j_end == n_train):
+    if use_E_cstr and not (cols_m_limit is None or cols_m_limit == n_train):
         raise ValueError(
-            '\'use_E_cstr\'- and \'j_end\'-parameters are mutually exclusive!'
+            '\'use_E_cstr\'- and \'cols_m_limit\'-parameters are mutually exclusive!'
+        )
+
+    # TODO: document this exception
+    if use_E_cstr and cols_3n_keep_idxs is not None:
+        raise ValueError(
+            '\'use_E_cstr\'- and \'cols_3n_keep_idxs\'-parameters are mutually exclusive!'
         )
 
     mat52_base_div = 3 * sig ** 4
     sqrt5 = np.sqrt(5.0)
     sig_pow2 = sig ** 2
 
-    base = np.arange(dim_i)  # base set of indices
-    blk_j = base + j * dim_i
+    if cols_3n_keep_idxs is None:
+        cols_3n_keep_idxs = np.arange(dim_i)
 
-    E_off = dim_i * j_end
+    base = np.arange(dim_i)  # base set of indices
+    base_keep = np.arange(dim_keep)
+
+    blk_j = base + j * dim_i
+    blk_j_keep = base_keep + j * dim_keep  # NEW
+
+    E_off = dim_i * cols_m_limit
 
     # Create permutated variants of 'rj_desc' and 'rj_d_desc'.
     rj_desc_perms = np.reshape(
@@ -136,8 +162,8 @@ def _assemble_kernel_mat_wkr(
     )
 
     for i in range(j, n_train):
-
-        blk_i = base[:, np.newaxis] + i * dim_i
+        blk_i = base[:, None] + i * dim_i
+        blk_i_keep = base_keep[:, None] + i * dim_keep
 
         diff_ab_perms = R_desc[i, :] - rj_desc_perms
         norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
@@ -154,17 +180,24 @@ def _assemble_kernel_mat_wkr(
             ((sig_pow2 + sig * norm_ab_perms) * mat52_base_perms),
         )
 
-        # K[blk_i, blk_j] = K[blk_j, blk_i] = R_d_desc[i, :, :].T.dot(diff_ab_outer_perms)
-        K[blk_i, blk_j] = R_d_desc[i, :, :].T.dot(diff_ab_outer_perms)
+        ## K[blk_i, blk_j] = K[blk_j, blk_i] = R_d_desc[i, :, :].T.dot(diff_ab_outer_perms)
+        # K[blk_i, blk_j] = R_d_desc[i, :, :].T.dot(diff_ab_outer_perms)
+        # if (
+        #    i < cols_m_limit
+        # ):  # symmetric extension is not always possible, if a partial kernel is assembled
+        #    K[blk_j, blk_i] = K[blk_i, blk_j]
+
+        k = R_d_desc[i, :, :].T.dot(diff_ab_outer_perms)
+        K[blk_i, blk_j_keep[None, :]] = k[:, cols_3n_keep_idxs]
         if (
-            i < j_end
+            i < cols_m_limit
         ):  # symmetric extension is not always possible, if a partial kernel is assembled
-            K[blk_j, blk_i] = K[blk_i, blk_j]
+            K[blk_j[:, None], blk_i_keep.T] = k[cols_3n_keep_idxs, :].T
 
     if use_E_cstr:
         for i in range(n_train):
 
-            blk_i = base[:, np.newaxis] + i * dim_i
+            blk_i = base[:, None] + i * dim_i
 
             diff_ab_perms = R_desc[i, :] - rj_desc_perms
             norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
@@ -187,8 +220,30 @@ def _assemble_kernel_mat_wkr(
 
 
 class GDMLTrain(object):
-    def __init__(self, max_processes=None):
+    def __init__(self, max_processes=None, use_torch=False):
+        """
+        Train sGDML force fields.
+
+        This class is used to train models using different closed-form
+        and numerical solvers. GPU support is provided
+        through PyTorch (requires optional `torch` dependency to be
+        installed) for some solvers.
+
+        Parameters
+        ----------
+                max_processes : int, optional
+                        Limit the max. number of processes. Otherwise
+                        all CPU cores are used. This parameters has no
+                        effect if `use_torch=True`
+                use_torch : boolean, optional
+                        Use PyTorch to calculate predictions (if
+                        supported by solver)
+        """
+
+        self.log = logging.getLogger(__name__)
+
         self._max_processes = max_processes
+        self._use_torch = use_torch
 
     def create_task(
         self,
@@ -202,6 +257,7 @@ class GDMLTrain(object):
         use_E=True,
         use_E_cstr=False,
         use_cprsn=False,
+        model0=None,  # TODO: document me
     ):
         """
         Create a data structure of custom type `task`.
@@ -261,10 +317,10 @@ class GDMLTrain(object):
 
         if use_E and 'E' not in train_dataset:
             raise ValueError(
-                'No energy labels found in dataset!'
-                + '\n       By default, force fields are always reconstructed including the'
-                + '\n       corresponding potential energy surface (this can be turned off).\n'
-                + '\n       However, the energy labels are missing in the provided dataset.\n'
+                'No energy labels found in dataset!\n'
+                + 'By default, force fields are always reconstructed including the\n'
+                + 'corresponding potential energy surface (this can be turned off).\n'
+                + 'However, the energy labels are missing in the provided dataset.\n'
             )
 
         use_E_cstr = use_E and use_E_cstr
@@ -274,27 +330,47 @@ class GDMLTrain(object):
         md5_valid = io.dataset_md5(valid_dataset)
         ui.progr_toggle(is_done=True, disp_str='Hashing dataset(s)...')
 
-        ui.progr_toggle(
-            is_done=False, disp_str='Sampling training and validation subset...'
-        )
-        if 'E' in train_dataset:
-            idxs_train = self.draw_strat_sample(train_dataset['E'], n_train)
-        else:
-            idxs_train = np.random.choice(
-                np.arange(train_dataset['F'].shape[0]), n_train, replace=False
+        if model0 is not None and (
+            md5_train != model0['md5_train'] or md5_valid != model0['md5_valid']
+        ):
+            raise ValueError(
+                'Provided training and/or validation dataset(s) do(es) not match the ones in the initial model.'
             )
 
-        excl_idxs = idxs_train if md5_train == md5_valid else None
-        if 'E' in valid_dataset:
-            idxs_valid = self.draw_strat_sample(valid_dataset['E'], n_valid, excl_idxs)
-        else:
-            idxs_valid_all = np.setdiff1d(
-                np.arange(valid_dataset['F'].shape[0]), excl_idxs, assume_unique=True
+        if model0 is None:
+            ui.progr_toggle(
+                is_done=False, disp_str='Sampling training and validation subsets...'
             )
-            idxs_valid = np.random.choice(idxs_valid_all, n_valid, replace=False)
-        ui.progr_toggle(
-            is_done=True, disp_str='Sampling training and validation subset...'
-        )
+            if 'E' in train_dataset:
+                idxs_train = self.draw_strat_sample(train_dataset['E'], n_train)
+            else:
+                idxs_train = np.random.choice(
+                    np.arange(train_dataset['F'].shape[0]), n_train, replace=False
+                )
+
+            excl_idxs = idxs_train if md5_train == md5_valid else None
+            if 'E' in valid_dataset:
+                idxs_valid = self.draw_strat_sample(
+                    valid_dataset['E'], n_valid, excl_idxs
+                )
+            else:
+                idxs_valid_all = np.setdiff1d(
+                    np.arange(valid_dataset['F'].shape[0]),
+                    excl_idxs,
+                    assume_unique=True,
+                )
+                idxs_valid = np.random.choice(idxs_valid_all, n_valid, replace=False)
+            ui.progr_toggle(
+                is_done=True, disp_str='Sampling training and validation subsets...'
+            )
+        else:
+            idxs_train = model0['idxs_train']
+            idxs_valid = model0['idxs_valid']
+
+            ui.progr_toggle(
+                is_done=True,
+                disp_str='Transfering training and validation subsets from initial model...',
+            )
 
         R_train = train_dataset['R'][idxs_train, :, :]
         task = {
@@ -323,35 +399,102 @@ class GDMLTrain(object):
         if 'lattice' in train_dataset:
             task['lattice'] = train_dataset['lattice']
 
-        if use_sym:
+        if 'r_unit' in train_dataset and 'e_unit' in train_dataset:
+            task['r_unit'] = train_dataset['r_unit']
+            task['e_unit'] = train_dataset['e_unit']
 
-            n_train = R_train.shape[0]
-            R_train_sync_mat = R_train
-            if n_train > 1000:
-                R_train_sync_mat = R_train[np.random.choice(n_train, 1000), :, :]
-                print(
-                    ui.info_str('[INFO]')
-                    + ' Symmetry search is limited to a random subset of 1000/'
-                    + str(n_train)
-                    + ' training points for faster convergence.'
+        if model0 is None:
+            if use_sym:
+                n_train = R_train.shape[0]
+                R_train_sync_mat = R_train
+                if n_train > 1000:
+                    R_train_sync_mat = R_train[np.random.choice(n_train, 1000), :, :]
+                    self.log.info(
+                        'Symmetry search has been restricted to a random subset of 1000/{:d} training points for faster convergence.'.format(
+                            n_train
+                        )
+                    )
+
+                task['perms'] = perm.find_perms(
+                    R_train_sync_mat, train_dataset['z'], self._max_processes
                 )
-
-            task['perms'] = perm.sync_mat(
-                R_train_sync_mat, train_dataset['z'], self._max_processes
-            )
-            task['perms'] = perm.complete_group(task['perms'])
+            else:
+                task['perms'] = np.arange(train_dataset['R'].shape[1])[
+                    None, :
+                ]  # no symmetries
         else:
-            task['perms'] = np.arange(train_dataset['R'].shape[1])[
-                None, :
-            ]  # no symmetries
+            task['perms'] = model0['perms']
+            self.log.info('Reusing permutations from initial model.')
+
+        if model0 is not None:
+            if 'alphas_F' in model0:
+                self.log.info('Reusing alphas from initial model.')
+                task['alphas0_F'] = model0['alphas_F']
 
         return task
+
+    def create_model(
+        self,
+        task,
+        solver,
+        R_desc,
+        R_d_desc,
+        tril_perms_lin,
+        std,
+        alphas_F,
+        alphas_E=None,
+    ):
+
+        r_dim = R_d_desc.shape[2]
+        r_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, alphas_F.reshape(-1, r_dim))
+
+        model = {
+            'type': 'm',
+            'code_version': __version__,
+            'dataset_name': task['dataset_name'],
+            'dataset_theory': task['dataset_theory'],
+            'solver': solver,
+            'z': task['z'],
+            'idxs_train': task['idxs_train'],
+            'md5_train': task['md5_train'],
+            'idxs_valid': task['idxs_valid'],
+            'md5_valid': task['md5_valid'],
+            'n_test': 0,
+            'md5_test': None,
+            'f_err': {'mae': np.nan, 'rmse': np.nan},
+            'R_desc': R_desc.T,
+            'R_d_desc_alpha': r_d_desc_alpha,
+            'c': 0.0,
+            'std': std,
+            'sig': task['sig'],
+            'alphas_F': alphas_F,  # needed?
+            'perms': task['perms'],
+            'tril_perms_lin': tril_perms_lin,
+            'use_E': task['use_E'],
+            'use_cprsn': task['use_cprsn'],
+        }
+
+        if task['use_E']:
+            model['e_err'] = {'mae': np.nan, 'rmse': np.nan}
+
+            if task['use_E_cstr']:
+                model['alphas_E'] = alphas_E
+
+        if 'lattice' in task:
+            model['lattice'] = task['lattice']
+
+        if 'r_unit' in task and 'e_unit' in task:
+            model['r_unit'] = task['r_unit']
+            model['e_unit'] = task['e_unit']
+
+        return model
 
     def train(  # noqa: C901
         self,
         task,
         solver,  # TODO: document me
         cprsn_callback=None,
+        desc_callback=None,
         ker_progr_callback=None,
         solve_callback=None,
     ):
@@ -368,6 +511,15 @@ class GDMLTrain(object):
                         Total number of atoms.
                     n_atoms_kept : float or None, optional
                         Number of atoms kept after compression.
+            desc_callback : callable, optional
+                Descriptor and descriptor Jacobian generation status.
+                    current : int
+                        Current progress (number of completed descriptors).
+                    total : int
+                        Task size (total number of descriptors to create).
+                    done_str : :obj:`str`, optional
+                        Once complete, this string contains the
+                        time it took complete this task (seconds).
             ker_progr_callback : callable, optional
                 Kernel assembly progress function that takes three
                 arguments:
@@ -435,84 +587,42 @@ class GDMLTrain(object):
         R_desc = np.empty([n_train, dim_d])
         R_d_desc = np.empty([n_train, dim_d, dim_i])
 
-        for i in range(n_train):
-            r = task['R_train'][i]
+        # Generate descriptor and their Jacobians
+        start = timeit.default_timer()
+        pool = mp.Pool(self._max_processes)
+        for i, r_desc_r_d_desc in enumerate(
+            pool.imap(partial(desc.from_r, lat_and_inv=lat_and_inv), task['R_train'])
+        ):
+            R_desc[i, :], R_d_desc[i, :, :] = r_desc_r_d_desc
 
-            pdist = desc.pdist(r, lat_and_inv)
+            if desc_callback is not None:
+                if i + 1 == n_train:
+                    stop = timeit.default_timer()
+                    dur_s = (stop - start) / 2
+                    sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
+                    desc_callback(
+                        i + 1, n_train, sec_disp_str=sec_disp_str
+                    )
+                else:
+                    desc_callback(i + 1, n_train)
+        pool.close()
 
-            R_desc[i, :] = desc.r_to_desc(r, pdist)
-            R_d_desc[i, :, :] = desc.r_to_d_desc(r, pdist, lat_and_inv)
-
-
-
-            # #print(R_d_desc[i, 0, :][:,None].dot(R_d_desc[i, 1, :][None,:]))
-
-            # import matplotlib
-            # import matplotlib.pyplot as plt
-
-            # trilperm = np.random.permutation(dim_d)
-
-            # DESC = np.zeros((dim_d,dim_d))
-            # for b in range(0,1):
-            #     for a in range(36):
-                    
-            #         #ig, ax = plt.subplots()
-            #         #im = ax.imshow(R_d_desc[i, :, b][:,None].dot(R_d_desc[i, :, a][None,:]))
-
-            #         DESC += R_d_desc[i, :, a][:,None].dot(R_d_desc[i, :, b][None,:])
-
-            #         #DESC += R_d_desc[i, :, a][:,None].dot(R_d_desc[i, trilperm, b][None,:])
-
-            #         #plt.show()
-
-            # fig, ax = plt.subplots()
-            # im = ax.imshow(DESC, cmap=plt.get_cmap('bwr'))
-            # plt.show()
-
-            # import sys
-            # sys.exit()
-
-
-
-            #import timeit
-
-            #def _dummy_predict():
-
-            #    global r_to_d_desc
-
-            #    desc.r_to_d_desc(r, pdist, lat_and_inv)
-
-            #r_to_d_desc
-
-
-            
-
-
-            #print(timeit.timeit(partial(desc.r_to_d_desc2, r=r, pdist=pdist, lat_and_inv=lat_and_inv), number=1000))
-
-            
-            #import sys
-            #sys.exit()
-
-        if task['use_cprsn'] and n_perms > 1:
-            _, cprsn_keep_idxs = np.unique(
-                np.sort(task['perms'], axis=0), axis=1, return_index=True
+        if solver == 'cg':
+            self.log.info('Using CG solver with Nystroem *preconditioner*.')
+        elif solver == 'fk':
+            self.log.info(
+                'Using CG solver on Nystroem *approximation* with M support points.'
             )
 
-            # _, _, inv_idxs = np.unique(
-            #     np.sort(task['perms'], axis=0), axis=1, return_index=True, return_inverse=True
-            # )
+        cprsn_keep_idxs_lin = None
+        if task['use_cprsn'] and n_perms > 1:
 
-            # R_d_desc = R_d_desc.reshape(n_train,dim_d,n_atoms,3)
-            # task = dict(task)  #
-            # for kii,ki in enumerate(cprsn_keep_idxs):
-            #     idx_to = ki
-            #     idxs_from = np.where(inv_idxs==kii)[0]
-
-            #     for fr in idxs_from[1:]:
-            #         R_d_desc[:,:,idx_to,:] += R_d_desc[:,:,fr,:] / len(idxs_from)
-            #         task['F_train'][:,idx_to,:] += task['F_train'][:,fr,:] / len(idxs_from)
-            # R_d_desc = R_d_desc.reshape(n_train,dim_d,-1)
+            _, cprsn_keep_idxs, contr_map = np.unique(
+                np.sort(task['perms'], axis=0),
+                axis=1,
+                return_index=True,
+                return_inverse=True,
+            )
 
             cprsn_keep_idxs_lin = (
                 np.arange(dim_i).reshape(n_atoms, -1)[cprsn_keep_idxs, :].ravel()
@@ -521,15 +631,9 @@ class GDMLTrain(object):
             if cprsn_callback is not None:
                 cprsn_callback(n_atoms, cprsn_keep_idxs.shape[0])
 
-            task = dict(task)  # enable item assignment in NPZ
-            task['F_train'] = task['F_train'][:, cprsn_keep_idxs, :]
-            R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
-
-            # cprsn_keep_idxs_lin_full = ((np.arange(n_train) * dim_i)[None,:] + cprsn_keep_idxs_lin[:,None]).T.ravel() # new
-
             if solver != 'analytic':
                 raise ValueError(
-                    'Iterative solvers and compression are mutually exclusive for now.'
+                    'Iterative solvers and compression are mutually exclusive options for now.'
                 )
 
         Ft = task['F_train'].ravel()
@@ -544,8 +648,22 @@ class GDMLTrain(object):
 
         # for nystrom precondiner if cg solver is used
         M = int(np.ceil(np.sqrt(n_train)))
-        # M = n_train
-        # M = 100
+        if solver == 'cg':
+
+            mem = virtual_memory()
+            mem_avail_byte = mem.available
+            nem_req_per_M_byte = n_train * (n_atoms * 3) ** 2 * 8
+
+            M_max = int(np.round((mem_avail_byte * 0.5) / nem_req_per_M_byte))
+            M = min(
+                min(n_train, M_max), int(np.ceil(n_train / 4))
+            )  # max depends on available memory, but never more than fourth of all training points
+
+            self.log.info(
+                '{:d} out of {:d} training points were chosen as support for Nystrom preconditioner.'.format(
+                    M, n_train
+                )
+            )
 
         y = Ft
         if task['use_E'] and task['use_E_cstr']:
@@ -563,21 +681,16 @@ class GDMLTrain(object):
             sig,
             use_E_cstr=task['use_E_cstr'],
             progr_callback=ker_progr_callback,
-            j_end=None if solver == 'analytic' else M,
+            cols_m_limit=None if solver == 'analytic' else M,
+            cols_3n_keep_idxs=cprsn_keep_idxs_lin,
         )
 
-        # test 2
+        if solver == 'fk':
+            R_desc = R_desc[:M, :]
+            R_d_desc = R_d_desc[:M]
 
-        # use_ny = True
-        # M = 90
-        # K_mm = K[:M*R_d_desc.shape[2], :]
-        # K_mm = K_mm[:, :M*R_d_desc.shape[2]]
-        # K_nm = K[:, :M*R_d_desc.shape[2]]
-        # K_mm_mn = np.linalg.lstsq(K_mm,K_nm.T, rcond=-1)[0]
-        # K =  K_nm.dot(K_mm_mn)
-        # R_d_desc = R_d_desc[:M, :, :]
-
-        # test 2
+            task = dict(task)
+            task['idxs_train'] = task['idxs_train'][:M]
 
         # test
 
@@ -608,92 +721,56 @@ class GDMLTrain(object):
             solve_callback(is_done=False)
 
         if solver == 'analytic':
-            # K = K[:,cprsn_keep_idxs_lin_full]
-            # R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
+
+            if cprsn_keep_idxs_lin is not None:
+                R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
+
             alphas = self._solve_closed(K, y, lam, callback=solve_callback)
         elif solver == 'cg':
+
+            alphas_F = None
+            if 'alphas0_F' in task:
+                print('traiing with alphas0_F')
+                alphas_F = task['alphas0_F']
+
             alphas = self._solve_iterative_nystrom_precon(
-                K, y, R_desc, R_d_desc, task, tril_perms_lin, callback=solve_callback
+                K,
+                y,
+                R_desc,
+                R_d_desc,
+                task,
+                tril_perms_lin,
+                alphas0_F=alphas_F,
+                callback=solve_callback,
             )
+
         elif solver == 'fk':
             alphas = self._solve_iterative_fk(K, y, callback=solve_callback)
         else:
             raise ValueError(
                 'Unknown solver keyword \'{}\'.'.format(solver)
             )  # TODO: refine
-            # K_nm = K[:,cprsn_keep_idxs_lin_full]
-            # K_mm = K_nm[cprsn_keep_idxs_lin_full,:]
 
-        # test 2
-
-        # alphas = K_mm_mn.dot(alphas)  # remove me later
-
-        # test 2
-
-        # stop = timeit.default_timer()
-
+        alphas_E = None
         alphas_F = alphas
         if task['use_E_cstr']:
             alphas_E = alphas[-n_train:]
             alphas_F = alphas[:-n_train]
 
-        # test 2
+        model = self.create_model(
+            task, solver, R_desc, R_d_desc, tril_perms_lin, Ft_std, alphas_F, alphas_E
+        )
 
-        if solver == 'fk':
-            R_desc = R_desc[:M, :]
-            R_d_desc = R_d_desc[:M]
-            # R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
-
-            task = dict(task)
-            task['idxs_train'] = task['idxs_train'][:M]
-
-        # test 2
-
-        r_dim = R_d_desc.shape[2]
-        r_d_desc_alpha = [
-            rj_d_desc.dot(alphas_F[(j * r_dim) : ((j + 1) * r_dim)])
-            for j, rj_d_desc in enumerate(R_d_desc)
-        ]
-
-        model = {
-            'type': 'm',
-            'code_version': __version__,
-            'dataset_name': task['dataset_name'],
-            'dataset_theory': task['dataset_theory'],
-            'solver': solver,
-            'z': task['z'],
-            'idxs_train': task['idxs_train'],
-            'md5_train': task['md5_train'],
-            'idxs_valid': task['idxs_valid'],
-            'md5_valid': task['md5_valid'],
-            'n_test': 0,
-            'md5_test': None,
-            'f_err': {'mae': np.nan, 'rmse': np.nan},
-            'R_desc': R_desc.T,
-            'R_d_desc_alpha': r_d_desc_alpha,
-            'c': 0.0,
-            'std': Ft_std,
-            'sig': sig,
-            'perms': task['perms'],
-            'tril_perms_lin': tril_perms_lin,
-            'use_E': task['use_E'],
-            'use_cprsn': task['use_cprsn'],
-        }
-
-        if task['use_E']:
-            model['e_err'] = {'mae': np.nan, 'rmse': np.nan}
-
-            if task['use_E_cstr']:
-                model['alphas_E'] = alphas_E
+        if model['use_E']:
+            c = self._recov_int_const(model, task)
+            if c is None:
+                model['use_E'] = False
             else:
-                model['c'] = self._recov_int_const(model, task)
-
-        if 'lattice' in task:
-            model['lattice'] = task['lattice']
+                model['c'] = c
 
         return model
 
-    def _recov_int_const(self, model, task):
+    def _recov_int_const(self, model, task):  # TODO: document e_err_inconsist return
         """
         Estimate the integration constant for a force field model.
 
@@ -728,7 +805,9 @@ class GDMLTrain(object):
                 detected in the provided dataset.
         """
 
-        gdml = GDMLPredict(model)
+        gdml = GDMLPredict(
+            model, max_processes=self._max_processes
+        )  # , use_torch=self._use_torch
         n_train = task['E_train'].shape[0]
 
         R = task['R_train'].reshape(n_train, -1)
@@ -736,68 +815,45 @@ class GDMLTrain(object):
         E_pred, _ = gdml.predict(R)
         E_ref = np.squeeze(task['E_train'])
 
-        # E_ref = E_ref[0] # debug remove me NEW
-
-        # _,F_pred = gdml.predict(R)
-        # print
-        # print task['F_train'].shape
-        # print E_pred + np.sum(E_ref - E_pred) / E_ref.shape[0]
-        # print E_ref
-
-        # import matplotlib.pyplot as plt
-        # plt.plot(E_ref, '--', label='ref')
-        # plt.plot(E_pred + np.sum(E_ref - E_pred) / E_ref.shape[0], label='pred')
-        # plt.plot(E_pred, label='pred')
-        # plt.title('energy')
-        # plt.legend()
-        # plt.show()
-
-        # plt.plot(task['F_train'][:,0,2] , '--', label='ref')
-        # plt.plot(F_pred[:,2], label='pred')
-        # plt.title('force')
-        # plt.legend()
-        # plt.show()
-
         e_fact = np.linalg.lstsq(
             np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref, rcond=-1
         )[0][0]
         corrcoef = np.corrcoef(E_ref, E_pred)[0, 1]
 
         if np.sign(e_fact) == -1:
-            raise ValueError(
-                'Provided dataset contains gradients instead of force labels (flipped sign). Please correct!'
+            self.log.warning(
+                'The provided dataset contains gradients instead of force labels (flipped sign). Please correct!\n'
+                + ui.color_str('Note:', bold=True) + 'Note: The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
+            return None
 
         if corrcoef < 0.95:
-            raise ValueError(
-                'Inconsistent energy labels detected!'
-                + '\n       The predicted energies for the training data are only weakly correlated'
-                + '\n       with the reference labels (correlation coefficient %.2f) which indicates'
-                % corrcoef
-                + '\n       that the issue is most likely NOT just a unit conversion error.\n'
-                + '\n       Troubleshooting tips:'
-                + '\n         (1) Verify correct correspondence between geometries and labels in'
-                + '\n             the provided dataset.'
-                + '\n         (2) Verify consistency between energy and force labels.'
-                + '\n               - Correspondence correct?'
-                + '\n               - Same level of theory?'
-                + '\n               - Accuracy of forces (if numerical)?'
-                + '\n         (3) Is the training data spread too broadly (i.e. weakly sampled'
-                + '\n             transitions between example clusters)?'
-                + '\n         (4) Are there duplicate geometries in the training data?'
-                + '\n         (5) Are there any corrupted data points (e.g. parsing errors)?\n'
+            self.log.warning(
+                'Inconsistent energy labels detected!\n'
+                + 'The predicted energies for the training data are only weakly correlated with the reference labels (correlation coefficient {:.2f}) which indicates that the issue is most likely NOT just a unit conversion error.\n\n'.format(corrcoef)
+                + ui.color_str('Troubleshooting tips:\n', bold=True)
+                + ui.wrap_indent_str('(1) ', 'Verify the correct correspondence between geometries and labels in the provided dataset.') + '\n'
+                + ui.wrap_indent_str('(2) ', 'Verify the consistency between energy and force labels.') + '\n'
+                + ui.wrap_indent_str('    - ', 'Correspondence correct?') + '\n'
+                + ui.wrap_indent_str('    - ', 'Same level of theory?') + '\n'
+                + ui.wrap_indent_str('    - ', 'Accuracy of forces (if numerical)?') + '\n'
+                + ui.wrap_indent_str('(3) ', 'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?') + '\n'
+                + ui.wrap_indent_str('(4) ', 'Are there duplicate geometries in the training data?') + '\n'
+                + ui.wrap_indent_str('(5) ', 'Are there any corrupted data points (e.g. parsing errors)?') + '\n\n'
+                + ui.color_str('Note:', bold=True) + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
+            return None
 
         if np.abs(e_fact - 1) > 1e-1:
-            raise ValueError(
-                'Different scales in energy vs. force labels detected!'
-                + '\n       The integrated forces differ from energy labels by factor ~%.2E.\n'
-                % e_fact
-                + '\n       Troubleshooting tips:'
-                + '\n         (1) Verify consistency of units in energy and force labels.'
-                + '\n         (2) Is the training data spread too broadly (i.e. weakly sampled'
-                + '\n             transitions between example clusters)?\n'
+            self.log.warning(
+                'Different scales in energy vs. force labels detected!\n'
+                + 'The integrated forces differ from the energy labels by factor ~{:.2f}, meaning that the trained model will likely fail to predict energies accurately.\n\n'.format(e_fact)
+                + ui.color_str('Troubleshooting tips:\n', bold=True)
+                + ui.wrap_indent_str('(1) ', 'Verify consistency of units in energy and force labels.') + '\n'
+                + ui.wrap_indent_str('(2) ', 'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?') + '\n\n'
+                + ui.color_str('Note:', bold=True) + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
+            return None
 
         # Least squares estimate for integration constant.
         return np.sum(E_ref - E_pred) / E_ref.shape[0]
@@ -811,7 +867,8 @@ class GDMLTrain(object):
         sig,
         use_E_cstr=False,
         progr_callback=None,
-        j_end=None,
+        cols_m_limit=None,
+        cols_3n_keep_idxs=None,
     ):
         r"""
         Compute force field kernel matrix.
@@ -850,9 +907,13 @@ class GDMLTrain(object):
                     done_str : :obj:`str`, optional
                         Once complete, this string contains the
                         time it took to assemble the kernel (seconds).
-            j_end : int
-                Only generate the columns up to 'j_end'. This creates a
-                M*3N x j_end*3N kernel matrix, instead of M*3N x M*3N.
+            cols_m_limit : int, optional
+                Only generate the columns up to index 'cols_m_limit'. This creates
+                a M*3N x cols_m_limit*3N kernel matrix, instead of M*3N x M*3N.
+            cols_3n_keep_idxs : :obj:`numpy.ndarray`, optional
+                Only generate columns with the given indices in the 3N x 3N
+                kernel function. The resulting kernel matrix will have dimension
+                M*3N x M*len(cols_3n_keep_idxs).
 
 
         Returns
@@ -865,16 +926,21 @@ class GDMLTrain(object):
 
         n_train, dim_d, dim_i = R_d_desc.shape
 
-        if j_end == None:
-            j_end = n_train
+        if cols_m_limit == None:
+            cols_m_limit = n_train
 
-        dim_K = n_train * dim_i
-        dim_K_ny = j_end * dim_i
-        dim_K += n_train if use_E_cstr else 0
-        dim_K_ny += j_end if use_E_cstr else 0
+        K_rows, K_cols = n_train * dim_i, cols_m_limit * dim_i
 
-        K = mp.RawArray('d', dim_K_ny * dim_K)
-        glob['K'], glob['K_shape'] = K, (dim_K, dim_K_ny)
+        if use_E_cstr:
+            K_rows += n_train
+            K_cols += n_train
+
+        if cols_3n_keep_idxs is not None:
+            cols_redux = (dim_i - cols_3n_keep_idxs.size) * cols_m_limit
+            K_cols -= cols_redux
+
+        K = mp.RawArray('d', K_rows * K_cols)
+        glob['K'], glob['K_shape'] = K, (K_rows, K_cols)
         glob['R_desc'], glob['R_desc_shape'] = _share_array(R_desc, 'd')
         glob['R_d_desc'], glob['R_d_desc_shape'] = _share_array(R_d_desc, 'd')
 
@@ -882,10 +948,9 @@ class GDMLTrain(object):
 
         pool = mp.Pool(self._max_processes)
 
-        todo = (j_end ** 2 - j_end) // 2 + j_end
-
-        if j_end is not n_train:
-            todo += (n_train - j_end) * j_end
+        todo = (cols_m_limit ** 2 - cols_m_limit) // 2 + cols_m_limit
+        if cols_m_limit is not n_train:
+            todo += (n_train - cols_m_limit) * cols_m_limit
 
         done_total = 0
         for done in pool.imap_unordered(
@@ -895,17 +960,21 @@ class GDMLTrain(object):
                 tril_perms_lin=tril_perms_lin,
                 sig=sig,
                 use_E_cstr=use_E_cstr,
-                j_end=j_end,
+                cols_m_limit=cols_m_limit,
+                cols_3n_keep_idxs=cols_3n_keep_idxs,
             ),
-            list(range(j_end)),
+            list(range(cols_m_limit)),
         ):
             done_total += done
 
             if progr_callback is not None:
                 if done_total == todo:
                     stop = timeit.default_timer()
+
+                    dur_s = (stop - start) / 2
+                    sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
                     progr_callback(
-                        done_total, todo, sec_disp_str='(%.1f s)' % ((stop - start) / 2)
+                        done_total, todo, sec_disp_str=sec_disp_str
                     )
                 else:
                     progr_callback(done_total, todo)
@@ -947,8 +1016,12 @@ class GDMLTrain(object):
                 Array of indices that form the sample.
         """
 
-        if T.size == n:
+        if T.size == n: # TODO: this only works if excl_idxs=None
             return np.arange(n)
+
+        if n == 1:
+            idxs_all_non_excl = np.setdiff1d(np.arange(T.size), excl_idxs, assume_unique=True)
+            return np.array([np.random.choice(idxs_all_non_excl)])
 
         # Freedman-Diaconis rule
         h = 2 * np.subtract(*np.percentile(T, [75, 25])) / np.cbrt(n)
@@ -1017,33 +1090,38 @@ class GDMLTrain(object):
 
     def _solve_closed(self, K, y, lam, callback=None):
 
-        K[np.diag_indices_from(K)] -= lam  # regularize
-
         start = timeit.default_timer()
 
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
 
-            try:
-                # Cholesky
-                L, lower = sp.linalg.cho_factor(
-                    -K, overwrite_a=True, check_finite=False
-                )
-                alphas = -sp.linalg.cho_solve(
-                    (L, lower), y, overwrite_b=True, check_finite=False
-                )
-            except Exception:
-                # LU
-                alphas = sp.linalg.solve(
-                    K, y, overwrite_a=True, overwrite_b=True, check_finite=False
-                )
+            if K.shape[0] == K.shape[1]:
 
-        # alphas = np.linalg.lstsq(K,y)[0]
+                K[np.diag_indices_from(K)] -= lam  # regularize
+
+                try:
+                    # Cholesky
+                    L, lower = sp.linalg.cho_factor(
+                        -K, overwrite_a=True, check_finite=False
+                    )
+                    alphas = -sp.linalg.cho_solve(
+                        (L, lower), y, overwrite_b=True, check_finite=False
+                    )
+                except Exception:
+                    # LU
+                    alphas = sp.linalg.solve(
+                        K, y, overwrite_a=True, overwrite_b=True, check_finite=False
+                    )
+            else:
+                # least squares
+                alphas = np.linalg.lstsq(K, y, rcond=-1)[0]
 
         stop = timeit.default_timer()
 
         if callback is not None:
-            sec_disp_str = '(%.1f s)' % ((stop - start) / 2)
+
+            dur_s = (stop - start) / 2
+            sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
             callback(is_done=True, sec_disp_str=sec_disp_str)
 
         return alphas

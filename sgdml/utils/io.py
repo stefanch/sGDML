@@ -214,8 +214,16 @@ def dataset_md5(dataset):
         keys.append('E')
     keys.append('F')
 
-    for key in keys:
-        md5_hash.update(hashlib.md5(dataset[key].ravel()).digest())
+    opt_keys = ['lattice', 'e_unit', 'E_min', 'E_max', 'E_mean', 'E_var', 'f_unit', 'F_min', 'F_max', 'F_mean', 'F_var']
+    for k in opt_keys:
+        if k in dataset:
+            keys.append(k)
+
+    for k in keys:
+        d = dataset[k]
+        if type(d) is np.ndarray:
+            d = d.ravel()
+        md5_hash.update(hashlib.md5(d).digest())
 
     return md5_hash.hexdigest().encode('utf-8')
 
@@ -269,9 +277,11 @@ def generate_xyz_str(r, z, e=None, f=None, lattice=None):
 
     comment_str = ''
     if lattice is not None:
-        comment_str += 'Lattice=\"{}\" '.format(' '.join(['{:.12g}'.format(l) for l in lattice.T.ravel()]))
+        comment_str += 'Lattice=\"{}\" '.format(
+            ' '.join(['{:.12g}'.format(l) for l in lattice.T.ravel()])
+        )
     if e is not None:
-        comment_str += 'Energy=\"{:.12g}\" '.format(e)
+        comment_str += 'Energy={:.12g} '.format(e)
     comment_str += 'Properties=species:S:1:pos:R:3'
     if f is not None:
         comment_str += ':forces:R:3'
@@ -307,6 +317,7 @@ def lattice_vec_to_par(lat):
 
 
 ### FILE HANDLING
+
 
 def is_file_type(arg, type):
     """
@@ -616,6 +627,7 @@ def is_task_dir_resumeable(
 
 
 ### ARGUMENT VALIDATION
+
 
 def is_strict_pos_int(arg):
     """

@@ -67,7 +67,14 @@ class GDMLTorchPredict(nn.Module):
         model = dict(model)  # hack
 
         torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self._lat_and_inv = None if lat_and_inv is None else (torch.tensor(lat_and_inv[0], device=torch_device), torch.tensor(lat_and_inv[1], device=torch_device))
+        self._lat_and_inv = (
+            None
+            if lat_and_inv is None
+            else (
+                torch.tensor(lat_and_inv[0], device=torch_device),
+                torch.tensor(lat_and_inv[1], device=torch_device),
+            )
+        )
 
         self._batch_size = batch_size
         self._max_memory = int(2 ** 30 * max_memory)
@@ -100,7 +107,9 @@ class GDMLTorchPredict(nn.Module):
 
         if self._lat_and_inv is not None:
             diffs_shape = diffs.shape
-            diffs = desc.pbc_diff_torch(diffs.reshape(-1,3), self._lat_and_inv).reshape(diffs_shape)
+            diffs = desc.pbc_diff_torch(
+                diffs.reshape(-1, 3), self._lat_and_inv
+            ).reshape(diffs_shape)
 
         dists = diffs.norm(dim=-1)
         i, j = np.diag_indices(self._n_atoms)

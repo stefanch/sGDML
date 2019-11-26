@@ -38,7 +38,7 @@ def raw_input_float(prompt):
         try:
             return float(input(prompt))
         except ValueError:
-            print(ui.fail_str('[FAIL]') + ' That is not a valid float.')
+            print(ui.color_str('[FAIL]', fore_color=ui.RED, bold=True) + ' That is not a valid float.')
 
 
 # Assumes that the atoms in each molecule are in the same order.
@@ -116,7 +116,7 @@ parser.add_argument(
 parser.add_argument(
     'energy_col',
     metavar='<energy_col>',
-    type=lambda x: ui.is_strict_pos_int(x),
+    type=lambda x: io.is_strict_pos_int(x),
     help='which column to parse from energy file (zero based)',
     nargs='?',
     default=0,
@@ -139,12 +139,12 @@ dataset_file_name = name + '.npz'
 
 dataset_exists = os.path.isfile(dataset_file_name)
 if dataset_exists and args.overwrite:
-    print(ui.info_str('[INFO]') + ' Overwriting existing dataset file.')
+    print(ui.color_str('[INFO]', bold=True) + ' Overwriting existing dataset file.')
 if not dataset_exists or args.overwrite:
     print('Writing dataset to \'%s\'...' % dataset_file_name)
 else:
     sys.exit(
-        ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name
+        ui.color_str('[FAIL]', fore_color=ui.RED, bold=True) + ' Dataset \'%s\' already exists.' % dataset_file_name
     )
 
 
@@ -161,7 +161,7 @@ E = read_out_file(energies, energy_col)
 n_mols = min(min(R.shape[0], F.shape[0]), E.shape[0])
 if n_mols != R.shape[0] or n_mols != F.shape[0] or n_mols != E.shape[0]:
     print(
-        ui.warn_str('[WARN]')
+        ui.color_str('[WARN]', fore_color=ui.YELLOW, bold=True)
         + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols
     )
 R = R[:n_mols, :, :]
@@ -169,7 +169,7 @@ F = F[:n_mols, :, :]
 E = E[:n_mols]
 
 print(
-    ui.info_str('[INFO]')
+    ui.color_str('[INFO]', bold=True)
     + ' Geometries, forces and energies must have consistent units.'
 )
 R_conv_fact = raw_input_float('Unit conversion factor for geometries: ')
@@ -192,4 +192,4 @@ base_vars = {
 base_vars['md5'] = io.dataset_md5(base_vars)
 
 np.savez_compressed(dataset_file_name, **base_vars)
-print(ui.pass_str('DONE'))
+ui.color_str('[DONE]', fore_color=ui.GREEN, bold=True)

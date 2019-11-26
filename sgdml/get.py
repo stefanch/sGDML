@@ -63,8 +63,8 @@ def download(command, file_name):
         ui.progr_bar(
             size,
             filesize,
-            disp_str='Downloading: %s' % file_name,
-            sec_disp_str='(%s bytes)' % filesize
+            disp_str='Downloading: {}'.format(file_name),
+            sec_disp_str='{:,} bytes'.format(filesize),
         )
     file.close()
 
@@ -107,7 +107,12 @@ def main():
 
     if args.name is not None:
 
-        url = '%sget.php?version=%s&%s=%s' % (base_url, __version__, args.command, args.name)
+        url = '%sget.php?version=%s&%s=%s' % (
+            base_url,
+            __version__,
+            args.command,
+            args.name,
+        )
         print("Contacting server (%s)..." % base_url)
         response = urlopen(url)
         match, score = response.read().decode().split(',')
@@ -119,7 +124,9 @@ def main():
     else:
 
         print('Contacting server (%s)...' % base_url)
-        response = urlopen('%sget.php?version=%s&%s' % (base_url, __version__, args.command))
+        response = urlopen(
+            '%sget.php?version=%s&%s' % (base_url, __version__, args.command)
+        )
         line = response.readlines()
         response.close()
 
@@ -153,7 +160,12 @@ def main():
 
         for idx in down_idxs:
             if idx not in range(len(items)):
-                print(ui.warn_str('[WARN]') + ' Index ' + str(idx) + ' out of range, skipping.')
+                print(
+                    ui.warn_str('[WARN]')
+                    + ' Index '
+                    + str(idx)
+                    + ' out of range, skipping.'
+                )
             else:
                 name = items[idx].split(b',')[0].decode("utf-8")
                 if os.path.exists(name):

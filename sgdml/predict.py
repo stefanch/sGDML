@@ -26,6 +26,7 @@ This module contains all routines for evaluating GDML and sGDML models.
 
 from __future__ import print_function
 
+import logging
 import os
 import multiprocessing as mp
 import timeit
@@ -59,220 +60,24 @@ def share_array(arr_np):
     arr = mp.RawArray('d', arr_np.ravel())
     return arr, arr_np.shape
 
-# def _predict_train(i, n_train, std, c, chunk_size, lat_and_inv):
 
-#     #r = r.reshape(-1, 3)
+def _predict_train(r_desc, n_train, std, chunk_size):
 
-#     #if ucell_size is None:
-#     #    pdist = scipy.spatial.distance.pdist(r, 'euclidean')
-#     #else:
-#     #    pdist = scipy.spatial.distance.pdist(
-#     #        r, lambda u, v: np.linalg.norm(desc.pbc_diff(u, v, ucell_size))
-#     #    )
-#     #pdist = scipy.spatial.distance.squareform(pdist, checks=False)
+    res = _predict_wkr((0, n_train), chunk_size, r_desc)
+    res *= std
 
-#     #r_desc = desc.r_to_desc(r, pdist)
-#     # r_d_desc = desc.r_to_d_desc(r, pdist)
-
-#     #r_d_desc = self.R_d_desc[i, :, :]
-
-#     res = _predict_train_wkr(i, (0, n_train), chunk_size)
-#     res *= std
-
-#     #F = desc.r_to_d_desc_op(r, pdist, res[1:], ucell_size).reshape(1, -1)
-#     #F = res[1:].reshape(1,-1).dot(r_d_desc)
-#     #F = res.reshape(1,-1)
-#     F = res
-#     return F
-
-
-# def _predict_train_wkr(i, wkr_start_stop, chunk_size):
-#     """
-#     Compute part of a prediction.
-
-#     The workload will be processed in `b_size` chunks.
-
-#     Parameters
-#     ----------
-#             wkr_start_stop : tuple of int
-#                     Indices of first and last (exclusive) sum element.
-#             r_desc : :obj:`numpy.ndarray`
-#                     1D array containing the descriptor for the query
-#                     geometry.
-
-#     Returns
-#     -------
-#             :obj:`numpy.ndarray`
-#                     Partial prediction of all force components and
-#                     energy (appended to array as last element).
-#     """
-
-#     global glob, sig, n_perms
-
-#     wkr_start, wkr_stop = wkr_start_stop
-
-#     n_train = wkr_stop # NEW
-
-#     R_desc_perms = np.frombuffer(glob['R_desc_perms']).reshape(
-#         glob['R_desc_perms_shape']
-#     )
-#     R_d_desc_alpha_perms = np.frombuffer(glob['R_d_desc_alpha_perms']).reshape(
-#         glob['R_d_desc_alpha_perms_shape']
-#     )
-
-#     #F = np.frombuffer(glob['F']).reshape(glob['F_shape'])
-
-#     #if 'alphas_E_lin' in glob:
-#     #    alphas_E_lin = np.frombuffer(glob['alphas_E_lin']).reshape(
-#     #        glob['alphas_E_lin_shape']
-#     #    )
-
-#     r_desc = np.squeeze(R_desc_perms[i*n_perms])
-
-#     dim_d = r_desc.shape[0]
-#     dim_c = chunk_size * n_perms
-
-#     # pre-allocation
-
-#     diff_ab_perms = np.empty((dim_c, dim_d))
-#     a_x2 = np.empty((dim_c,))
-#     a_x2i = np.empty((dim_c,))
-#     mat52_base = np.empty((dim_c,))
-
-#     mat52_base_fact = 5.0 / (3 * sig ** 3)
-#     diag_scale_fact = 5.0 / sig
-#     sqrt5 = np.sqrt(5.0)
-
-#     F = np.zeros((n_train, dim_d))
-#     #F = E_F[1:]
-
-#     wkr_start *= n_perms
-#     wkr_stop *= n_perms
-
-
-
-#     #print(chunk_size)
-
-#     b_start = wkr_start
-
-
-#     ri_d_desc_alpha_perms = R_d_desc_alpha_perms[(i*n_perms):(i*n_perms+dim_c), :] # NEW
-
-#     #for b_stop in list(range(wkr_start + dim_c, wkr_stop, dim_c)) + [wkr_stop]:
-#     for j in range(i,n_train):
-
-#         b_start = j*n_perms
-#         b_stop = b_start + dim_c
-
-#         rj_desc_perms = R_desc_perms[b_start:b_stop, :]
-#         rj_d_desc_alpha_perms = R_d_desc_alpha_perms[b_start:b_stop, :]
-
-#         # Resize pre-allocated memory for last iteration, if chunk_size is not a divisor of the training set size.
-#         # Note: It's faster to process equally sized chunks.
-#         c_size = b_stop - b_start
-#         if c_size < dim_c:
-#             diff_ab_perms = diff_ab_perms[:c_size, :]
-#             a_x2 = a_x2[:c_size]
-#             mat52_base = mat52_base[:c_size]
-
-#         # diff_ab_perms = r_desc - rj_desc_perms
-#         np.subtract(
-#             np.broadcast_to(r_desc, rj_desc_perms.shape),
-#             rj_desc_perms,
-#             out=diff_ab_perms,
-#         )
-#         norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
-
-
-
-#         #print(R_desc_perms.shape)
-#         #print(diff_ab_perms.shape)
-#         #print(norm_ab_perms.shape)
-
-#         # mat52_base = np.exp(-norm_ab_perms / sig) * mat52_base_fact
-#         np.exp(-norm_ab_perms / sig, out=mat52_base)
-#         mat52_base *= mat52_base_fact
-#         # a_x2 = np.einsum('ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms) # colum wise dot product
-#         np.einsum(
-#             'ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms, out=a_x2
-#         )  # colum wise dot product
-#         # a_x2 = np.einsum('ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms) * mat52_base # colum wise dot product
-
-
-
-
-#         #print((a_x2 * mat52_base).shape)
-#         #print(diff_ab_perms.shape)
-
-#         #j = b_start/n_perms
-
-#         # F += np.linalg.multi_dot([a_x2 * mat52_base, diff_ab_perms, r_d_desc]) * diag_scale_fact
-#         #
-
-#         F[i,:] += (a_x2 * mat52_base).dot(diff_ab_perms) * diag_scale_fact
-#         if i != j:
-#             np.einsum(
-#             'ji,ji->j', diff_ab_perms, ri_d_desc_alpha_perms, out=a_x2i
-#             )
-
-#             F[j,:] += (a_x2i * mat52_base).dot(diff_ab_perms) * diag_scale_fact
-        
-#         # F += a_x2.dot(diff_ab_perms) * diag_scale_fact
-#         mat52_base *= norm_ab_perms + sig
-
-#         # F -= np.linalg.multi_dot([mat52_base, rj_d_desc_alpha_perms, r_d_desc])
-
-
-
-#         mat52_base_rj_d_desc_alpha_perms = mat52_base.dot(rj_d_desc_alpha_perms)
-
-#         F[i,:] -= mat52_base_rj_d_desc_alpha_perms
-#         if i != j:
-#              F[j,:] -= mat52_base_rj_d_desc_alpha_perms
-
-
-
-
-
-
-
-
-#         #if i != j:
-#         #    F[j,:] += A1 - A2
-
-#         #E_F[0] += a_x2.dot(mat52_base)  # this one
-#         # E_F[0] += np.sum(a_x2)
-
-
-#         #if 'alphas_E_lin' in glob:
-
-#         #    K_fe = diff_ab_perms * mat52_base[:, None]
-#         #    F += alphas_E_lin[b_start:b_stop].dot(K_fe)
-
-#         #    K_ee = (
-#         #        1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
-#         #    ) * np.exp(-norm_ab_perms / sig)
-#         #    E_F[0] += K_ee.dot(alphas_E_lin[b_start:b_stop])
-
-#         b_start = b_stop
-
-
-
-#     return F
+    return res[1:]
 
 
 def _predict(r, n_train, std, c, chunk_size, lat_and_inv):
 
     r = r.reshape(-1, 3)
-
-    pdist = desc.pdist(r, lat_and_inv)
-    r_desc = desc.r_to_desc(r, pdist)
-    r_d_desc = desc.r_to_d_desc(r, pdist, lat_and_inv)
+    r_desc, r_d_desc = desc.from_r(r, lat_and_inv)
 
     res = _predict_wkr((0, n_train), chunk_size, r_desc)
     res *= std
 
-    F = res[1:].reshape(1,-1).dot(r_d_desc)
+    F = res[1:].reshape(1, -1).dot(r_d_desc)
     return (res[0] + c).reshape(-1), F
 
 
@@ -370,7 +175,7 @@ def _predict_wkr(wkr_start_stop, chunk_size, r_desc):
 
         # F -= np.linalg.multi_dot([mat52_base, rj_d_desc_alpha_perms, r_d_desc])
         F -= mat52_base.dot(rj_d_desc_alpha_perms)
-        E_F[0] += a_x2.dot(mat52_base)  # this one
+        E_F[0] += a_x2.dot(mat52_base)
         # E_F[0] += np.sum(a_x2)
 
         if 'alphas_E_lin' in glob:
@@ -426,20 +231,27 @@ class GDMLPredict(object):
                         effect if `use_torch=True`
                 use_torch : boolean, optional
                         Use PyTorch to calculate predictions
-
-        Returns
-        -------
-                :obj:`numpy.ndarray`
-                        Energies stored in an 1D array of size M.
-                :obj:`numpy.ndarray`
-                        Forces stored in an 2D arry of size M x 3N.
         """
 
         global glob, sig, n_perms
 
+        self.log = logging.getLogger(__name__)
+
         self.n_atoms = model['z'].shape[0]
 
-        self.lat_and_inv = (model['lattice'], np.linalg.inv(model['lattice'])) if 'lattice' in model else None
+        self.lat_and_inv = (
+            (model['lattice'], np.linalg.inv(model['lattice']))
+            if 'lattice' in model
+            else None
+        )
+
+        # from packaging import version
+        # print(version.parse('2.3.2dev0') > version.parse('2.3.1dev1'))
+
+        # print(model['code_version'])
+        # legacy support
+        # if version.parse(model['code_version']) <= version.parse('0.3.5.dev5'):
+        #    model['R_desc'] = model['R_desc'].T
 
         self.n_train = model['R_desc'].shape[1]
         sig = model['sig']
@@ -450,27 +262,20 @@ class GDMLPredict(object):
         n_perms = model['perms'].shape[0]
         self.tril_perms_lin = model['tril_perms_lin']
 
-        #self.R_d_desc = model['R_d_desc'] if 'R_d_desc' in model else None # NEW (remove me)
-
         # Precompute permuted training descriptors and its first derivatives multiplied with the coefficients (only needed for cached variant).
-        R_desc_perms = np.reshape(
-            np.tile(model['R_desc'].T, n_perms)[:, self.tril_perms_lin],
-            (self.n_train * n_perms, -1),
-            order='F',
+
+        R_desc_perms = (
+            np.tile(model['R_desc'].T, n_perms)[:, self.tril_perms_lin]
+            .reshape(self.n_train, n_perms, -1, order='F')
+            .reshape(self.n_train * n_perms, -1)
         )
-        R_desc_perms = np.swapaxes(
-            R_desc_perms.reshape(n_perms, self.n_train, -1), 0, 1
-        ).reshape((self.n_train * n_perms, -1))
         glob['R_desc_perms'], glob['R_desc_perms_shape'] = share_array(R_desc_perms)
 
-        R_d_desc_alpha_perms = np.reshape(
-            np.tile(model['R_d_desc_alpha'], n_perms)[:, self.tril_perms_lin],
-            (self.n_train * n_perms, -1),
-            order='F',
+        R_d_desc_alpha_perms = (
+            np.tile(model['R_d_desc_alpha'], n_perms)[:, self.tril_perms_lin]
+            .reshape(self.n_train, n_perms, -1, order='F')
+            .reshape(self.n_train * n_perms, -1)
         )
-        R_d_desc_alpha_perms = np.swapaxes(
-            R_d_desc_alpha_perms.reshape(n_perms, self.n_train, -1), 0, 1
-        ).reshape((self.n_train * n_perms, -1))
         glob['R_d_desc_alpha_perms'], glob['R_d_desc_alpha_perms_shape'] = share_array(
             R_d_desc_alpha_perms
         )
@@ -488,20 +293,26 @@ class GDMLPredict(object):
                 import torch
             except ImportError:  # dependency missing, issue a warning
                 raise ValueError(
-                    'PyTorch calculations requested, without having optional PyTorch dependency installed!'
-                    + '\n       Please \'pip install torch\' or disable PyTorch calculations.'
+                    'PyTorch calculations requested, without having optional PyTorch dependency installed!\n'
+                    + 'Please \'pip install torch\' or disable PyTorch calculations.'
                 )
 
             from .torchtools import GDMLTorchPredict
 
             self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv).to(self.torch_device)
+            self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv).to(
+                self.torch_device
+            )
 
             is_cuda = next(self.torch_predict.parameters()).is_cuda
-            print(ui.info_str('[INFO]') + ' PyTorch running on the ' + ('GPU' if is_cuda else 'CPU') + ' will be used to query this model.')
+            self.log.info(
+                'PyTorch running on the '
+                + ('GPU' if is_cuda else 'CPU')
+                + ' will be used to query this model.'
+            )
 
         # Parallel processing configuration
-
+        
         self._bulk_mp = False  # Bulk predictions with multiple processes?
 
         # How many parallel processes?
@@ -518,27 +329,24 @@ class GDMLPredict(object):
 
     def __del__(self):
         if hasattr(self, 'pool') and self.pool is not None:
-            self.pool.terminate()
-
+            self.pool.close()
 
     ## Public ##
 
-    def set_alphas(self, R_d_desc_alpha): # TODO: document me
+    def set_alphas(
+        self, R_d_desc, alphas
+    ):  # TODO: document me, this only sets alphas_F
 
-        R_d_desc_alpha_perms = np.reshape(
-            np.tile(R_d_desc_alpha, n_perms)[:, self.tril_perms_lin],
-            (self.n_train * n_perms, -1),
-            order='F',
-        )
-        R_d_desc_alpha_perms = np.swapaxes(
-            R_d_desc_alpha_perms.reshape(n_perms, self.n_train, -1), 0, 1
-        ).reshape((self.n_train * n_perms, -1))
-        glob['R_d_desc_alpha_perms'], glob['R_d_desc_alpha_perms_shape'] = share_array(
-            R_d_desc_alpha_perms
-        )
+        r_dim = R_d_desc.shape[2]
+        R_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim))
 
-        self._reset_mp()
+        R_d_desc_alpha_perms = np.frombuffer(glob['R_d_desc_alpha_perms'])
 
+        R_d_desc_alpha_perms_new = np.tile(R_d_desc_alpha, n_perms)[
+            :, self.tril_perms_lin
+        ].reshape(self.n_train, n_perms, -1, order='F')
+
+        np.copyto(R_d_desc_alpha_perms, R_d_desc_alpha_perms_new.ravel())
 
     def _set_num_workers(
         self, num_workers=None
@@ -567,7 +375,7 @@ class GDMLPredict(object):
         if self._num_workers is not num_workers:
 
             if self.pool is not None:
-                self.pool.terminate()
+                self.pool.close()
                 self.pool.join()
                 self.pool = None
 
@@ -582,24 +390,24 @@ class GDMLPredict(object):
         else:
             wkr_starts = list(
                 range(
-                    0, self.n_train, int(np.ceil(float(self.n_train) / self._num_workers))
+                    0,
+                    self.n_train,
+                    int(np.ceil(float(self.n_train) / self._num_workers)),
                 )
             )
         wkr_stops = wkr_starts[1:] + [self.n_train]
 
         self.wkr_starts_stops = list(zip(wkr_starts, wkr_stops))
 
-
     def _reset_mp(self):
 
         if self.pool is not None:
-            self.pool.terminate()
+            self.pool.close()
             self.pool.join()
             self.pool = None
 
         self.pool = mp.Pool(processes=self._num_workers)
         self._num_workers = self.pool._processes
-
 
     def _set_batch_size(
         self, batch_size=None
@@ -628,10 +436,7 @@ class GDMLPredict(object):
 
         self._chunk_size = batch_size
 
-
-    def _set_bulk_mp(
-        self, bulk_mp = False
-    ): 
+    def _set_bulk_mp(self, bulk_mp=False):
 
         bulk_mp = bool(bulk_mp)
         if self._bulk_mp is not bulk_mp:
@@ -640,8 +445,7 @@ class GDMLPredict(object):
             # Reset data ranges for processes stored in 'wkr_starts_stops'
             self._set_num_workers(self._num_workers)
 
-
-    def set_opt_num_workers_and_batch_size_fast(self, n_bulk=1, n_reps=1): # deprecated
+    def set_opt_num_workers_and_batch_size_fast(self, n_bulk=1, n_reps=1):  # deprecated
         """
         Warning
         -------
@@ -666,8 +470,9 @@ class GDMLPredict(object):
 
         self.prepare_parallel(n_bulk, n_reps)
 
-
-    def prepare_parallel(self, n_bulk=1, n_reps=1, return_is_from_cache=False):  # noqa: C901
+    def prepare_parallel(
+        self, n_bulk=1, n_reps=1, return_is_from_cache=False
+    ):  # noqa: C901
         """
         Find and set the optimal parallelization parameters for the
         currently loaded model, running on a particular system. The result
@@ -740,10 +545,11 @@ class GDMLPredict(object):
         best_gps = 0
         gps_min = 0.0
 
-        best_params = 1, 1
+        best_params = None
 
-        #reps_done = 0
+        # reps_done = 0
         r_dummy = np.random.rand(n_bulk, self.n_atoms * 3)
+
         def _dummy_predict():
             self.predict(r_dummy)
             # reps_done += 1
@@ -751,7 +557,7 @@ class GDMLPredict(object):
 
         bulk_mp_rng = [True, False] if n_bulk > 1 else [False]
         for bulk_mp in bulk_mp_rng:
-            #self._bulk_mp = bulk_mp
+            # self._bulk_mp = bulk_mp
             self._set_bulk_mp(bulk_mp)
 
             if bulk_mp is False:
@@ -774,7 +580,7 @@ class GDMLPredict(object):
                 self._set_num_workers(num_workers)
 
                 best_gps = 0
-                gps_rng = (np.inf, 0.0)
+                gps_rng = (np.inf, 0.0)  # min and max per num_workers
 
                 min_batch_size = (
                     min(self.n_train, n_bulk)
@@ -790,13 +596,15 @@ class GDMLPredict(object):
                     if min_batch_size % batch_size == 0
                 ]
 
-                #print('batch_size_rng_sizes ' + str(bulk_mp))
-                #print(batch_size_rng_sizes)
+                # print('batch_size_rng_sizes ' + str(bulk_mp))
+                # print(batch_size_rng_sizes)
 
                 i_done = 0
                 i_dir = 1
                 i = 0 if last_i is None else last_i
                 # i = 0
+
+                # print(batch_size_rng_sizes)
                 while i >= 0 and i < len(batch_size_rng_sizes):
 
                     batch_size = batch_size_rng_sizes[i]
@@ -805,44 +613,87 @@ class GDMLPredict(object):
                     i_done += 1
 
                     gps = (
-                        n_bulk
-                        * n_reps
-                        / (timeit.timeit(_dummy_predict, number=n_reps))
+                        n_bulk * n_reps / (timeit.timeit(_dummy_predict, number=n_reps))
                     )
 
-                    #print(
+                    # print(
                     #    '{:2d}@{:d} {:d} | {:7.2f} gps'.format(
                     #        num_workers, batch_size, bulk_mp, gps
                     #    )
-                    #)
+                    # )
 
-                    #print(batch_size * self.n_atoms * n_perms)
+                    # print(batch_size * self.n_atoms * n_perms)
 
-                    gps_rng = min(gps_rng[0], gps), max(gps_rng[1], gps)
+                    gps_rng = (
+                        min(gps_rng[0], gps),
+                        max(gps_rng[1], gps),
+                    )  # min and max per num_workers
+
+                    # gps_min_max = min(gps_min_max[0], gps), max(gps_min_max[1], gps)
+
+                    # print('     best_gps ' + str(best_gps))
+
+                    # NEW
+
+                    # if gps > best_gps and gps > gps_min: # gps is still going up, everything is good
+                    #     best_gps = gps
+                    #     best_params = num_workers, batch_size, bulk_mp
+                    # else:
+                    #     break
+
+                    # if gps > best_gps: # gps is still going up, everything is good
+                    #     best_gps = gps
+                    #     best_params = num_workers, batch_size, bulk_mp
+                    # else: # gps did not go up wrt. to previous step
+
+                    #     # can we switch the search direction?
+                    #     #   did we already?
+                    #     #   we checked two consecutive configurations
+                    #     #   are bigger batch sizes possible?
+
+                    #     print(batch_size_rng_sizes)
+
+                    #     turn_search_dir = i_dir > 0 and i_done == 2 and batch_size != batch_size_rng_sizes[1]
+
+                    #     # only turn, if the current gps is not lower than the lowest overall
+                    #     if turn_search_dir and gps >= gps_min:
+                    #         i -= 2 * i_dir
+                    #         i_dir = -1
+                    #         print('><')
+                    #         continue
+                    #     else:
+                    #         print('>>break ' + str(i_done))
+                    #         break
+
+                    # NEW
 
                     # gps still going up?
                     # AND: gps not lower than the lowest overall?
-                    if gps < best_gps and gps >= gps_min:
+                    # if gps < best_gps and gps >= gps_min:
+                    if gps < best_gps:
                         if (
                             i_dir > 0
                             and i_done == 2
-                            and batch_size != batch_size_rng_sizes[1]
+                            and batch_size
+                            != batch_size_rng_sizes[
+                                1
+                            ]  # there is no point in turning if this is the second batch size in the range
                         ):  # do we turn?
                             i -= 2 * i_dir
                             i_dir = -1
-                            #print('><')
+                            # print('><')
                             continue
                         else:
                             # if batch_size == batch_size_rng_sizes[1]:
                             # 	i -= 1*i_dir
-                            #print('>>break ' + str(i_done))
+                            # print('>>break ' + str(i_done))
                             break
                     else:
                         best_gps = gps
                         best_params = num_workers, batch_size, bulk_mp
 
                         # if gps < best_gps:
-                        # 	break
+                        #    break
                         # else:
                         # 	best_gps = gps
                         # 	best_params = num_workers, batch_size, bulk_mp
@@ -853,7 +704,11 @@ class GDMLPredict(object):
                         if (
                             gps < gps_min
                         ):  # if the batch size run is lower than the lowest overall, stop right here
+                            # print('breaking here')
                             break
+
+                    # if gps < gps_min:  # if the batch size run is lower than the lowest overall, stop right here
+                    #    break
 
                     i += 1 * i_dir
 
@@ -863,21 +718,25 @@ class GDMLPredict(object):
                 if len(best_results) > 0:
                     overall_best_gps = max(best_results, key=lambda x: x[1])[1]
                     if best_gps < overall_best_gps:
+                        # print('breaking, because best of last test was worse than overall best so far')
                         break
 
-                    if best_gps < gps_min:
-                        break
+                    # if best_gps < gps_min:
+                    #    print('breaking here3')
+                    #    break
 
-                gps_min = gps_rng[0]
+                gps_min = gps_rng[0]  # FIX me: is this the overall min?
                 # print ('gps_min ' + str(gps_min))
 
                 # print ('best_gps')
                 # print (best_gps)
 
-                if len(best_results) > 0 and best_gps < overall_best_gps:
-                    break
+                # if len(best_results) > 0 and best_gps < overall_best_gps:
+                #    break
 
-                best_results.append((best_params, best_gps))
+                best_results.append(
+                    (best_params, best_gps)
+                )  # best results per num_workers
 
         (num_workers, batch_size, bulk_mp), gps = max(best_results, key=lambda x: x[1])
 
@@ -894,25 +753,28 @@ class GDMLPredict(object):
         else:
             return gps
 
-
-    def _save_cached_bmark_result(self, n_bulk, num_workers, batch_size, bulk_mp, gps): # document me
+    def _save_cached_bmark_result(
+        self, n_bulk, num_workers, batch_size, bulk_mp, gps
+    ):  # document me
 
         pkg_dir = os.path.dirname(os.path.abspath(__file__))
         bmark_file = '_bmark_cache.npz'
         bmark_path = os.path.join(pkg_dir, bmark_file)
 
-        bkey = '{}-{}-{}-{}'.format(self.n_atoms, self.n_train, n_bulk, self._max_processes)
+        bkey = '{}-{}-{}-{}'.format(
+            self.n_atoms, self.n_train, n_bulk, self._max_processes
+        )
 
         if os.path.exists(bmark_path):
 
             with np.load(bmark_path, allow_pickle=True) as bmark:
                 bmark = dict(bmark)
 
-                bmark['runs']         = np.append(bmark['runs'], bkey)
-                bmark['num_workers']  = np.append(bmark['num_workers'], num_workers)
-                bmark['batch_size']   = np.append(bmark['batch_size'], batch_size)
-                bmark['bulk_mp']      = np.append(bmark['bulk_mp'], bulk_mp)
-                bmark['gps']          = np.append(bmark['gps'], gps)
+                bmark['runs'] = np.append(bmark['runs'], bkey)
+                bmark['num_workers'] = np.append(bmark['num_workers'], num_workers)
+                bmark['batch_size'] = np.append(bmark['batch_size'], batch_size)
+                bmark['bulk_mp'] = np.append(bmark['bulk_mp'], bulk_mp)
+                bmark['gps'] = np.append(bmark['gps'], gps)
         else:
             bmark = {
                 'code_version': __version__,
@@ -921,18 +783,19 @@ class GDMLPredict(object):
                 'num_workers': [num_workers],
                 'batch_size': [batch_size],
                 'bulk_mp': [bulk_mp],
-                }
+            }
 
         np.savez_compressed(bmark_path, **bmark)
 
-
-    def _load_cached_bmark_result(self, n_bulk): # document me
+    def _load_cached_bmark_result(self, n_bulk):  # document me
 
         pkg_dir = os.path.dirname(os.path.abspath(__file__))
         bmark_file = '_bmark_cache.npz'
         bmark_path = os.path.join(pkg_dir, bmark_file)
 
-        bkey = '{}-{}-{}-{}'.format(self.n_atoms, self.n_train, n_bulk, self._max_processes)
+        bkey = '{}-{}-{}-{}'.format(
+            self.n_atoms, self.n_train, n_bulk, self._max_processes
+        )
 
         if not os.path.exists(bmark_path):
             return None
@@ -944,17 +807,25 @@ class GDMLPredict(object):
             if len(run_idxs) >= 3:
 
                 config_keys = []
-                #print()
                 for run_idx in run_idxs:
-                   #print(str(B['num_workers'][run_idx]) + '  ' + str(B['batch_size'][run_idx]) + '  ' + str(B['gps'][run_idx]))
-                    config_keys.append('{}-{}-{}'.format(bmark['num_workers'][run_idx], bmark['batch_size'][run_idx], bmark['bulk_mp'][run_idx]))
+                    config_keys.append(
+                        '{}-{}-{}'.format(
+                            bmark['num_workers'][run_idx],
+                            bmark['batch_size'][run_idx],
+                            bmark['bulk_mp'][run_idx],
+                        )
+                    )
 
                 values, uinverse = np.unique(config_keys, return_index=True)
 
                 best_mean = -1
                 best_gps = 0
-                for i,config_key in enumerate(zip(values,uinverse)):
-                    mean_gps = np.mean(bmark['gps'][np.where(np.array(config_keys) == config_key[0])[0]])
+                for i, config_key in enumerate(zip(values, uinverse)):
+                    mean_gps = np.mean(
+                        bmark['gps'][
+                            np.where(np.array(config_keys) == config_key[0])[0]
+                        ]
+                    )
 
                     if best_gps == 0 or best_gps < mean_gps:
                         best_mean = i
@@ -962,13 +833,51 @@ class GDMLPredict(object):
 
                 best_idx = run_idxs[uinverse[best_mean]]
                 num_workers = bmark['num_workers'][best_idx]
-                batch_size  = bmark['batch_size'][best_idx]
-                bulk_mp     = bmark['bulk_mp'][best_idx]
+                batch_size = bmark['batch_size'][best_idx]
+                bulk_mp = bmark['bulk_mp'][best_idx]
 
-                return num_workers,batch_size,bulk_mp,best_gps
+                return num_workers, batch_size, bulk_mp, best_gps
 
         return None
 
+    def _predict_bulk_train(self, R_desc, R_d_desc):
+
+        n_pred, _, dim_i = R_d_desc.shape
+
+        F = np.empty((n_pred, dim_i))
+
+        # res = _predict_wkr((0, n_train), chunk_size, r_desc)
+        # r_desc, n_train, std, chunk_size
+        # res *= std
+
+        # F = res[1:].reshape(1, -1).dot(r_d_desc)
+        # return res[1:].reshape(1, -1)
+
+        if self._bulk_mp is True:
+            for i, Fi in enumerate(
+                self.pool.imap(
+                    partial(
+                        _predict_train,
+                        n_train=self.n_train,
+                        std=self.std,
+                        chunk_size=self._chunk_size,
+                    ),
+                    # partial(
+                    #    _predict_wkr,
+                    #    wkr_start_stop=(0, self.n_train),
+                    #    chunk_size=self._chunk_size,
+                    # ),
+                    R_desc,
+                )
+            ):
+                # F[i, :] = E_F.dot(R_d_desc[i]) * self.std,
+                F[i, :] = Fi.dot(R_d_desc[i])
+        else:
+            # for i, r in enumerate(R):
+            #    E[i], F[i, :] = self.predict(r)
+            print('ERROR: _bulk_mp should be true for bulk train prediction')
+
+        return F
 
     def _predict_bulk(self, R):
         """
@@ -989,55 +898,10 @@ class GDMLPredict(object):
                         Forces stored in an 2D arry of size M x 3N.
         """
 
-        #n_pred, dim_i = R.shape if train == False else (self.n_train,self.n_atoms*3)
         n_pred, dim_i = R.shape
 
         F = np.empty((n_pred, dim_i))
         E = np.empty((n_pred,))
-
-        #print(F.shape)
-
-        #if train == True: # NEW (TODO: remove me)
-
-            # dim_d = (self.n_atoms*(self.n_atoms-1)) / 2
-            # F_d = np.zeros((self.n_train, dim_d))
-
-            # #F_d = mp.RawArray('d', self.n_train * dim_d)
-            # #glob['F'], glob['F_shape'] = F_d, (self.n_train, dim_d)
-
-            # for i, F_d_i in enumerate(
-            #     self.pool.imap(
-            #         partial(
-            #             _predict_train,
-            #             n_train=self.n_train,
-            #             std=self.std,
-            #             c=self.c,
-            #             chunk_size=self._chunk_size,
-            #             lat_and_inv=self.lat_and_inv
-            #         ),
-            #         range(n_pred)
-            #     )
-            # ):
-            #     #_, F_d = E_F
-
-
-
-            #     #print(F_d_i)
-            #     F_d += F_d_i
-
-            #     #print(i)
-                
-            #     #F_d[i, :] = F_d.dot(r_d_desc)
-
-
-            # #glob.pop('F', None)
-            # #F_d = np.frombuffer(F_d).reshape(glob['F_shape'])
-
-
-
-            # F = np.einsum('kji,kj->ki', self.R_d_desc, F_d)
-
-        #else:
 
         if self._bulk_mp is True:
             for i, E_F in enumerate(
@@ -1059,7 +923,6 @@ class GDMLPredict(object):
                 E[i], F[i, :] = self.predict(r)
 
         return E, F
-
 
     def predict(self, r):
         """
@@ -1110,16 +973,13 @@ class GDMLPredict(object):
             return self._predict_bulk(r)
 
         r = r.reshape(self.n_atoms, 3)
-
-        pdist = desc.pdist(r, self.lat_and_inv)
-        r_desc = desc.r_to_desc(r, pdist)
-        r_d_desc = desc.r_to_d_desc(r, pdist, self.lat_and_inv)
+        r_desc, r_d_desc = desc.from_r(r, self.lat_and_inv)
 
         if self._num_workers == 1 or self._bulk_mp:
             res = _predict_wkr((0, self.n_train), self._chunk_size, r_desc)
         else:
             res = sum(
-                self.pool.map(
+                self.pool.imap_unordered(
                     partial(_predict_wkr, chunk_size=self._chunk_size, r_desc=r_desc),
                     self.wkr_starts_stops,
                 )
@@ -1127,5 +987,5 @@ class GDMLPredict(object):
         res *= self.std
 
         E = res[0].reshape(-1) + self.c
-        F = res[1:].reshape(1,-1).dot(r_d_desc)
+        F = res[1:].reshape(1, -1).dot(r_d_desc)
         return E, F

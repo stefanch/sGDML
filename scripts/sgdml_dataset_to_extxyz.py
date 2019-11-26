@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 Stefan Chmiela
+# Copyright (c) 2018-2019 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -58,12 +58,12 @@ dataset_file_name = name + '.xyz'
 
 xyz_exists = os.path.isfile(dataset_file_name)
 if xyz_exists and args.overwrite:
-    print(ui.info_str('[INFO]') + ' Overwriting existing xyz dataset file.')
+    print(ui.color_str('[INFO]', bold=True) + ' Overwriting existing xyz dataset file.')
 if not xyz_exists or args.overwrite:
-    print(ui.info_str('[INFO]') + ' Writing dataset to \'%s\'...' % dataset_file_name)
+    print(ui.color_str('[INFO]', bold=True) + ' Writing dataset to \'{}\'...'.format(dataset_file_name))
 else:
     sys.exit(
-        ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name
+        ui.color_str('[FAIL]', fore_color=ui.RED, bold=True) + ' Dataset \'{}\' already exists.'.format(dataset_file_name)
     )
 
 R = dataset['R']

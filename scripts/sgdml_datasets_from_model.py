@@ -38,13 +38,13 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     'model',
     metavar='<model_file>',
-    type=lambda x: ui.is_file_type(x, 'model'),
+    type=lambda x: io.is_file_type(x, 'model'),
     help='path to model file',
 )
 parser.add_argument(
     'dataset',
     metavar='<dataset_file>',
-    type=lambda x: ui.is_file_type(x, 'dataset'),
+    type=lambda x: io.is_file_type(x, 'dataset'),
     help='path to dataset file referenced in model',
 )
 parser.add_argument(
