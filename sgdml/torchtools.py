@@ -66,13 +66,13 @@ class GDMLTorchPredict(nn.Module):
 
         model = dict(model)  # hack
 
-        torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self._dev = 'cuda' if torch.cuda.is_available() else 'cpu'
         self._lat_and_inv = (
             None
             if lat_and_inv is None
             else (
-                torch.tensor(lat_and_inv[0], device=torch_device),
-                torch.tensor(lat_and_inv[1], device=torch_device),
+                torch.tensor(lat_and_inv[0], device=self._dev),
+                torch.tensor(lat_and_inv[1], device=self._dev),
             )
         )
 
@@ -96,6 +96,21 @@ class GDMLTorchPredict(nn.Module):
             )
         )
 
+        self.desc_siz = desc_siz
+        self.perm_idxs = perm_idxs
+        self.n_perms = n_perms
+
+    def set_alphas(self, R_d_desc, alphas):
+
+        r_dim = R_d_desc.shape[2]
+        R_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim))
+
+        xs = torch.tensor(np.array(R_d_desc_alpha)).to(self._dev)
+        self._Jx_alphas = nn.Parameter(
+            xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, self.desc_siz),
+            requires_grad=False,
+        )
+
     def _memory_per_sample(self):
         return 3 * self._xs_train.nelement() * self._xs_train.element_size()
 
@@ -104,7 +119,6 @@ class GDMLTorchPredict(nn.Module):
         q = np.sqrt(5) / sig
 
         diffs = Rs[:, :, None, :] - Rs[:, None, :, :]
-
         if self._lat_and_inv is not None:
             diffs_shape = diffs.shape
             diffs = desc.pbc_diff_torch(
@@ -117,7 +131,7 @@ class GDMLTorchPredict(nn.Module):
         dists[:, i, j] = np.inf
         i, j = np.tril_indices(self._n_atoms, k=-1)
 
-        xs = 1 / dists[:, i, j]
+        xs = 1 / dists[:, i, j]  # R_desc (1000, 36)
         x_diffs = (q * xs)[:, None, :] - q * self._xs_train
         x_dists = x_diffs.norm(dim=-1)
         exp_xs = 5.0 / (3 * sig ** 2) * torch.exp(-x_dists)
@@ -127,7 +141,9 @@ class GDMLTorchPredict(nn.Module):
         F2s_x = exp_xs_1_x_dists.mm(self._Jx_alphas)
         Fs_x = (F1s_x - F2s_x) * self._std
 
-        Fs = ((expand_tril(Fs_x) / dists ** 3)[..., None] * diffs).sum(dim=1)
+        Fs = ((expand_tril(Fs_x) / dists ** 3)[..., None] * diffs).sum(
+            dim=1
+        )  # * R_d_desc
 
         Es = (exp_xs_1_x_dists * dot_x_diff_Jx_alphas).sum(dim=-1) / q
         Es = self._c + Es * self._std
@@ -157,6 +173,18 @@ class GDMLTorchPredict(nn.Module):
         dtype = Rs.dtype
         Rs = Rs.double()
         batch_size = self._batch_size or self._max_memory // self._memory_per_sample()
+
+        # print('batch_size')
+        # print(batch_size)
+        # print(Rs.shape)
+
+        # if torch.cuda.is_available():
+        #    t = torch.cuda.get_device_properties(0).total_memory
+        #    c = torch.cuda.memory_cached(0)
+        #    a = torch.cuda.memory_allocated(0)
+        #    f = c-a  # free inside cache
+        #    print('free memory')
+        #    print(f)
 
         Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
 

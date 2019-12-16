@@ -32,6 +32,7 @@ import sys
 from ase.io import read
 import numpy as np
 
+from sgdml import __version__
 from sgdml.utils import io, ui
 
 if sys.version[0] == '3':
@@ -47,7 +48,7 @@ def read_nonstd_ext_xyz(f):
         line = line.strip()
         if not n_atoms:
             n_atoms = int(line)
-            print('Number atoms per geometry:      {:>7d}'.format(n_atoms))
+            print('Number atoms per geometry: {:,}'.format(n_atoms))
 
         file_i, line_i = divmod(i, n_atoms + 2)
 
@@ -67,9 +68,9 @@ def read_nonstd_ext_xyz(f):
             F.append(list(map(float, cols[4:7])))
 
         if file_i % 1000 == 0:
-            sys.stdout.write("\rNumber geometries found so far: {:>7d}".format(file_i))
+            sys.stdout.write('\rNumber geometries found so far: {:,}'.format(file_i))
             sys.stdout.flush()
-    sys.stdout.write("\rNumber geometries found so far: {:>7d}".format(file_i))
+    sys.stdout.write('\rNumber geometries found so far: {:,}'.format(file_i))
     sys.stdout.flush()
     print()
 
@@ -130,7 +131,7 @@ calc = mols[0].get_calculator()
 is_extxyz = calc is not None
 if is_extxyz:
 
-    print("\rNumber geometries found: {:>7d}\n".format(len(mols)))
+    print("\rNumber geometries found: {:,}\n".format(len(mols)))
 
     if 'forces' not in calc.results:
         sys.exit(
@@ -181,6 +182,7 @@ else:  # legacy non-standard XYZ format
 # Base variables contained in every model file.
 base_vars = {
     'type': 'd',
+    'code_version': __version__,
     'name': name,
     'theory': 'unknown',
     'R': R,

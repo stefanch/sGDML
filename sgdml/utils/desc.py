@@ -24,6 +24,7 @@
 
 import numpy as np
 import scipy as sp
+from scipy import spatial
 
 d_desc_mask = None
 

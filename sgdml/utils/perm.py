@@ -159,7 +159,11 @@ def complete_sym_group(perms):
                     perm_added = True
                     perms = np.vstack((perms, new_perm))
 
-    ui.progr_toggle(is_done=True, disp_str='Symmetry group completion', sec_disp_str='{:d} symmetries'.format(perms.shape[0]))
+    ui.progr_toggle(
+        is_done=True,
+        disp_str='Symmetry group completion',
+        sec_disp_str='{:d} symmetries'.format(perms.shape[0]),
+    )
 
     return perms
 
@@ -170,7 +174,7 @@ def find_perms(R, z, max_processes=None):
 
     # find matching for all pairs
     match_perms_all, match_cost = bipartite_match(R, z, max_processes)
-    
+
     # remove inconsistencies
     match_perms = sync_perm_mat(match_perms_all, match_cost, n_atoms)
 

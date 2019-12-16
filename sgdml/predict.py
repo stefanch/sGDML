@@ -26,6 +26,7 @@ This module contains all routines for evaluating GDML and sGDML models.
 
 from __future__ import print_function
 
+import sys
 import logging
 import os
 import multiprocessing as mp
@@ -33,11 +34,9 @@ import timeit
 from functools import partial
 
 import numpy as np
-import scipy as sp
-import scipy.spatial.distance
 
 from . import __version__
-from .utils import desc, ui
+from .utils import desc
 
 glob = {}
 
@@ -237,6 +236,10 @@ class GDMLPredict(object):
 
         self.log = logging.getLogger(__name__)
 
+        if 'type' not in model or model['type'] != 'm':
+            self.log.critical('The provided data structure is not a valid model.')
+            sys.exit()
+
         self.n_atoms = model['z'].shape[0]
 
         self.lat_and_inv = (
@@ -305,14 +308,19 @@ class GDMLPredict(object):
             )
 
             is_cuda = next(self.torch_predict.parameters()).is_cuda
-            self.log.info(
-                'PyTorch running on the '
-                + ('GPU' if is_cuda else 'CPU')
-                + ' will be used to query this model.'
-            )
+            if is_cuda:
+                self.log.info(
+                    'Numbers of CUDA devices found: {:d}'.format(
+                        torch.cuda.device_count()
+                    )
+                )
+            else:
+                self.log.warning(
+                    'No CUDA devices found! PyTorch is running on the CPU.'
+                )
 
         # Parallel processing configuration
-        
+
         self._bulk_mp = False  # Bulk predictions with multiple processes?
 
         # How many parallel processes?
@@ -337,16 +345,30 @@ class GDMLPredict(object):
         self, R_d_desc, alphas
     ):  # TODO: document me, this only sets alphas_F
 
-        r_dim = R_d_desc.shape[2]
-        R_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim))
+        if self.use_torch:
 
-        R_d_desc_alpha_perms = np.frombuffer(glob['R_d_desc_alpha_perms'])
+            import torch
 
-        R_d_desc_alpha_perms_new = np.tile(R_d_desc_alpha, n_perms)[
-            :, self.tril_perms_lin
-        ].reshape(self.n_train, n_perms, -1, order='F')
+            model = self.torch_predict
+            if isinstance(self.torch_predict, torch.nn.DataParallel):
+                model = model.module
 
-        np.copyto(R_d_desc_alpha_perms, R_d_desc_alpha_perms_new.ravel())
+            model.set_alphas(R_d_desc, alphas)
+
+            # self.torch_predict.set_alphas(R_d_desc, alphas)
+        else:
+            r_dim = R_d_desc.shape[2]
+            R_d_desc_alpha = np.einsum(
+                'kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim)
+            )
+
+            R_d_desc_alpha_perms = np.frombuffer(glob['R_d_desc_alpha_perms'])
+
+            R_d_desc_alpha_perms_new = np.tile(R_d_desc_alpha, n_perms)[
+                :, self.tril_perms_lin
+            ].reshape(self.n_train, n_perms, -1, order='F')
+
+            np.copyto(R_d_desc_alpha_perms, R_d_desc_alpha_perms_new.ravel())
 
     def _set_num_workers(
         self, num_workers=None
@@ -450,7 +472,7 @@ class GDMLPredict(object):
         Warning
         -------
         Deprecated! Please use the function `prepare_parallel` in future projects.
-        
+
         Parameters
         ----------
                 n_bulk : int, optional
@@ -510,7 +532,7 @@ class GDMLPredict(object):
                         If enabled, this function returns a second value
                         indicating if the returned results were obtained
                         from cache.
-    
+
         Returns
         -------
                 int
@@ -518,7 +540,7 @@ class GDMLPredict(object):
                         per second.
                 boolean, optional
                         Return, whether this function obtained the results
-                        from cache. 
+                        from cache.
         """
 
         global n_perms
@@ -557,7 +579,6 @@ class GDMLPredict(object):
 
         bulk_mp_rng = [True, False] if n_bulk > 1 else [False]
         for bulk_mp in bulk_mp_rng:
-            # self._bulk_mp = bulk_mp
             self._set_bulk_mp(bulk_mp)
 
             if bulk_mp is False:
@@ -575,8 +596,7 @@ class GDMLPredict(object):
             for num_workers in num_workers_rng:
                 if not bulk_mp and self.n_train % num_workers != 0:
                     continue
-                    # if bulk_mp and n_bulk % num_workers != 0:
-                    # 	continue
+
                 self._set_num_workers(num_workers)
 
                 best_gps = 0
@@ -853,6 +873,9 @@ class GDMLPredict(object):
         # F = res[1:].reshape(1, -1).dot(r_d_desc)
         # return res[1:].reshape(1, -1)
 
+        if self._bulk_mp is False:  # HACK!
+            self._set_bulk_mp(True)
+
         if self._bulk_mp is True:
             for i, Fi in enumerate(
                 self.pool.imap(
@@ -875,7 +898,8 @@ class GDMLPredict(object):
         else:
             # for i, r in enumerate(R):
             #    E[i], F[i, :] = self.predict(r)
-            print('ERROR: _bulk_mp should be true for bulk train prediction')
+            self.log.critical('_bulk_mp should be true for bulk train prediction')
+            sys.exit()
 
         return F
 
@@ -962,6 +986,20 @@ class GDMLPredict(object):
             M = r.shape[0]
 
             Rs = torch.from_numpy(r.reshape(M, -1, 3)).to(self.torch_device)
+
+            # enable data parallelism
+            n_gpu = torch.cuda.device_count()
+            if n_gpu > 1:
+                self.torch_predict = torch.nn.DataParallel(self.torch_predict)
+
+            # print('__Number CUDA Devices:', torch.cuda.device_count())
+            # for i in range(torch.cuda.device_count()): # TODO: remove me
+            #    t = torch.cuda.get_device_properties(i).total_memory
+            #    c = torch.cuda.memory_cached(i)
+            #    a = torch.cuda.memory_allocated(i)
+            #    f = c-a  # free inside cache
+            #    print(str(i) + ': ' + str(f))
+
             e_pred, f_pred = self.torch_predict.forward(Rs)
 
             E = e_pred.cpu().numpy()

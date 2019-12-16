@@ -27,7 +27,6 @@ from __future__ import print_function
 import logging
 import argparse
 import os
-import re
 import shutil
 import sys
 import time
@@ -140,10 +139,10 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
         print('    {:<16} {}'.format('Range:', E_range_str))
 
         E_mean = dataset['E_mean'] if 'E_mean' in dataset else np.mean(dataset['E'])
-        print('    {:<16} {:<.3}'.format('Mean:', E_mean))
+        print('    {:<16} {:<.3f}'.format('Mean:', E_mean))
 
         E_var = dataset['E_var'] if 'E_var' in dataset else np.var(dataset['E'])
-        print('    {:<16} {:<.3}'.format('Variance:', E_var))
+        print('    {:<16} {:<.3f}'.format('Variance:', E_var))
     else:
         print('  {:<18} {}'.format('Energies:', 'n/a'))
 
@@ -153,7 +152,6 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
     print('  Forces [{}]:'.format(f_unit))
 
-
     if 'F_min' in dataset and 'F_max' in dataset:
         F_min, F_max = dataset['F_min'], dataset['F_max']
     else:
@@ -162,10 +160,10 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     print('    {:<16} {}'.format('Range:', F_range_str))
 
     F_mean = dataset['F_mean'] if 'F_mean' in dataset else np.mean(dataset['F'].ravel())
-    print('    {:<16} {:<.3}'.format('Mean:', F_mean))
+    print('    {:<16} {:<.3f}'.format('Mean:', F_mean))
 
     F_var = dataset['F_var'] if 'F_var' in dataset else np.var(dataset['F'].ravel())
-    print('    {:<16} {:<.3}'.format('Variance:', F_var))
+    print('    {:<16} {:<.3f}'.format('Variance:', F_var))
 
     print('  {:<18} {}'.format('Fingerprint:', dataset['md5'].astype(str)))
 
@@ -257,8 +255,8 @@ def _print_model_properties(model, title_str='Model properties'):
 
     n_train = len(model['idxs_train'])
     ui.print_two_column_str(
-        '  {:<18} {:<d} points'.format('Trained on:', n_train),
-        'from \'' + str(model['md5_train']) + '\'',
+        '  {:<18} {:,} points'.format('Trained on:', n_train),
+        'from \'' + ui.unicode_str(model['md5_train']) + '\'',
     )
 
     if model['use_E']:
@@ -271,7 +269,7 @@ def _print_model_properties(model, title_str='Model properties'):
         '  {:<18} {}{:,} points'.format(
             'Validated on:', '' if is_valid else '[pending] ', n_valid
         ),
-        'from \'' + str(model['md5_valid']) + '\'',
+        'from \'' + ui.unicode_str(model['md5_valid']) + '\'',
     )
 
     n_test = int(model['n_test'])
@@ -279,23 +277,29 @@ def _print_model_properties(model, title_str='Model properties'):
     if is_test:
         ui.print_two_column_str(
             '  {:<18} {:,} points'.format('Tested on:', n_test),
-            'from \'' + str(model['md5_test']) + '\'',
+            'from \'' + ui.unicode_str(model['md5_test']) + '\'',
         )
     else:
         print('  {:<18} {}'.format('Test:', '[pending]'))
+
+    e_unit = 'unknown unit'
+    f_unit = 'unknown unit'
+    if 'r_unit' in model and 'e_unit' in model:
+        e_unit = model['e_unit']
+        f_unit = str(model['e_unit']) + '/' + str(model['r_unit'])
 
     if is_valid:
         action_str = 'Validation' if not is_valid else 'Expected test'
         print('  {:<18}'.format('{} errors:'.format(action_str)))
         if model['use_E']:
             print(
-                '    {:<16} {:>.2e}/{:>.2e} [a.u.]'.format(
-                    'Energy:', e_err['mae'], e_err['rmse']
+                '    {:<16} {:>.4f}/{:>.4f} [{}]'.format(
+                    'Energy:', e_err['mae'], e_err['rmse'], e_unit
                 )
             )
         print(
-            '    {:<16} {:>.2e}/{:>.2e} [a.u.]'.format(
-                'Forces:', f_err['mae'], f_err['rmse']
+            '    {:<16} {:>.4f}/{:>.4f} [{}]'.format(
+                'Forces:', f_err['mae'], f_err['rmse'], f_unit
             )
         )
 
@@ -491,7 +495,7 @@ def create(  # noqa: C901
 
     gdml_train = GDMLTrain(max_processes=max_processes)
 
-    if task_dir == None:
+    if task_dir is None:
         task_dir = io.train_dir_name(
             dataset,
             n_train,
@@ -794,9 +798,7 @@ def test(
     if (
         is_validation and n_models == 1
     ):  # validation mode with only one model to validate
-        log.warning(
-            'Skipping model selection step as there is only one model to select.'
-        )
+        log.warning('Skipping validation step as there is only one model to validate.')
         return
 
     dataset_path, dataset = dataset
@@ -838,7 +840,7 @@ def test(
             e_err = model['e_err'].item()
         f_err = model['f_err'].item()
 
-        is_model_tested = model['n_test'] > 0
+        # is_model_tested = model['n_test'] > 0
         is_model_validated = not (np.isnan(f_err['mae']) or np.isnan(f_err['rmse']))
 
         if n_models > 1:
@@ -1035,7 +1037,7 @@ def test(
                 e_unit = dataset['e_unit']
                 f_unit = str(dataset['e_unit']) + '/' + str(dataset['r_unit'])
 
-            format_str = '  {:<18} {:>.2e}/{:>.2e} '
+            format_str = '  {:<18} {:>.4f}/{:>.4f} '
             if model['use_E']:
                 print(
                     (format_str + '[{}] {}').format(
@@ -1067,7 +1069,9 @@ def test(
                     ),
                 )
             )
-            print((format_str + '[{}]').format('  Magnitude:', mag_mae, mag_rmse, r_unit))
+            print(
+                (format_str + '[{}]').format('  Magnitude:', mag_mae, mag_rmse, r_unit)
+            )
             print((format_str + '[0-1], 0: best').format('  Angle:', cos_mae, cos_rmse))
             print()
 
@@ -1130,7 +1134,7 @@ def select(
         ui.print_step_title('MODEL SELECTION')
 
     any_model_not_validated = False
-    any_model_is_tested = False
+    # any_model_is_tested = False
 
     model_dir, model_file_names = model_dir
     if len(model_file_names) > 1:
@@ -1229,12 +1233,15 @@ def select(
             )
 
     else:  # only one model available
-        log.warning('Skipping validation step as there is only one model to validate.')
+        log.warning(
+            'Skipping model selection step as there is only one model to select.'
+        )
+
         best_idx = 0
 
     best_model_path = os.path.join(model_dir, model_file_names[best_idx])
 
-    if model_file == None:
+    if model_file is None:
 
         # generate model file name based on model properties
         best_model = np.load(best_model_path, allow_pickle=True)
@@ -1274,10 +1281,10 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
     ui.print_step_title('SHOW DETAILS')
     file_path, file = file
 
-    if file['type'] == b'd':
+    if file['type'].astype(str) == 'd':
         _print_dataset_properties(file)
 
-    if file['type'] == b't':
+    if file['type'].astype(str) == 't':
         _print_task_properties(
             use_sym=file['use_sym'],
             use_cprsn=file['use_cprsn'],
@@ -1285,7 +1292,7 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
             use_E_cstr=file['use_E_cstr'],
         )
 
-    if file['type'] == b'm':
+    if file['type'].astype(str) == 'm':
         _print_model_properties(file)
 
 
@@ -1300,7 +1307,7 @@ def reset(command=None, **kwargs):
         if os.path.exists(bmark_path):
             try:
                 os.remove(bmark_path)
-            except OSError as e:
+            except OSError:
                 print()
                 log.critical('Exception: unable to delete benchmark cache.')
                 sys.exit()
@@ -1489,6 +1496,23 @@ def main():
             help='user-defined model output file name',
         )
 
+    for subparser in [parser_all, parser_train]:
+        group = subparser.add_mutually_exclusive_group()
+        group.add_argument(
+            '--cg',
+            dest='use_cg',
+            action='store_true',
+            help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
+            # help=argparse.SUPPRESS
+        )
+        group.add_argument(
+            '--fk',
+            dest='use_fk',
+            action='store_true',
+            help='use iterative solver (conjugate gradient) with Nystroem approximation',
+            # help=argparse.SUPPRESS
+        )
+
     for subparser in [parser_all, parser_create]:  # NEW
         subparser.add_argument(
             '-m0',
@@ -1535,6 +1559,7 @@ def main():
             pass
         else:
             if not torch.cuda.is_available():
+                print()  # TODO: print only if log level includes warning
                 log.warning(
                     'Your PyTorch installation does not support GPU computation!\n'
                     + 'We recommend running CPU calculations without \'--torch\' for improved performance.'

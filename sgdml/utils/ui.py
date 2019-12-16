@@ -133,22 +133,25 @@ def progr_toggle(is_done, disp_str='', sec_disp_str=None):
 
 BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = range(8)
 COLOR_SEQ, RESET_SEQ = '\033[{:d};{:d};{:d}m', '\033[0m'
+
+
 def color_str(str, fore_color=WHITE, back_color=BLACK, bold=False):
 
     # foreground is set with 30 plus the number of the color, background with 40
-    return (COLOR_SEQ.format(1 if bold else 0, 30+fore_color, 40+back_color)
-            + str
-            + RESET_SEQ
-        )
+    return (
+        COLOR_SEQ.format(1 if bold else 0, 30 + fore_color, 40 + back_color)
+        + str
+        + RESET_SEQ
+    )
 
 
 def white_back_str(str):
     return color_str(str, fore_color=BLACK, back_color=WHITE, bold=True)
-    #return '\x1b[1;7m' + str + '\x1b[0m'
+    # return '\x1b[1;7m' + str + '\x1b[0m'
 
 
-#def green_back_str(str):
-    #return color_str(str, back_color=GREEN, bold=True)
+# def green_back_str(str):
+# return color_str(str, back_color=GREEN, bold=True)
 #    return '\x1b[1;30;42m' + str + '\x1b[0m'
 
 
@@ -178,7 +181,7 @@ def info_str(str):
 
 def pass_str(str):
     return color_str(str, fore_color=GREEN, bold=True)
-    #return '\x1b[1;32m' + str + '\x1b[0m'
+    # return '\x1b[1;32m' + str + '\x1b[0m'
 
 
 # def warn_str(str):
@@ -205,12 +208,22 @@ def pass_str(str):
 #     return is_supported
 
 
+def unicode_str(s):
+
+    if sys.version[0] == '3':
+        return str(s, 'utf-8', 'ignore')
+    else:
+        return str(s)
+
+
 def gen_lattice_str(lat):
 
     lat_str, col_widths = gen_mat_str(lat)
     desc_str = (' '.join([('{:' + str(w) + '}') for w in col_widths])).format(
         'a', 'b', 'c'
     ) + '\n'
+
+    lat_str = indent_str(lat_str, 21)
 
     return desc_str + lat_str
 
@@ -231,10 +244,12 @@ def str_plen(str):
     """
 
     num_colored_subs = str.count(RESET_SEQ)
-    return len(str) - (14*num_colored_subs) # 14: length of invisible characters per colored segment 
+    return len(str) - (
+        14 * num_colored_subs
+    )  # 14: length of invisible characters per colored segment
 
 
-def wrap_str(str, width=MAX_PRINT_WIDTH-LOG_LEVELNAME_WIDTH):
+def wrap_str(str, width=MAX_PRINT_WIDTH - LOG_LEVELNAME_WIDTH):
     """
     Wrap multiline string after a given number of characters. The default maximum line already accounts for the indentation due to the logging level label.
 
@@ -255,7 +270,10 @@ def wrap_str(str, width=MAX_PRINT_WIDTH-LOG_LEVELNAME_WIDTH):
         [
             '\n'.join(
                 textwrap.wrap(
-                    line, width+(len(line)-str_plen(line)), break_long_words=False, replace_whitespace=False
+                    line,
+                    width + (len(line) - str_plen(line)),
+                    break_long_words=False,
+                    replace_whitespace=False,
                 )
             )
             for line in str.splitlines()
@@ -281,10 +299,10 @@ def indent_str(str, indent):
 
     """
 
-    return re.sub('^', ' '*indent, str, flags=re.MULTILINE)
+    return re.sub('^', ' ' * indent, str, flags=re.MULTILINE)
 
 
-def wrap_indent_str(label, str, width=MAX_PRINT_WIDTH-LOG_LEVELNAME_WIDTH):
+def wrap_indent_str(label, str, width=MAX_PRINT_WIDTH - LOG_LEVELNAME_WIDTH):
     """
     Wraps and indents a multiline string to arrange it with the provided label in two columns. The default maximum line already accounts for the indentation due to the logging level label.
 
@@ -306,7 +324,7 @@ def wrap_indent_str(label, str, width=MAX_PRINT_WIDTH-LOG_LEVELNAME_WIDTH):
 
     label_len = str_plen(label)
 
-    str = wrap_str(str, width-label_len)
+    str = wrap_str(str, width - label_len)
     str = indent_str(str, label_len)
 
     return label + str[label_len:]
@@ -420,7 +438,7 @@ def gen_range_str(min, max):
 
     """
 
-    #arr_min, arr_max = np.min(arr), np.max(arr)
+    # arr_min, arr_max = np.min(arr), np.max(arr)
     return '{:<.3} |-- {:^8.3} --| {:<9.3}'.format(min, max - min, max)
 
 
@@ -431,12 +449,22 @@ def print_step_title(title_str, sec_title_str='', underscore=True):
 
     underscore_str = '-' * MAX_PRINT_WIDTH if underscore else ''
 
-    print('\n' + white_back_str(' ' + title_str + ' ') + sec_title_str + '\n' + underscore_str)
+    print(
+        '\n'
+        + white_back_str(' ' + title_str + ' ')
+        + sec_title_str
+        + '\n'
+        + underscore_str
+    )
 
 
 def print_two_column_str(str, sec_str=''):
 
-    print('{} \x1b[90m{:>{width}}\x1b[0m'.format(str, sec_str, width=MAX_PRINT_WIDTH - len(str) - 1))
+    print(
+        '{} \x1b[90m{:>{width}}\x1b[0m'.format(
+            str, sec_str, width=MAX_PRINT_WIDTH - len(str) - 1
+        )
+    )
 
 
 def print_lattice(lat=None):

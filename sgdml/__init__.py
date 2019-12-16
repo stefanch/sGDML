@@ -22,10 +22,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-__version__ = '0.4.0.dev0'
+__version__ = '0.4.0.dev1'
 
 MAX_PRINT_WIDTH = 100
-LOG_LEVELNAME_WIDTH = 7 # do not modify
+LOG_LEVELNAME_WIDTH = 7  # do not modify
 
 
 # Logging
@@ -69,8 +69,13 @@ class ColoredFormatter(logging.Formatter):
         levelname = _record.levelname
         msg = _record.msg
 
-        levelname = ui.color_str(self.LEVEL_NAMES[levelname], self.LEVEL_COLORS[levelname][0], self.LEVEL_COLORS[levelname][1], bold=True)
-         
+        levelname = ui.color_str(
+            self.LEVEL_NAMES[levelname],
+            self.LEVEL_COLORS[levelname][0],
+            self.LEVEL_COLORS[levelname][1],
+            bold=True,
+        )
+
         # wrap long messages
         msg = ui.wrap_str(msg)
 
@@ -83,7 +88,6 @@ class ColoredFormatter(logging.Formatter):
 
 
 class ColoredLogger(logging.Logger):
-
     def __init__(self, name):
 
         logging.Logger.__init__(self, name, logging.DEBUG)

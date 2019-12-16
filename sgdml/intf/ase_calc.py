@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 import numpy as np
 
 from ase.calculators.calculator import Calculator
@@ -32,14 +33,45 @@ class SGDMLCalculator(Calculator):
 
     implemented_properties = ['energy', 'forces']
 
-    def __init__(self, model_path, *args, **kwargs):
+    def __init__(
+        self, model_path, E_to_eV=kcal / mol, F_to_eV_Ang=kcal / mol, *args, **kwargs
+    ):
+        """
+        ASE calculator for the sGDML force field.
+
+        A calculator takes atomic numbers and atomic positions from an Atoms object and calculates the energy and forces.
+
+        Note
+        ----
+        ASE uses eV and Angstrom as energy and length unit, respectively. Unless the paramerters `E_to_eV` and `F_to_eV_Ang` are specified, the sGDML model is assumed to use kcal/mol and Angstorm and the appropriate conversion factors are set accordingly.
+        Here is how to find them: `ASE units <https://wiki.fysik.dtu.dk/ase/ase/units.html>`_.
+
+        Parameters
+        ----------
+                model_path : :obj:`str`
+                        Path to a sGDML model file
+                E_to_eV : float, optional
+                        Conversion factor from whatever energy unit is used by the model to eV. By default this parameter is set to convert from kcal/mol.
+                use_torch : boolean, optional
+                        Conversion factor from whatever length unit is used by the model to Angstrom. By default, the length unit is not converted.
+        """
 
         super(SGDMLCalculator, self).__init__(*args, **kwargs)
+
+        self.log = logging.getLogger(__name__)
 
         model = np.load(model_path)
         self.gdml_predict = GDMLPredict(model)
 
-        self.from_kcal_mol = kcal / mol
+        self.log.warning(
+            'Please remember to specify the proper conversion factors, if your model does not use \'kcal/mol\' and \'Ang\' as units.'
+        )
+
+        # Converts energy from the unit used by the sGDML model to eV.
+        self.E_to_eV = E_to_eV
+
+        # Converts force from the unit used by the sGDML model to eV/Ang.
+        self.F_to_eV_Ang = F_to_eV_Ang
 
     def calculate(self, atoms=None, *args, **kwargs):
 
@@ -48,8 +80,8 @@ class SGDMLCalculator(Calculator):
         r = np.array(atoms.get_positions())
         e, f = self.gdml_predict.predict(r.ravel())
 
-        # kcal/mol to eV
-        e *= self.from_kcal_mol
-        f *= self.from_kcal_mol
+        # convert model units to ASE default units (eV and Ang)
+        e *= self.E_to_eV
+        f *= self.F_to_eV_Ang
 
         self.results = {'energy': e, 'forces': f.reshape(-1, 3)}

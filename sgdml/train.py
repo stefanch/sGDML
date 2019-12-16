@@ -26,10 +26,10 @@ This module contains all routines for training GDML and sGDML models.
 
 from __future__ import print_function
 
+import sys
 import logging
 import multiprocessing as mp
 import inspect
-import sys
 import timeit
 import warnings
 from functools import partial
@@ -38,7 +38,7 @@ from psutil import virtual_memory
 import numpy as np
 import scipy as sp
 
-from . import __version__, MAX_PRINT_WIDTH, LOG_LEVELNAME_WIDTH
+from . import __version__
 from .predict import GDMLPredict
 from .utils import desc, io, perm, ui
 
@@ -600,9 +600,7 @@ class GDMLTrain(object):
                     stop = timeit.default_timer()
                     dur_s = (stop - start) / 2
                     sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
-                    desc_callback(
-                        i + 1, n_train, sec_disp_str=sec_disp_str
-                    )
+                    desc_callback(i + 1, n_train, sec_disp_str=sec_disp_str)
                 else:
                     desc_callback(i + 1, n_train)
         pool.close()
@@ -656,7 +654,7 @@ class GDMLTrain(object):
 
             M_max = int(np.round((mem_avail_byte * 0.5) / nem_req_per_M_byte))
             M = min(
-                min(n_train, M_max), int(np.ceil(n_train / 4))
+                min(n_train, M_max), int(np.ceil(n_train / 10))
             )  # max depends on available memory, but never more than fourth of all training points
 
             self.log.info(
@@ -823,35 +821,69 @@ class GDMLTrain(object):
         if np.sign(e_fact) == -1:
             self.log.warning(
                 'The provided dataset contains gradients instead of force labels (flipped sign). Please correct!\n'
-                + ui.color_str('Note:', bold=True) + 'Note: The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
+                + ui.color_str('Note:', bold=True)
+                + 'Note: The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
             return None
 
         if corrcoef < 0.95:
             self.log.warning(
                 'Inconsistent energy labels detected!\n'
-                + 'The predicted energies for the training data are only weakly correlated with the reference labels (correlation coefficient {:.2f}) which indicates that the issue is most likely NOT just a unit conversion error.\n\n'.format(corrcoef)
+                + 'The predicted energies for the training data are only weakly correlated with the reference labels (correlation coefficient {:.2f}) which indicates that the issue is most likely NOT just a unit conversion error.\n\n'.format(
+                    corrcoef
+                )
                 + ui.color_str('Troubleshooting tips:\n', bold=True)
-                + ui.wrap_indent_str('(1) ', 'Verify the correct correspondence between geometries and labels in the provided dataset.') + '\n'
-                + ui.wrap_indent_str('(2) ', 'Verify the consistency between energy and force labels.') + '\n'
-                + ui.wrap_indent_str('    - ', 'Correspondence correct?') + '\n'
-                + ui.wrap_indent_str('    - ', 'Same level of theory?') + '\n'
-                + ui.wrap_indent_str('    - ', 'Accuracy of forces (if numerical)?') + '\n'
-                + ui.wrap_indent_str('(3) ', 'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?') + '\n'
-                + ui.wrap_indent_str('(4) ', 'Are there duplicate geometries in the training data?') + '\n'
-                + ui.wrap_indent_str('(5) ', 'Are there any corrupted data points (e.g. parsing errors)?') + '\n\n'
-                + ui.color_str('Note:', bold=True) + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
+                + ui.wrap_indent_str(
+                    '(1) ',
+                    'Verify the correct correspondence between geometries and labels in the provided dataset.',
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(2) ', 'Verify the consistency between energy and force labels.'
+                )
+                + '\n'
+                + ui.wrap_indent_str('    - ', 'Correspondence correct?')
+                + '\n'
+                + ui.wrap_indent_str('    - ', 'Same level of theory?')
+                + '\n'
+                + ui.wrap_indent_str('    - ', 'Accuracy of forces (if numerical)?')
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(3) ',
+                    'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?',
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(4) ', 'Are there duplicate geometries in the training data?'
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(5) ', 'Are there any corrupted data points (e.g. parsing errors)?'
+                )
+                + '\n\n'
+                + ui.color_str('Note:', bold=True)
+                + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
             return None
 
         if np.abs(e_fact - 1) > 1e-1:
             self.log.warning(
                 'Different scales in energy vs. force labels detected!\n'
-                + 'The integrated forces differ from the energy labels by factor ~{:.2f}, meaning that the trained model will likely fail to predict energies accurately.\n\n'.format(e_fact)
+                + 'The integrated forces differ from the energy labels by factor ~{:.2f}, meaning that the trained model will likely fail to predict energies accurately.\n\n'.format(
+                    e_fact
+                )
                 + ui.color_str('Troubleshooting tips:\n', bold=True)
-                + ui.wrap_indent_str('(1) ', 'Verify consistency of units in energy and force labels.') + '\n'
-                + ui.wrap_indent_str('(2) ', 'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?') + '\n\n'
-                + ui.color_str('Note:', bold=True) + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
+                + ui.wrap_indent_str(
+                    '(1) ', 'Verify consistency of units in energy and force labels.'
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(2) ',
+                    'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?',
+                )
+                + '\n\n'
+                + ui.color_str('Note:', bold=True)
+                + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
             return None
 
@@ -926,7 +958,7 @@ class GDMLTrain(object):
 
         n_train, dim_d, dim_i = R_d_desc.shape
 
-        if cols_m_limit == None:
+        if cols_m_limit is None:
             cols_m_limit = n_train
 
         K_rows, K_cols = n_train * dim_i, cols_m_limit * dim_i
@@ -973,9 +1005,7 @@ class GDMLTrain(object):
 
                     dur_s = (stop - start) / 2
                     sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
-                    progr_callback(
-                        done_total, todo, sec_disp_str=sec_disp_str
-                    )
+                    progr_callback(done_total, todo, sec_disp_str=sec_disp_str)
                 else:
                     progr_callback(done_total, todo)
 
@@ -1016,11 +1046,13 @@ class GDMLTrain(object):
                 Array of indices that form the sample.
         """
 
-        if T.size == n: # TODO: this only works if excl_idxs=None
+        if T.size == n:  # TODO: this only works if excl_idxs=None
             return np.arange(n)
 
         if n == 1:
-            idxs_all_non_excl = np.setdiff1d(np.arange(T.size), excl_idxs, assume_unique=True)
+            idxs_all_non_excl = np.setdiff1d(
+                np.arange(T.size), excl_idxs, assume_unique=True
+            )
             return np.array([np.random.choice(idxs_all_non_excl)])
 
         # Freedman-Diaconis rule
@@ -1107,11 +1139,28 @@ class GDMLTrain(object):
                     alphas = -sp.linalg.cho_solve(
                         (L, lower), y, overwrite_b=True, check_finite=False
                     )
-                except Exception:
-                    # LU
-                    alphas = sp.linalg.solve(
-                        K, y, overwrite_a=True, overwrite_b=True, check_finite=False
+                except np.linalg.LinAlgError:  # try a solver that makes less assumptions
+
+                    try:
+                        # LU
+                        alphas = sp.linalg.solve(
+                            K, y, overwrite_a=True, overwrite_b=True, check_finite=False
+                        )
+                    except MemoryError:
+                        self.log.critical(
+                            'Not enough memory to train this system using a closed form solver.\n'
+                            + 'Please reduce the size of the training set or consider one of the approximate solver options.'
+                        )
+                        print()
+                        sys.exit()
+
+                except MemoryError:
+                    self.log.critical(
+                        'Not enough memory to train this system using a closed form solver.\n'
+                        + 'Please reduce the size of the training set or consider one of the approximate solver options.'
                     )
+                    print()
+                    sys.exit()
             else:
                 # least squares
                 alphas = np.linalg.lstsq(K, y, rcond=-1)[0]
@@ -1120,6 +1169,218 @@ class GDMLTrain(object):
 
         if callback is not None:
 
+            dur_s = (stop - start) / 2
+            sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
+            callback(is_done=True, sec_disp_str=sec_disp_str)
+
+        return alphas
+
+    def _solve_iterative_nystrom_precon(  # --cg
+        self,
+        K_nm,
+        y,
+        R_desc,
+        R_d_desc,
+        task,
+        tril_perms_lin,
+        alphas0_F=None,
+        lam=1e-10,
+        callback=None,
+    ):  # todo document me
+
+        global num_iters, start, res
+        num_iters = 0
+
+        n_train, n_atoms = task['R_train'].shape[:2]
+
+        n, m = K_nm.shape
+        K_mm = K_nm[:m, :]
+
+        if callback is not None:
+            callback(is_done=False, sec_disp_str='init 1/5')
+
+        eps = np.finfo(float).eps
+        inner = -lam * K_mm + K_nm.T.dot(K_nm)
+        inner[np.diag_indices_from(inner)] += eps * m
+
+        if callback is not None:
+            callback(is_done=False, sec_disp_str='init 2/5')
+
+        try:
+            L, lower = sp.linalg.cho_factor(inner, check_finite=False, overwrite_a=True)
+        except np.linalg.LinAlgError:  # TODO: better error description
+
+            w = sp.linalg.eigh(inner, eigvals_only=True, eigvals=(0, 0))
+            inner[np.diag_indices_from(inner)] += -w * 2
+
+            # retry
+            self.log.warning(
+                'Cholesky decomposition of preconditioner failed! Retrying with stronger regularization...'
+            )
+            L, lower = sp.linalg.cho_factor(inner, check_finite=False, overwrite_a=True)
+
+        if callback is not None:
+            callback(is_done=False, sec_disp_str='init 3/5')
+
+        def _P_vec(v):
+
+            inv_inner_K_mn_v = sp.linalg.cho_solve(
+                (L, lower), K_nm.T.dot(v), check_finite=False, overwrite_b=True
+            )
+
+            return (1.0 / lam) * (K_nm.dot(inv_inner_K_mn_v) - v)
+            # with warnings.catch_warnings():
+            #    warnings.simplefilter('ignore')
+            # P_v = (1.0 / lam) * (
+            #    K_nm.dot(sp.linalg.solve(inner, K_nm.T.dot(v))) - v
+            # )
+            # return P_v
+
+        P_op = sp.sparse.linalg.LinearOperator((n, n), matvec=_P_vec)
+
+        if callback is not None:
+            callback(is_done=False, sec_disp_str='init 4/5')
+
+        global gdml_predict
+        gdml_predict = None
+
+        def _K_vec(v):
+
+            global gdml_predict
+
+            if gdml_predict is None:
+
+                model = self.create_model(
+                    task, '', R_desc, R_d_desc, tril_perms_lin, 1.0, v
+                )
+
+                gdml_predict = GDMLPredict(
+                    model, max_processes=self._max_processes, use_torch=self._use_torch
+                )
+
+                if callback is not None:
+                    callback(is_done=False, sec_disp_str='init 5/5')
+
+                gdml_predict.prepare_parallel(n_bulk=n_train)
+
+            else:
+                gdml_predict.set_alphas(R_d_desc, v)
+
+            # R = task['R_train'].reshape(n_train, -1)
+            # _, f_pred = gdml_predict.predict(R)
+
+            if self._use_torch:
+                R = task['R_train'].reshape(n_train, -1)
+                _, f_pred = gdml_predict.predict(R)
+            else:
+                f_pred = gdml_predict._predict_bulk_train(R_desc, R_d_desc)
+
+            return f_pred.ravel() - lam * v
+
+        K_op = sp.sparse.linalg.LinearOperator((n, n), matvec=_K_vec)
+
+        start = 0
+        res = 0
+
+        def _cg_status(xk):
+            global num_iters, start, res
+
+            stop = timeit.default_timer()
+            tt = 0.0 if start == 0 else ((stop - start) / 2)
+            start = timeit.default_timer()
+
+            if num_iters == 0 or (
+                tt > 0.0 and num_iters % int(np.ceil(1.0 / tt)) == 0
+            ):  # once per second
+
+                old_res = res
+                frame = inspect.currentframe().f_back
+                res = frame.f_locals['resid']
+
+                step = res - old_res
+                trend_str = '-' if step < 0 else '+'
+
+                callback(
+                    is_done=False,
+                    sec_disp_str=(
+                        'iter: {:4d} residual: {:.5f}[{}] @ {:.5f} s/iter'.format(
+                            num_iters, res, trend_str, tt
+                        )
+                    ),
+                )
+            num_iters += 1
+
+        if alphas0_F is not None:  # TODO: improve me
+            alphas0_F *= -1
+
+        alphas = -sp.sparse.linalg.cg(
+            -K_op,
+            y,
+            x0=alphas0_F,
+            M=P_op,
+            tol=1e-4,
+            maxiter=3 * n_atoms * n_train,
+            callback=_cg_status,
+        )[0]
+
+        if callback is not None:
+            sec_disp_str = 'training error: {:.5f} (in {:4d} iter.)'.format(
+                np.mean(np.abs(K_op.dot(alphas) - y)), num_iters
+            )
+            callback(is_done=True, sec_disp_str=sec_disp_str)
+
+        return alphas
+
+    def _solve_iterative_fk(self, K_nm, y, lam=1e-14, callback=None):  # --fk
+
+        n, m = K_nm.shape
+        K_mm = K_nm[:m, :]
+
+        start = timeit.default_timer()
+
+        eps = np.finfo(float).eps
+        meye = np.eye(m)
+        T = sp.linalg.cholesky(
+            -K_mm + eps * m * meye
+        )  # overwrites unused entries with zeros
+        A = sp.linalg.cholesky(
+            T.dot(T.T) / m + lam * meye
+        )  # overwrites unused entries with zeros
+
+        def _BHB(u):
+
+            A_u = sp.linalg.solve_triangular(A, u)
+            kkA_inner = sp.linalg.solve_triangular(T, A_u)
+            kkA = (K_nm.T.dot(K_nm.dot(kkA_inner))) / n  # numerical stability!
+            kkB = lam * A_u
+
+            return sp.linalg.solve_triangular(
+                A.T,
+                sp.linalg.solve_triangular(T.T, kkA, lower=True, overwrite_b=True)
+                + kkB,
+                lower=True,
+                overwrite_b=True,
+            )
+
+        r = sp.linalg.solve_triangular(
+            A.T,
+            sp.linalg.solve_triangular(
+                T.T, -K_nm.T.dot(y / n), lower=True, overwrite_b=True
+            ),
+            lower=True,
+            overwrite_b=True,
+        )
+
+        BHB_op = sp.sparse.linalg.LinearOperator((m, m), matvec=_BHB)
+        betas, status = sp.sparse.linalg.cg(BHB_op, r, tol=1e-4, maxiter=n)
+
+        alphas = -sp.linalg.solve_triangular(
+            T, sp.linalg.solve_triangular(A, betas, overwrite_b=True), overwrite_b=True
+        )
+
+        stop = timeit.default_timer()
+
+        if callback is not None:
             dur_s = (stop - start) / 2
             sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
             callback(is_done=True, sec_disp_str=sec_disp_str)
