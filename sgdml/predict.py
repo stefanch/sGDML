@@ -992,14 +992,6 @@ class GDMLPredict(object):
             if n_gpu > 1:
                 self.torch_predict = torch.nn.DataParallel(self.torch_predict)
 
-            # print('__Number CUDA Devices:', torch.cuda.device_count())
-            # for i in range(torch.cuda.device_count()): # TODO: remove me
-            #    t = torch.cuda.get_device_properties(i).total_memory
-            #    c = torch.cuda.memory_cached(i)
-            #    a = torch.cuda.memory_allocated(i)
-            #    f = c-a  # free inside cache
-            #    print(str(i) + ': ' + str(f))
-
             e_pred, f_pred = self.torch_predict.forward(Rs)
 
             E = e_pred.cpu().numpy()

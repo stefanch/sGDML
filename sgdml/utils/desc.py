@@ -204,7 +204,7 @@ def from_r(r, lat_and_inv=None):
             Array of size 1 x 3N containing the Cartesian coordinates of
             each atom.
         lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
-            Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
+            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
 
     Returns
     -------

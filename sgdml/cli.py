@@ -1502,15 +1502,15 @@ def main():
             '--cg',
             dest='use_cg',
             action='store_true',
-            help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
-            # help=argparse.SUPPRESS
+            #help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
+            help=argparse.SUPPRESS
         )
         group.add_argument(
             '--fk',
             dest='use_fk',
             action='store_true',
-            help='use iterative solver (conjugate gradient) with Nystroem approximation',
-            # help=argparse.SUPPRESS
+            #help='use iterative solver (conjugate gradient) with Nystroem approximation',
+            help=argparse.SUPPRESS
         )
 
     for subparser in [parser_all, parser_create]:  # NEW

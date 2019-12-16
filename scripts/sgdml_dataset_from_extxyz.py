@@ -154,14 +154,6 @@ if is_extxyz:
             + ' Order of atoms changes accross dataset.'
         )
 
-    #eV_to_kcal_mol = ase.units.mol / ase.units.kcal
-    #print(
-    #    ui.color_str('[INFO]', bold=True)
-    #    + ' Energy unit has been converted from eV to kcal/mol with factor {}'.format(
-    #        eV_to_kcal_mol
-    #    )
-    #)
-
     lattice = np.array(mols[0].get_cell())
     if not np.any(lattice): # all zeros
         lattice = None
@@ -170,8 +162,8 @@ if is_extxyz:
     z = Z[0]
 
     if 'Energy' in mols[0].info:
-        E = np.array([mol.info['Energy'] for mol in mols])# * eV_to_kcal_mol
-    F = np.array([mol.get_forces() for mol in mols])# * eV_to_kcal_mol
+        E = np.array([mol.info['Energy'] for mol in mols])
+    F = np.array([mol.get_forces() for mol in mols])
 
 else:  # legacy non-standard XYZ format
 
