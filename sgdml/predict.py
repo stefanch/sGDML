@@ -248,14 +248,6 @@ class GDMLPredict(object):
             else None
         )
 
-        # from packaging import version
-        # print(version.parse('2.3.2dev0') > version.parse('2.3.1dev1'))
-
-        # print(model['code_version'])
-        # legacy support
-        # if version.parse(model['code_version']) <= version.parse('0.3.5.dev5'):
-        #    model['R_desc'] = model['R_desc'].T
-
         self.n_train = model['R_desc'].shape[1]
         sig = model['sig']
 
@@ -307,13 +299,15 @@ class GDMLPredict(object):
                 self.torch_device
             )
 
+            # enable data parallelism
+            n_gpu = torch.cuda.device_count()
+            if n_gpu > 1:
+                self.torch_predict = torch.nn.DataParallel(self.torch_predict)
+            # self.torch_predict.to(self.torch_device) # needed?
+
             is_cuda = next(self.torch_predict.parameters()).is_cuda
             if is_cuda:
-                self.log.info(
-                    'Numbers of CUDA devices found: {:d}'.format(
-                        torch.cuda.device_count()
-                    )
-                )
+                self.log.info('Numbers of CUDA devices found: {:d}'.format(n_gpu))
             else:
                 self.log.warning(
                     'No CUDA devices found! PyTorch is running on the CPU.'
@@ -632,9 +626,7 @@ class GDMLPredict(object):
 
                     i_done += 1
 
-                    gps = (
-                        n_bulk * n_reps / (timeit.timeit(_dummy_predict, number=n_reps))
-                    )
+                    gps = n_bulk * n_reps / timeit.timeit(_dummy_predict, number=n_reps)
 
                     # print(
                     #    '{:2d}@{:d} {:d} | {:7.2f} gps'.format(
@@ -873,6 +865,12 @@ class GDMLPredict(object):
         # F = res[1:].reshape(1, -1).dot(r_d_desc)
         # return res[1:].reshape(1, -1)
 
+        if self._num_workers == 1:  # HACK
+            self.log.critical(
+                'Bulk (train) predictions are not possible with just one process (not implemented).'
+            )
+            sys.exit()
+
         if self._bulk_mp is False:  # HACK!
             self._set_bulk_mp(True)
 
@@ -986,11 +984,6 @@ class GDMLPredict(object):
             M = r.shape[0]
 
             Rs = torch.from_numpy(r.reshape(M, -1, 3)).to(self.torch_device)
-
-            # enable data parallelism
-            n_gpu = torch.cuda.device_count()
-            if n_gpu > 1:
-                self.torch_predict = torch.nn.DataParallel(self.torch_predict)
 
             e_pred, f_pred = self.torch_predict.forward(Rs)
 

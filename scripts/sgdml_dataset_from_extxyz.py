@@ -123,7 +123,7 @@ else:
         + ' Dataset \'{}\' already exists.'.format(dataset_file_name)
     )
 
-mols = read(dataset, index=':')
+mols = read(dataset.name, index=':')
 
 lattice, R, z, E, F = None, None, None, None, None
 
@@ -163,6 +163,8 @@ if is_extxyz:
 
     if 'Energy' in mols[0].info:
         E = np.array([mol.info['Energy'] for mol in mols])
+    if 'energy' in mols[0].info:
+        E = np.array([mol.info['energy'] for mol in mols])
     F = np.array([mol.get_forces() for mol in mols])
 
 else:  # legacy non-standard XYZ format

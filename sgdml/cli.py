@@ -116,10 +116,10 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     n_mols, n_atoms, _ = dataset['R'].shape
     print(
         '  {:<18} {} ({:<d} atoms)'.format(
-            'Name:', dataset['name'].astype(str), n_atoms
+            'Name:', ui.unicode_str(dataset['name']), n_atoms
         )
     )
-    print('  {:<18} {}'.format('Theory:', dataset['theory']))
+    print('  {:<18} {}'.format('Theory:', ui.unicode_str(dataset['theory'])))
     print('  {:<18} {:,} data points'.format('Size:', n_mols))
 
     ui.print_lattice(dataset['lattice'] if 'lattice' in dataset else None)
@@ -128,7 +128,7 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
         e_unit = 'unknown unit'
         if 'e_unit' in dataset:
-            e_unit = dataset['e_unit']
+            e_unit = ui.unicode_str(dataset['e_unit'])
 
         print('  Energies [{}]:'.format(e_unit))
         if 'E_min' in dataset and 'E_max' in dataset:
@@ -148,7 +148,9 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
     f_unit = 'unknown unit'
     if 'r_unit' in dataset and 'e_unit' in dataset:
-        f_unit = str(dataset['e_unit']) + '/' + str(dataset['r_unit'])
+        f_unit = (
+            ui.unicode_str(dataset['e_unit']) + '/' + ui.unicode_str(dataset['r_unit'])
+        )
 
     print('  Forces [{}]:'.format(f_unit))
 
@@ -165,7 +167,7 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     F_var = dataset['F_var'] if 'F_var' in dataset else np.var(dataset['F'].ravel())
     print('    {:<16} {:<.3f}'.format('Variance:', F_var))
 
-    print('  {:<18} {}'.format('Fingerprint:', dataset['md5'].astype(str)))
+    print('  {:<18} {}'.format('Fingerprint:', ui.unicode_str(dataset['md5'])))
 
     idx = np.random.choice(n_mols, 1)[0]
     r = dataset['R'][idx, :, :]
@@ -228,7 +230,7 @@ def _print_model_properties(model, title_str='Model properties'):
 
     print(ui.white_bold_str(title_str))
 
-    print('  {:<18} {}'.format('Dataset:', model['dataset_name'].astype(str)))
+    print('  {:<18} {}'.format('Dataset:', ui.unicode_str(model['dataset_name'])))
 
     n_atoms = len(model['z'])
     print('  {:<18} {:<d}'.format('Atoms:', n_atoms))
@@ -286,11 +288,11 @@ def _print_model_properties(model, title_str='Model properties'):
     f_unit = 'unknown unit'
     if 'r_unit' in model and 'e_unit' in model:
         e_unit = model['e_unit']
-        f_unit = str(model['e_unit']) + '/' + str(model['r_unit'])
+        f_unit = ui.unicode_str(model['e_unit']) + '/' + ui.unicode_str(model['r_unit'])
 
     if is_valid:
         action_str = 'Validation' if not is_valid else 'Expected test'
-        print('  {:<18}'.format('{} errors:'.format(action_str)))
+        print('  {:<18}'.format('{} errors (MAE/RMSE):'.format(action_str)))
         if model['use_E']:
             print(
                 '    {:<16} {:>.4f}/{:>.4f} [{}]'.format(
@@ -503,6 +505,7 @@ def create(  # noqa: C901
             use_cprsn=use_cprsn,
             use_E=use_E,
             use_E_cstr=use_E_cstr,
+            model0=model0,
         )
 
     task_file_names = []
@@ -580,6 +583,8 @@ def create(  # noqa: C901
         if model0 is not None:
             model0_path, model0 = model0
 
+            shutil.copy(model0_path, os.path.join(task_dir, 'm0.npz'))
+
         try:
             tmpl_task = gdml_train.create_task(
                 dataset,
@@ -652,6 +657,13 @@ def train(
     ker_progr_callback = partial(ui.progr_bar, disp_str='Assembling kernel matrix...')
     solve_callback = partial(ui.progr_toggle, disp_str='Solving linear system...   ')
 
+    def save_progr_callback(
+        unconv_model
+    ):  # saves current (unconverged) model during iterative training
+        unconv_model_file = '_unconv_model.npz'
+        unconv_model_path = os.path.join(task_dir, unconv_model_file)
+        np.savez_compressed(unconv_model_path, **unconv_model)
+
     gdml_train = GDMLTrain(max_processes=max_processes, use_torch=use_torch)
     for i, task_file_name in enumerate(task_file_names):
         if n_tasks > 1:
@@ -688,6 +700,7 @@ def train(
                     desc_callback,
                     ker_progr_callback,
                     solve_callback,
+                    save_progr_callback,
                 )
             except Exception as err:
                 print()
@@ -877,11 +890,15 @@ def test(
             gdml = GDMLTrain(max_processes=max_processes)
 
             # exclude training and/or test sets from validation set if necessary
-            excl_idxs = np.empty((0,), dtype=int)
+            excl_idxs = np.empty((0,), dtype=np.uint)
             if dataset['md5'] == model['md5_train']:
-                excl_idxs = np.concatenate([excl_idxs, model['idxs_train']])
+                excl_idxs = np.concatenate([excl_idxs, model['idxs_train']]).astype(
+                    np.uint
+                )
             if dataset['md5'] == model['md5_valid']:
-                excl_idxs = np.concatenate([excl_idxs, model['idxs_valid']])
+                excl_idxs = np.concatenate([excl_idxs, model['idxs_valid']]).astype(
+                    np.uint
+                )
             if len(excl_idxs) == 0:
                 excl_idxs = None
 
@@ -1502,14 +1519,14 @@ def main():
             '--cg',
             dest='use_cg',
             action='store_true',
-            #help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
+            # help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
             help=argparse.SUPPRESS
         )
         group.add_argument(
             '--fk',
             dest='use_fk',
             action='store_true',
-            #help='use iterative solver (conjugate gradient) with Nystroem approximation',
+            # help='use iterative solver (conjugate gradient) with Nystroem approximation',
             help=argparse.SUPPRESS
         )
 

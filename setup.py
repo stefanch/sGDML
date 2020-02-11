@@ -1,5 +1,6 @@
 import os
 import re
+from io import open
 from setuptools import setup, find_packages
 
 
@@ -14,7 +15,7 @@ def get_property(property, package):
 from os import path
 
 this_dir = path.abspath(path.dirname(__file__))
-with open(path.join(this_dir, 'README.md')) as f:
+with open(path.join(this_dir, 'README.md'), encoding='utf8') as f:
     long_description = f.read()
 
 # Scripts

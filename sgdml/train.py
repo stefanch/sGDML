@@ -197,8 +197,6 @@ def _assemble_kernel_mat_wkr(
     if use_E_cstr:
         for i in range(n_train):
 
-            blk_i = base[:, None] + i * dim_i
-
             diff_ab_perms = R_desc[i, :] - rj_desc_perms
             norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
 
@@ -210,7 +208,9 @@ def _assemble_kernel_mat_wkr(
                     * (norm_ab_perms[:, None] + sig)
                     * np.exp(-norm_ab_perms / sig)[:, None]
                 )
-                K[E_off + i, blk_j] = np.einsum('ik,jki -> j', K_fe, rj_d_desc_perms)
+                K[E_off + i, blk_j] = K[blk_j, E_off + i] = np.einsum(
+                    'ik,jki -> j', K_fe, rj_d_desc_perms
+                )
 
                 K[E_off + i, E_off + j] = K[E_off + j, E_off + i] = (
                     1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
@@ -337,40 +337,68 @@ class GDMLTrain(object):
                 'Provided training and/or validation dataset(s) do(es) not match the ones in the initial model.'
             )
 
-        if model0 is None:
-            ui.progr_toggle(
-                is_done=False, disp_str='Sampling training and validation subsets...'
-            )
-            if 'E' in train_dataset:
-                idxs_train = self.draw_strat_sample(train_dataset['E'], n_train)
-            else:
-                idxs_train = np.random.choice(
-                    np.arange(train_dataset['F'].shape[0]), n_train, replace=False
-                )
+        m0_excl_idxs = np.array([], dtype=np.uint)
+        m0_n_train, m0_n_valid = 0, 0
+        if model0 is not None:
 
-            excl_idxs = idxs_train if md5_train == md5_valid else None
-            if 'E' in valid_dataset:
-                idxs_valid = self.draw_strat_sample(
-                    valid_dataset['E'], n_valid, excl_idxs
-                )
-            else:
-                idxs_valid_all = np.setdiff1d(
-                    np.arange(valid_dataset['F'].shape[0]),
-                    excl_idxs,
-                    assume_unique=True,
-                )
-                idxs_valid = np.random.choice(idxs_valid_all, n_valid, replace=False)
-            ui.progr_toggle(
-                is_done=True, disp_str='Sampling training and validation subsets...'
+            m0_idxs_train = model0['idxs_train']
+            m0_idxs_valid = model0['idxs_valid']
+
+            m0_n_train = m0_idxs_train.shape[0]
+            m0_n_valid = m0_idxs_valid.shape[0]
+
+            m0_excl_idxs = np.concatenate((m0_idxs_train, m0_idxs_valid)).astype(
+                np.uint
+            )
+
+        # TODO: handle smaller training/validation set
+
+        ui.progr_toggle(
+            is_done=False, disp_str='Sampling training and validation subsets...'
+        )
+
+        if 'E' in train_dataset:
+            idxs_train = self.draw_strat_sample(
+                train_dataset['E'], n_train - m0_n_train, m0_excl_idxs
             )
         else:
-            idxs_train = model0['idxs_train']
-            idxs_valid = model0['idxs_valid']
-
-            ui.progr_toggle(
-                is_done=True,
-                disp_str='Transfering training and validation subsets from initial model...',
+            idxs_train = np.random.choice(
+                np.arange(train_dataset['F'].shape[0]),
+                n_train - m0_n_train,
+                replace=False,
             )
+            # TODO: m0 handling
+
+        excl_idxs = (
+            idxs_train if md5_train == md5_valid else np.array([], dtype=np.uint)
+        )  # TODO: TEST CASE: differnt test and val sets and m0
+        excl_idxs = np.concatenate((m0_excl_idxs, excl_idxs)).astype(np.uint)
+
+        if 'E' in valid_dataset:
+            idxs_valid = self.draw_strat_sample(
+                valid_dataset['E'], n_valid - m0_n_valid, excl_idxs
+            )
+        else:
+            idxs_valid_all = np.setdiff1d(
+                np.arange(valid_dataset['F'].shape[0]), excl_idxs, assume_unique=True
+            )
+            idxs_valid = np.random.choice(
+                idxs_valid_all, n_valid - m0_n_valid, replace=False
+            )
+            # TODO: m0 handling, zero handling
+
+        ui.progr_toggle(
+            is_done=True, disp_str='Sampling training and validation subsets...'
+        )
+
+        #    ui.progr_toggle(
+        #        is_done=True,
+        #        disp_str='Transfering training and validation subsets from initial model...',
+        #    )
+
+        if model0 is not None:
+            idxs_train = np.concatenate((m0_idxs_train, idxs_train)).astype(np.uint)
+            idxs_valid = np.concatenate((m0_idxs_valid, idxs_valid)).astype(np.uint)
 
         R_train = train_dataset['R'][idxs_train, :, :]
         task = {
@@ -429,7 +457,13 @@ class GDMLTrain(object):
         if model0 is not None:
             if 'alphas_F' in model0:
                 self.log.info('Reusing alphas from initial model.')
-                task['alphas0_F'] = model0['alphas_F']
+
+                # Pad existing alphas, if this training dataset is larger than the one in model0
+                n_train, n_atoms = task['R_train'].shape[:2]
+                alphas0_F_padding = np.ones(
+                    ((n_train - m0_n_train) * n_atoms * 3,)
+                ) * np.mean(model0['alphas_F'])
+                task['alphas0_F'] = np.append(model0['alphas_F'], alphas0_F_padding)
 
         return task
 
@@ -492,11 +526,12 @@ class GDMLTrain(object):
     def train(  # noqa: C901
         self,
         task,
-        solver,  # TODO: document me
+        solver='analytic',  # TODO: document me
         cprsn_callback=None,
         desc_callback=None,
         ker_progr_callback=None,
         solve_callback=None,
+        save_progr_callback=None,  # TODO: document me
     ):
         """
         Train a model based on a training task.
@@ -656,6 +691,7 @@ class GDMLTrain(object):
             M = min(
                 min(n_train, M_max), int(np.ceil(n_train / 10))
             )  # max depends on available memory, but never more than fourth of all training points
+            M = min(M, 50)  # TODO: don't hard-code this
 
             self.log.info(
                 '{:d} out of {:d} training points were chosen as support for Nystrom preconditioner.'.format(
@@ -724,11 +760,11 @@ class GDMLTrain(object):
                 R_d_desc = R_d_desc[:, :, cprsn_keep_idxs_lin]
 
             alphas = self._solve_closed(K, y, lam, callback=solve_callback)
+
         elif solver == 'cg':
 
             alphas_F = None
             if 'alphas0_F' in task:
-                print('traiing with alphas0_F')
                 alphas_F = task['alphas0_F']
 
             alphas = self._solve_iterative_nystrom_precon(
@@ -738,8 +774,10 @@ class GDMLTrain(object):
                 R_d_desc,
                 task,
                 tril_perms_lin,
+                Ft_std,
                 alphas0_F=alphas_F,
                 callback=solve_callback,
+                save_progr_callback=save_progr_callback,
             )
 
         elif solver == 'fk':
@@ -817,6 +855,11 @@ class GDMLTrain(object):
             np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref, rcond=-1
         )[0][0]
         corrcoef = np.corrcoef(E_ref, E_pred)[0, 1]
+
+        # import matplotlib.pyplot as plt
+        # plt.plot(E_ref-np.mean(E_ref))
+        # plt.plot(E_pred-np.mean(E_pred))
+        # plt.show()
 
         if np.sign(e_fact) == -1:
             self.log.warning(
@@ -1046,6 +1089,9 @@ class GDMLTrain(object):
                 Array of indices that form the sample.
         """
 
+        if n == 0:
+            return np.array([], dtype=np.uint)
+
         if T.size == n:  # TODO: this only works if excl_idxs=None
             return np.arange(n)
 
@@ -1066,13 +1112,13 @@ class GDMLTrain(object):
         idxs = np.digitize(T, bins)
 
         # Exclude restricted indices.
-        if excl_idxs is not None:
+        if excl_idxs is not None and excl_idxs.size > 0:
             idxs[excl_idxs] = n_bins + 1  # Impossible bin.
 
         uniq_all, cnts_all = np.unique(idxs, return_counts=True)
 
         # Remove restricted bin.
-        if excl_idxs is not None:
+        if excl_idxs is not None and excl_idxs.size > 0:
             excl_bin_idx = np.where(uniq_all == n_bins + 1)
             cnts_all = np.delete(cnts_all, excl_bin_idx)
             uniq_all = np.delete(uniq_all, excl_bin_idx)

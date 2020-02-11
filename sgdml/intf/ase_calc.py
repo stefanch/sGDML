@@ -52,7 +52,7 @@ class SGDMLCalculator(Calculator):
                         Path to a sGDML model file
                 E_to_eV : float, optional
                         Conversion factor from whatever energy unit is used by the model to eV. By default this parameter is set to convert from kcal/mol.
-                use_torch : boolean, optional
+                F_to_eV_Ang : boolean, optional
                         Conversion factor from whatever length unit is used by the model to Angstrom. By default, the length unit is not converted.
         """
 
@@ -62,6 +62,7 @@ class SGDMLCalculator(Calculator):
 
         model = np.load(model_path)
         self.gdml_predict = GDMLPredict(model)
+        # self.gdml_predict.prepare_parallel()
 
         self.log.warning(
             'Please remember to specify the proper conversion factors, if your model does not use \'kcal/mol\' and \'Ang\' as units.'

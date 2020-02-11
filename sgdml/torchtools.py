@@ -47,7 +47,7 @@ class GDMLTorchPredict(nn.Module):
     :class:`torch.nn.Module`. Contains no trainable parameters.
     """
 
-    def __init__(self, model, lat_and_inv=None, batch_size=None, max_memory=1.0):
+    def __init__(self, model, lat_and_inv=None, batch_size=None, max_memory=4.0):
         """
         Parameters
         ----------
@@ -77,6 +77,7 @@ class GDMLTorchPredict(nn.Module):
         )
 
         self._batch_size = batch_size
+        # self._max_memory = int(2 ** 30 * max_memory) if max_memory is not None else torch.cuda.get_device_properties(0).total_memory
         self._max_memory = int(2 ** 30 * max_memory)
         self._sig = int(model['sig'])
         self._c = float(model['c'])
@@ -84,17 +85,35 @@ class GDMLTorchPredict(nn.Module):
 
         desc_siz = model['R_desc'].shape[0]
         n_perms, self._n_atoms = model['perms'].shape
-        perm_idxs = torch.tensor(model['tril_perms_lin']).view(-1, n_perms).t()
+        perm_idxs = (
+            torch.tensor(model['tril_perms_lin'], device=self._dev)
+            .view(-1, n_perms)
+            .t()
+        )
         self._xs_train, self._Jx_alphas = (
             nn.Parameter(
                 xs.repeat(1, n_perms)[:, perm_idxs].reshape(-1, desc_siz),
                 requires_grad=False,
             )
             for xs in (
-                torch.tensor(model['R_desc']).t(),
-                torch.tensor(np.array(model['R_d_desc_alpha'])),
+                torch.tensor(model['R_desc'], device=self._dev).t(),
+                torch.tensor(np.array(model['R_d_desc_alpha']), device=self._dev),
             )
         )
+
+        # DEBUG
+        # cuda_check = self._xs_train.is_cuda
+        # if cuda_check:
+        #    get_cuda_device = self._xs_train.get_device()
+        #    print('_xs_train')
+        #    print(get_cuda_device)
+
+        # DEBUG
+        # cuda_check = self._Jx_alphas.is_cuda
+        # if cuda_check:
+        #    get_cuda_device = self._Jx_alphas.get_device()
+        #    print('self._Jx_alphas')
+        #    print(get_cuda_device)
 
         self.desc_siz = desc_siz
         self.perm_idxs = perm_idxs
@@ -105,7 +124,7 @@ class GDMLTorchPredict(nn.Module):
         r_dim = R_d_desc.shape[2]
         R_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim))
 
-        xs = torch.tensor(np.array(R_d_desc_alpha)).to(self._dev)
+        xs = torch.tensor(np.array(R_d_desc_alpha), device=self._dev)  # .to(self._dev)
         self._Jx_alphas = nn.Parameter(
             xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, self.desc_siz),
             requires_grad=False,
@@ -174,18 +193,37 @@ class GDMLTorchPredict(nn.Module):
         Rs = Rs.double()
         batch_size = self._batch_size or self._max_memory // self._memory_per_sample()
 
-        # print('batch_size')
-        # print(batch_size)
-        # print(Rs.shape)
+        if torch.cuda.is_available():
+            batch_size *= torch.cuda.device_count()
 
-        # if torch.cuda.is_available():
-        #    t = torch.cuda.get_device_properties(0).total_memory
-        #    c = torch.cuda.memory_cached(0)
-        #    a = torch.cuda.memory_allocated(0)
-        #    f = c-a  # free inside cache
-        #    print('free memory')
-        #    print(f)
+        try:
+            Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
 
-        Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
+        except RuntimeError as e:
+            if 'out of memory' in str(e):
 
+                print('NOTE: ran out of memory, but retrying!')
+
+                if batch_size > 2:
+
+                    import gc
+                    gc.collect()
+
+                    torch.cuda.empty_cache()
+
+                    # reverse batch multiplication
+                    if torch.cuda.is_available():
+                        batch_size /= torch.cuda.device_count()
+
+                    batch_size = int(batch_size / 0.1)
+                    self._batch_size = batch_size
+
+                    return self.forward(Rs, batch_size=self._batch_size)
+                else:
+                    print('ERROR: ran out of memory, FAILED!')
+                    sys.exit()
+            else:
+                raise e
+
+        # Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
         return torch.cat(Es).to(dtype), torch.cat(Fs).to(dtype)
