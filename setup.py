@@ -51,11 +51,11 @@ setup(
     author_email='sgdml@chmiela.com',
     license='LICENSE.txt',
     packages=find_packages(),
-    install_requires=['numpy >= 1.13.0', 'scipy >= 1.1.0', 'ase >= 3.16.2', 'psutil'],
+    install_requires=['numpy >= 1.13.0', 'scipy >= 1.1.0', 'psutil'],
     entry_points={
         'console_scripts': ['sgdml=sgdml.cli:main', 'sgdml-get=sgdml.get:main']
     },
-    extras_require={'torch': ['torch']},
+    extras_require={'torch': ['torch'], 'ase': ['ase >= 3.16.2']},
     scripts=scripts,
     include_package_data=True,
     zip_safe=False,
