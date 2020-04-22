@@ -9,6 +9,7 @@ Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 - NumPy (>=1.13.0)
 - SciPy
 - PyTorch (optional)
+- ASE (optional)
 
 ## Getting started
 
@@ -91,7 +92,7 @@ We appreciate and welcome contributions and would like to thank the following pe
 
 * Huziel Sauceda
 * Igor Poltavsky
-* Luis Galvez
+* Luis Gálvez
 * Danny Panknin
 * Grégory Fonseca
 
