@@ -4,7 +4,7 @@ This module contains all routines for training GDML and sGDML models.
 
 # MIT License
 #
-# Copyright (c) 2018-2019 Stefan Chmiela
+# Copyright (c) 2018-2020 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -38,11 +38,17 @@ from psutil import virtual_memory
 import numpy as np
 import scipy as sp
 
+try:
+    import torch
+except ImportError:
+    _has_torch = False
+else:
+    _has_torch = True
+
 from . import __version__
 from .predict import GDMLPredict
-from .utils import desc, io, perm, ui
-
-glob = {}
+from .utils.desc import Desc
+from .utils import io, perm, ui
 
 
 def _share_array(arr_np, typecode_or_type):
@@ -69,12 +75,11 @@ def _share_array(arr_np, typecode_or_type):
 
 def _assemble_kernel_mat_wkr(
     j,
-    n_perms,
     tril_perms_lin,
     sig,
     use_E_cstr=False,
+    exploit_sym=False, # TODO: document me
     cols_m_limit=None,
-    cols_3n_keep_idxs=None,
 ):
     r"""
     Compute one row and column of the force field kernel matrix.
@@ -88,9 +93,6 @@ def _assemble_kernel_mat_wkr(
     ----------
         j : int
             Index of training point.
-        n_perms : int
-            Number of individual permutations encoded in
-            `tril_perms_lin`.
         tril_perms_lin : :obj:`numpy.ndarray`
             1D array (int) containing all recovered permutations
             expanded as one large permutation to be applied to a tiled
@@ -119,39 +121,25 @@ def _assemble_kernel_mat_wkr(
 
     R_desc = np.frombuffer(glob['R_desc']).reshape(glob['R_desc_shape'])
     R_d_desc = np.frombuffer(glob['R_d_desc']).reshape(glob['R_d_desc_shape'])
-
     K = np.frombuffer(glob['K']).reshape(glob['K_shape'])
 
     n_train, dim_d, dim_i = R_d_desc.shape
-    dim_keep = dim_i if cols_3n_keep_idxs is None else cols_3n_keep_idxs.size
-    cols_m_limit = n_train if cols_m_limit is None else cols_m_limit
+    n_perms = int(len(tril_perms_lin) / dim_d)
+
+    if type(j) is tuple:  # selective/"fancy" indexing
+
+        K_j, j, keep_idxs_3n = j # (block index in final K, block index global, indices of partials within block)
+        blk_j = slice(K_j, K_j + len(keep_idxs_3n))
+
+    else:  # sequential indexing
+        blk_j = slice(j * dim_i, (j + 1) * dim_i)
+        keep_idxs_3n = slice(None)  # same as [:]
 
     # TODO: document this exception
     if use_E_cstr and not (cols_m_limit is None or cols_m_limit == n_train):
-        raise ValueError(
-            '\'use_E_cstr\'- and \'cols_m_limit\'-parameters are mutually exclusive!'
-        )
-
-    # TODO: document this exception
-    if use_E_cstr and cols_3n_keep_idxs is not None:
-        raise ValueError(
-            '\'use_E_cstr\'- and \'cols_3n_keep_idxs\'-parameters are mutually exclusive!'
-        )
-
-    mat52_base_div = 3 * sig ** 4
-    sqrt5 = np.sqrt(5.0)
-    sig_pow2 = sig ** 2
-
-    if cols_3n_keep_idxs is None:
-        cols_3n_keep_idxs = np.arange(dim_i)
-
-    base = np.arange(dim_i)  # base set of indices
-    base_keep = np.arange(dim_keep)
-
-    blk_j = base + j * dim_i
-    blk_j_keep = base_keep + j * dim_keep  # NEW
-
-    E_off = dim_i * cols_m_limit
+       raise ValueError(
+           '\'use_E_cstr\'- and \'cols_m_limit\'-parameters are mutually exclusive!'
+       )
 
     # Create permutated variants of 'rj_desc' and 'rj_d_desc'.
     rj_desc_perms = np.reshape(
@@ -161,9 +149,12 @@ def _assemble_kernel_mat_wkr(
         np.tile(R_d_desc[j, :, :].T, n_perms)[:, tril_perms_lin], (-1, dim_d, n_perms)
     )
 
-    for i in range(j, n_train):
-        blk_i = base[:, None] + i * dim_i
-        blk_i_keep = base_keep[:, None] + i * dim_keep
+    mat52_base_div = 3 * sig ** 4
+    sqrt5 = np.sqrt(5.0)
+    sig_pow2 = sig ** 2
+
+    for i in range(j if exploit_sym else 0, n_train):
+        blk_i = slice(i * dim_i, (i + 1) * dim_i)
 
         diff_ab_perms = R_desc[i, :] - rj_desc_perms
         norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
@@ -177,7 +168,7 @@ def _assemble_kernel_mat_wkr(
         diff_ab_outer_perms -= np.einsum(
             'ijk,k->ji',
             rj_d_desc_perms,
-            ((sig_pow2 + sig * norm_ab_perms) * mat52_base_perms),
+            (sig_pow2 + sig * norm_ab_perms) * mat52_base_perms,
         )
 
         ## K[blk_i, blk_j] = K[blk_j, blk_i] = R_d_desc[i, :, :].T.dot(diff_ab_outer_perms)
@@ -185,38 +176,52 @@ def _assemble_kernel_mat_wkr(
         # if (
         #    i < cols_m_limit
         # ):  # symmetric extension is not always possible, if a partial kernel is assembled
-        #    K[blk_j, blk_i] = K[blk_i, blk_j]
+        #    K[blk_j, blk_i] = K[blk_i, blk_j]R_d_desc : 
 
         k = R_d_desc[i, :, :].T.dot(diff_ab_outer_perms)
-        K[blk_i, blk_j_keep[None, :]] = k[:, cols_3n_keep_idxs]
-        if (
-            i < cols_m_limit
-        ):  # symmetric extension is not always possible, if a partial kernel is assembled
-            K[blk_j[:, None], blk_i_keep.T] = k[cols_3n_keep_idxs, :].T
+        # K[blk_i, blk_j_keep[None, :]] = k[:, cols_3n_keep_idxs]
+        # K[blk_i, blk_j[None, :]] = k[:, keep_idxs_3n]
+
+        # if i < cols_m_limit:  # symmetric extension is not always possible, if a partial kernel is assembled
+        #    K[blk_j[:, None], blk_i_keep.T] = k[cols_3n_keep_idxs, :].T
+
+        K[blk_i, blk_j] = k[:, keep_idxs_3n]
+        if exploit_sym and (
+            cols_m_limit is None or i < cols_m_limit
+        ):  # this will never be called with 'keep_idxs_3n' set to anything else than [:]
+            K[blk_j, blk_i] = k.T
 
     if use_E_cstr:
+
+        E_off = K.shape[0] - n_train, K.shape[1] - n_train
+        blk_j_full = slice(j * dim_i, (j + 1) * dim_i)
         for i in range(n_train):
 
             diff_ab_perms = R_desc[i, :] - rj_desc_perms
             norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
 
-            if use_E_cstr:
-                K_fe = (
-                    5
-                    * diff_ab_perms
-                    / (3 * sig ** 3)
-                    * (norm_ab_perms[:, None] + sig)
-                    * np.exp(-norm_ab_perms / sig)[:, None]
-                )
-                K[E_off + i, blk_j] = K[blk_j, E_off + i] = np.einsum(
-                    'ik,jki -> j', K_fe, rj_d_desc_perms
-                )
+            K_fe = (
+                5
+                * diff_ab_perms
+                / (3 * sig ** 3)
+                * (norm_ab_perms[:, None] + sig)
+                * np.exp(-norm_ab_perms / sig)[:, None]
+            )
+            K_fe = -np.einsum(
+                'ik,jki -> j', K_fe, rj_d_desc_perms
+            )
+            K[blk_j_full, E_off[1] + i] = K_fe # vertical
+            K[E_off[0] + i, blk_j] = K_fe[keep_idxs_3n] # lower horizontal
 
-                K[E_off + i, E_off + j] = K[E_off + j, E_off + i] = (
-                    1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
-                ).dot(np.exp(-norm_ab_perms / sig))
+            #K[E_off[0] + i, blk_j] = K[blk_j_full, E_off[1] + i] = -np.einsum(
+            #    'ik,jki -> j', K_fe, rj_d_desc_perms
+            #)
 
-    return n_train - j
+            K[E_off[0] + i, E_off[1] + j] = K[E_off[0] + j, E_off[1] + i] = -(
+                1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
+            ).dot(np.exp(-norm_ab_perms / sig))
+
+    return blk_j.stop - blk_j.start # TODO: fix me
 
 
 class GDMLTrain(object):
@@ -238,12 +243,33 @@ class GDMLTrain(object):
                 use_torch : boolean, optional
                         Use PyTorch to calculate predictions (if
                         supported by solver)
+
+        Raises
+        ------
+            Exception
+                If multiple instsances of this class are created.
+            ImportError
+                If the optional PyTorch dependency is missing, but PyTorch features are used.
         """
+
+        global glob
+        if 'glob' not in globals(): # Don't allow more than one instance of this class.
+            glob = {}
+        else:
+            raise Exception('You can not create multiple instances of this class. Please reuse your first one.')
 
         self.log = logging.getLogger(__name__)
 
         self._max_processes = max_processes
         self._use_torch = use_torch
+
+        if use_torch and not _has_torch:
+            raise ImportError('Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.')
+
+    def __del__(self):
+
+        global glob
+        del glob
 
     def create_task(
         self,
@@ -258,6 +284,10 @@ class GDMLTrain(object):
         use_E_cstr=False,
         use_cprsn=False,
         model0=None,  # TODO: document me
+        solver='analytic',  # TODO: document me
+        solver_tol=1e-4,  # TODO: document me
+        toggle_callback=None, # TODO: document me
+        progr_callback=None, # TODO: document me
     ):
         """
         Create a data structure of custom type `task`.
@@ -325,10 +355,18 @@ class GDMLTrain(object):
 
         use_E_cstr = use_E and use_E_cstr
 
-        ui.progr_toggle(is_done=False, disp_str='Hashing dataset(s)...')
+        n_atoms = train_dataset['R'].shape[1]
+        dim_i = 3 * n_atoms
+
+        if toggle_callback is not None:
+            toggle_callback = partial(toggle_callback, disp_str='Hashing dataset(s)')
+            toggle_callback(is_done=False)
+
         md5_train = io.dataset_md5(train_dataset)
         md5_valid = io.dataset_md5(valid_dataset)
-        ui.progr_toggle(is_done=True, disp_str='Hashing dataset(s)...')
+
+        if toggle_callback is not None:
+            toggle_callback(is_done=True)
 
         if model0 is not None and (
             md5_train != model0['md5_train'] or md5_valid != model0['md5_valid']
@@ -353,9 +391,9 @@ class GDMLTrain(object):
 
         # TODO: handle smaller training/validation set
 
-        ui.progr_toggle(
-            is_done=False, disp_str='Sampling training and validation subsets...'
-        )
+        if toggle_callback is not None:
+            toggle_callback = partial(toggle_callback, disp_str='Sampling training and validation subsets')
+            toggle_callback(is_done=False)
 
         if 'E' in train_dataset:
             idxs_train = self.draw_strat_sample(
@@ -387,14 +425,8 @@ class GDMLTrain(object):
             )
             # TODO: m0 handling, zero handling
 
-        ui.progr_toggle(
-            is_done=True, disp_str='Sampling training and validation subsets...'
-        )
-
-        #    ui.progr_toggle(
-        #        is_done=True,
-        #        disp_str='Transfering training and validation subsets from initial model...',
-        #    )
+        if toggle_callback is not None:
+            toggle_callback(is_done=True)
 
         if model0 is not None:
             idxs_train = np.concatenate((m0_idxs_train, idxs_train)).astype(np.uint)
@@ -419,6 +451,8 @@ class GDMLTrain(object):
             'use_E_cstr': use_E_cstr,
             'use_sym': use_sym,
             'use_cprsn': use_cprsn,
+            'solver_name': solver,
+            'solver_tol': solver_tol,
         }
 
         if use_E:
@@ -436,7 +470,9 @@ class GDMLTrain(object):
                 n_train = R_train.shape[0]
                 R_train_sync_mat = R_train
                 if n_train > 1000:
-                    R_train_sync_mat = R_train[np.random.choice(n_train, 1000), :, :]
+                    R_train_sync_mat = R_train[
+                        np.random.choice(n_train, 1000, replace=False), :, :
+                    ]
                     self.log.info(
                         'Symmetry search has been restricted to a random subset of 1000/{:d} training points for faster convergence.'.format(
                             n_train
@@ -455,16 +491,67 @@ class GDMLTrain(object):
             self.log.info('Reusing permutations from initial model.')
 
         if model0 is not None:
+
+            n_train, n_atoms = task['R_train'].shape[:2]
+
             if 'alphas_F' in model0:
                 self.log.info('Reusing alphas from initial model.')
 
                 # Pad existing alphas, if this training dataset is larger than the one in model0
-                n_train, n_atoms = task['R_train'].shape[:2]
                 alphas0_F_padding = np.ones(
                     ((n_train - m0_n_train) * n_atoms * 3,)
                 ) * np.mean(model0['alphas_F'])
                 task['alphas0_F'] = np.append(model0['alphas_F'], alphas0_F_padding)
 
+            if 'alphas_E' in model0:
+
+                # Pad existing alphas, if this training dataset is larger than the one in model0
+                alphas0_E_padding = np.ones(
+                    ((n_train - m0_n_train) * n_atoms,)
+                ) * np.mean(model0['alphas_E'])
+                task['alphas0_E'] = np.append(model0['alphas_E'], alphas0_E_padding)
+
+        # Which atoms can we keep, if we exclude all symmetric ones?
+        n_perms = task['perms'].shape[0]
+        if use_cprsn and n_perms > 1:
+
+            _, cprsn_keep_idxs = np.unique(
+                np.sort(task['perms'], axis=0), axis=1, return_index=True
+            )
+
+            task['cprsn_keep_atoms_idxs'] = cprsn_keep_idxs
+
+        # Select inducing columns for Nystrom preconditioner used in combination with conjugated gradients based on leverage score approximations.
+        if solver == 'cg':
+
+            desc = Desc(n_atoms, max_processes=self._max_processes, use_torch=self._use_torch)
+
+            dim_d = desc.dim
+
+            n_perms = task['perms'].shape[0]
+            tril_perms = np.array([desc.perm(p) for p in task['perms']])
+
+            perm_offsets = np.arange(n_perms)[:, None] * dim_d
+            tril_perms_lin = (tril_perms + perm_offsets).flatten('F')
+
+            lat_and_inv = None
+            if 'lattice' in train_dataset:
+                try:
+                    lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
+                except np.linalg.LinAlgError:
+                    raise ValueError(  # TODO: Document me
+                        'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
+                    )
+
+            R_desc, R_d_desc = desc.from_R(R_train.reshape(n_train, -1), lat_and_inv=lat_and_inv)
+
+            lev_approx_idxs, max_lev_idxs = self._lev_scores(
+                R_desc, R_d_desc, tril_perms_lin, sig, lam, False, progr_callback=progr_callback,
+            )
+
+            task['lev_approx_idxs'] = lev_approx_idxs
+            task['nystrom_col_idxs'] = max_lev_idxs
+        
         return task
 
     def create_model(
@@ -477,6 +564,10 @@ class GDMLTrain(object):
         std,
         alphas_F,
         alphas_E=None,
+        solver_resid=None,
+        solver_iters=None,
+        lev_approx_idxs=None,  # NEW : which columns of the full kernel matrix were used to approximate the leverage scores?
+        nystrom_col_idxs=None,  # NEW : which columns were used to construct nystrom preconditioner
     ):
 
         r_dim = R_d_desc.shape[2]
@@ -487,7 +578,7 @@ class GDMLTrain(object):
             'code_version': __version__,
             'dataset_name': task['dataset_name'],
             'dataset_theory': task['dataset_theory'],
-            'solver': solver,
+            'solver_name': solver,
             'z': task['z'],
             'idxs_train': task['idxs_train'],
             'md5_train': task['md5_train'],
@@ -501,12 +592,29 @@ class GDMLTrain(object):
             'c': 0.0,
             'std': std,
             'sig': task['sig'],
+            'lam': task['lam'],
             'alphas_F': alphas_F,  # needed?
             'perms': task['perms'],
             'tril_perms_lin': tril_perms_lin,
             'use_E': task['use_E'],
             'use_cprsn': task['use_cprsn'],
         }
+
+        if solver_resid is not None:
+            model['solver_resid'] = solver_resid  # residual of solution (cg solver)
+
+        if solver_iters is not None:
+            model[
+                'solver_iters'
+            ] = (
+                solver_iters
+            )  # number of iterations performed to obtain solution (cg solver)
+
+        if lev_approx_idxs is not None:
+            model['lev_approx_idxs'] = lev_approx_idxs
+
+        if nystrom_col_idxs is not None:
+            model['nystrom_col_idxs'] = nystrom_col_idxs
 
         if task['use_E']:
             model['e_err'] = {'mae': np.nan, 'rmse': np.nan}
@@ -526,7 +634,6 @@ class GDMLTrain(object):
     def train(  # noqa: C901
         self,
         task,
-        solver='analytic',  # TODO: document me
         cprsn_callback=None,
         desc_callback=None,
         ker_progr_callback=None,
@@ -585,15 +692,23 @@ class GDMLTrain(object):
                 vectors.
         """
 
+        task = dict(task)  # make mutable
+
+        solver = task['solver_name']
+        assert solver == 'analytic' or solver == 'cg'# or solver == 'fk'
+
+        n_train, n_atoms = task['R_train'].shape[:2]
+
+        desc = Desc(n_atoms, max_processes=self._max_processes, use_torch=self._use_torch)
+
         sig = np.squeeze(task['sig'])
         lam = np.squeeze(task['lam'])
 
         n_perms = task['perms'].shape[0]
         tril_perms = np.array([desc.perm(p) for p in task['perms']])
 
-        n_train, n_atoms = task['R_train'].shape[:2]
         dim_i = 3 * n_atoms
-        dim_d = tril_perms.shape[1]
+        dim_d = desc.dim
 
         perm_offsets = np.arange(n_perms)[:, None] * dim_d
         tril_perms_lin = (tril_perms + perm_offsets).flatten('F')
@@ -602,7 +717,6 @@ class GDMLTrain(object):
         # rows and columns might have been switched.
         lat_and_inv = None
         if 'lattice' in task:
-
             try:
                 lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
             except np.linalg.LinAlgError:
@@ -610,53 +724,25 @@ class GDMLTrain(object):
                     'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
                 )
 
-            # TODO: check if all atoms are within unit cell
-            for r in task['R_train']:
-                r_lat = lat_and_inv[1].dot(r.T)
-                if not (r_lat >= 0).all():
-                    # raise ValueError( # TODO: Document me
-                    #    'Some atoms appear outside of the unit cell! Please check lattice vectors in dataset file.'
-                    # )
-                    pass
+            # # TODO: check if all atoms are within unit cell
+            # for r in task['R_train']:
+            #     r_lat = lat_and_inv[1].dot(r.T)
+            #     if not (r_lat >= 0).all():
+            #         # raise ValueError( # TODO: Document me
+            #         #    'Some atoms appear outside of the unit cell! Please check lattice vectors in dataset file.'
+            #         # )
+            #         pass
 
-        R_desc = np.empty([n_train, dim_d])
-        R_d_desc = np.empty([n_train, dim_d, dim_i])
+        R_desc, R_d_desc = desc.from_R(task['R_train'].reshape(n_train, -1), lat_and_inv=lat_and_inv, callback=desc_callback)
 
-        # Generate descriptor and their Jacobians
-        start = timeit.default_timer()
-        pool = mp.Pool(self._max_processes)
-        for i, r_desc_r_d_desc in enumerate(
-            pool.imap(partial(desc.from_r, lat_and_inv=lat_and_inv), task['R_train'])
-        ):
-            R_desc[i, :], R_d_desc[i, :, :] = r_desc_r_d_desc
+        # Which columns to include in K?
+        col_idxs = np.s_[:]  # all of them
 
-            if desc_callback is not None:
-                if i + 1 == n_train:
-                    stop = timeit.default_timer()
-                    dur_s = (stop - start) / 2
-                    sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
-                    desc_callback(i + 1, n_train, sec_disp_str=sec_disp_str)
-                else:
-                    desc_callback(i + 1, n_train)
-        pool.close()
-
-        if solver == 'cg':
-            self.log.info('Using CG solver with Nystroem *preconditioner*.')
-        elif solver == 'fk':
-            self.log.info(
-                'Using CG solver on Nystroem *approximation* with M support points.'
-            )
-
+        # Generate indices of kernel matrix columns that are kept after compression.
         cprsn_keep_idxs_lin = None
-        if task['use_cprsn'] and n_perms > 1:
+        if 'cprsn_keep_atoms_idxs' in task:
 
-            _, cprsn_keep_idxs, contr_map = np.unique(
-                np.sort(task['perms'], axis=0),
-                axis=1,
-                return_index=True,
-                return_inverse=True,
-            )
-
+            cprsn_keep_idxs = task['cprsn_keep_atoms_idxs']
             cprsn_keep_idxs_lin = (
                 np.arange(dim_i).reshape(n_atoms, -1)[cprsn_keep_idxs, :].ravel()
             )
@@ -669,9 +755,9 @@ class GDMLTrain(object):
                     'Iterative solvers and compression are mutually exclusive options for now.'
                 )
 
-        Ft = task['F_train'].ravel()
-        Ft_std = np.std(Ft)
-        Ft /= Ft_std
+            col_idxs = (
+                cprsn_keep_idxs_lin[:, None] + np.arange(n_train) * dim_i
+            ).T.ravel()
 
         # test
 
@@ -679,52 +765,45 @@ class GDMLTrain(object):
 
         # test
 
-        # for nystrom precondiner if cg solver is used
-        M = int(np.ceil(np.sqrt(n_train)))
+        # Determine inducing points for Nystrom preconditioner.
         if solver == 'cg':
 
-            mem = virtual_memory()
-            mem_avail_byte = mem.available
-            nem_req_per_M_byte = n_train * (n_atoms * 3) ** 2 * 8
+            if 'nystrom_col_idxs' in task: # use inducing points from task
 
-            M_max = int(np.round((mem_avail_byte * 0.5) / nem_req_per_M_byte))
-            M = min(
-                min(n_train, M_max), int(np.ceil(n_train / 10))
-            )  # max depends on available memory, but never more than fourth of all training points
-            M = min(M, 50)  # TODO: don't hard-code this
+                lev_approx_idxs = task['lev_approx_idxs']
+                max_lev_idxs = task['nystrom_col_idxs']
 
-            self.log.info(
-                '{:d} out of {:d} training points were chosen as support for Nystrom preconditioner.'.format(
-                    M, n_train
+            else: # determine good inducing points
+
+                lev_approx_idxs, max_lev_idxs = self._lev_scores(
+                    R_desc, R_d_desc, tril_perms_lin, sig, lam, False, progr_callback=ker_progr_callback,
                 )
-            )
 
-        y = Ft
+            col_idxs = max_lev_idxs
+            ker_progr_callback = partial(ker_progr_callback, disp_str='Assembling partial kernel matrix (for Nystrom preconditioner)')
+
+        # Generate label vector.
+        E_train_mean = None
+        y = task['F_train'].ravel()
         if task['use_E'] and task['use_E_cstr']:
-            Et = task['E_train'].ravel()
-            Et /= Ft_std
+            E_train = task['E_train'].ravel()
+            E_train_mean = np.mean(E_train)
 
-            y = np.hstack((Ft, Et))
+            y = np.hstack((y, -E_train + E_train_mean))
             # y = np.hstack((n*Ft, (1-n)*Et))
+        y_std = np.std(y)
+        y /= y_std
 
+        # Generate kernel matrix.
         K = self._assemble_kernel_mat(
             R_desc,
             R_d_desc,
-            n_perms,
             tril_perms_lin,
             sig,
             use_E_cstr=task['use_E_cstr'],
             progr_callback=ker_progr_callback,
-            cols_m_limit=None if solver == 'analytic' else M,
-            cols_3n_keep_idxs=cprsn_keep_idxs_lin,
+            col_idxs=col_idxs,
         )
-
-        if solver == 'fk':
-            R_desc = R_desc[:M, :]
-            R_d_desc = R_d_desc[:M]
-
-            task = dict(task)
-            task['idxs_train'] = task['idxs_train'][:M]
 
         # test
 
@@ -751,8 +830,8 @@ class GDMLTrain(object):
 
         # test
 
-        if solve_callback is not None:
-            solve_callback(is_done=False)
+        num_iters = None  # number of iterations performed (cg solver)
+        res = None  # residual of solution (cg solver)
 
         if solver == 'analytic':
 
@@ -763,25 +842,28 @@ class GDMLTrain(object):
 
         elif solver == 'cg':
 
-            alphas_F = None
-            if 'alphas0_F' in task:
-                alphas_F = task['alphas0_F']
+            alphas_F = task['alphas0_F'] if 'alphas0_F' in task else None
+            alphas_E = task['alphas0_E'] if 'alphas0_E' in task else None
 
-            alphas = self._solve_iterative_nystrom_precon(
+            # this solver needs stronger regularization than the default 1e-15
+            task['lam'] = 1e-10
+
+            alphas, num_iters, res = self._solve_iterative_nystrom_precon(
                 K,
                 y,
                 R_desc,
                 R_d_desc,
                 task,
                 tril_perms_lin,
-                Ft_std,
+                y_std,
                 alphas0_F=alphas_F,
+                alphas0_E=alphas_E,
                 callback=solve_callback,
                 save_progr_callback=save_progr_callback,
+                lev_approx_idxs=lev_approx_idxs,
+                nystrom_col_idxs=col_idxs,
             )
 
-        elif solver == 'fk':
-            alphas = self._solve_iterative_fk(K, y, callback=solve_callback)
         else:
             raise ValueError(
                 'Unknown solver keyword \'{}\'.'.format(solver)
@@ -794,12 +876,32 @@ class GDMLTrain(object):
             alphas_F = alphas[:-n_train]
 
         model = self.create_model(
-            task, solver, R_desc, R_d_desc, tril_perms_lin, Ft_std, alphas_F, alphas_E
+            task,
+            solver,
+            R_desc,
+            R_d_desc,
+            tril_perms_lin,
+            y_std,
+            alphas_F,
+            alphas_E=alphas_E,
+            solver_resid=res,
+            solver_iters=num_iters,
+            lev_approx_idxs=lev_approx_idxs if solver == 'cg' else None,
+            nystrom_col_idxs=col_idxs if solver == 'cg' else None,
         )
 
+        # Recover integration constant.
+        # Note: if energy constraints are included in the kernel (via 'use_E_cstr'), do not
+        # compute the integration constant, but simply set it to the mean of the training energies
+        # (which was subtracted from the labels before training).
         if model['use_E']:
-            c = self._recov_int_const(model, task)
+            c = (
+                self._recov_int_const(model, task)
+                if E_train_mean is None
+                else E_train_mean
+            )
             if c is None:
+                # Something does not seem right. Turn off energy predictions for this model, only output force predictions.
                 model['use_E'] = False
             else:
                 model['c'] = c
@@ -844,8 +946,8 @@ class GDMLTrain(object):
         gdml = GDMLPredict(
             model, max_processes=self._max_processes
         )  # , use_torch=self._use_torch
-        n_train = task['E_train'].shape[0]
 
+        n_train = task['E_train'].shape[0]
         R = task['R_train'].reshape(n_train, -1)
 
         E_pred, _ = gdml.predict(R)
@@ -856,10 +958,10 @@ class GDMLTrain(object):
         )[0][0]
         corrcoef = np.corrcoef(E_ref, E_pred)[0, 1]
 
-        # import matplotlib.pyplot as plt
-        # plt.plot(E_ref-np.mean(E_ref))
-        # plt.plot(E_pred-np.mean(E_pred))
-        # plt.show()
+        #import matplotlib.pyplot as plt
+        #plt.plot(E_ref-np.mean(E_ref))
+        #plt.plot(np.sort(E_pred-np.mean(E_pred)))
+        #plt.show()
 
         if np.sign(e_fact) == -1:
             self.log.warning(
@@ -937,13 +1039,11 @@ class GDMLTrain(object):
         self,
         R_desc,
         R_d_desc,
-        n_perms,
         tril_perms_lin,
         sig,
         use_E_cstr=False,
         progr_callback=None,
-        cols_m_limit=None,
-        cols_3n_keep_idxs=None,
+        col_idxs=np.s_[:],  # TODO: document me
     ):
         r"""
         Compute force field kernel matrix.
@@ -960,9 +1060,6 @@ class GDMLTrain(object):
             R_d_desc : :obj:`numpy.ndarray`
                 Array containing the gradient of the descriptor for
                 each training point.
-            n_perms : int
-                Number of individual permutations encoded in
-                `tril_perms_lin`.
             tril_perms_lin : :obj:`numpy.ndarray`
                 1D array containing all recovered permutations
                 expanded as one large permutation to be applied to a
@@ -999,67 +1096,132 @@ class GDMLTrain(object):
 
         global glob
 
+        # Note: This function does not support unsorted (ascending) index arrays.
+        # if not isinstance(col_idxs, slice):
+        #    assert np.array_equal(col_idxs, np.sort(col_idxs))
+
         n_train, dim_d, dim_i = R_d_desc.shape
 
-        if cols_m_limit is None:
-            cols_m_limit = n_train
+        # Determine size of kernel matrix.
+        K_n_rows = n_train * dim_i
+        if isinstance(col_idxs, slice):  # indexed by slice
+            K_n_cols = len(range(*col_idxs.indices(K_n_rows)))
+        else:  # indexed by list
 
-        K_rows, K_cols = n_train * dim_i, cols_m_limit * dim_i
+            # TODO: throw exeption with description
+            assert len(col_idxs) == len(set(col_idxs))  # assume no dublicate indices
 
+            # TODO: throw exeption with description
+            # Note: This function does not support unsorted (ascending) index arrays.
+            assert np.array_equal(col_idxs, np.sort(col_idxs))
+
+            K_n_cols = len(col_idxs)
+
+        # Account for additional rows and columns due to energy constraints in the kernel matrix.
         if use_E_cstr:
-            K_rows += n_train
-            K_cols += n_train
+            K_n_rows += n_train
+            K_n_cols += n_train
 
-        if cols_3n_keep_idxs is not None:
-            cols_redux = (dim_i - cols_3n_keep_idxs.size) * cols_m_limit
-            K_cols -= cols_redux
+        # Make sure no indices are outside of the valid range.
+        if K_n_cols > K_n_rows:
+            raise ValueError('Columns indexed beyond range.')
 
-        K = mp.RawArray('d', K_rows * K_cols)
-        glob['K'], glob['K_shape'] = K, (K_rows, K_cols)
+        exploit_sym = False
+        cols_m_limit = None
+
+        # Check if range is a subset of training points (as opposed to a subset of partials of multiple points).
+        is_M_subset = (
+            isinstance(col_idxs, slice)
+            and (col_idxs.start is None or col_idxs.start % dim_i == 0)
+            and (col_idxs.stop is None or col_idxs.stop % dim_i == 0)
+            and col_idxs.step is None
+        )
+        if is_M_subset:
+            M_slice_start = (
+                None if col_idxs.start is None else int(col_idxs.start / dim_i)
+            )
+            M_slice_stop = None if col_idxs.stop is None else int(col_idxs.stop / dim_i)
+            M_slice = slice(M_slice_start, M_slice_stop)
+
+            J = range(*M_slice.indices(n_train))
+
+            if M_slice_start is None:
+                exploit_sym = True
+                cols_m_limit = M_slice_stop
+
+        else:
+
+            if isinstance(col_idxs, slice):
+                random = list(range(*col_idxs.indices(n_train * dim_i)))
+            else:
+                random = col_idxs
+
+            # M - number training
+            # N - number atoms
+
+            n_idxs = np.mod(random, dim_i)
+            m_idxs = (np.array(random) / dim_i).astype(int)
+            m_idxs_uniq = np.unique(m_idxs)  # which points to include?
+
+            m_n_idxs = [
+                list(n_idxs[np.where(m_idxs == m_idx)]) for m_idx in m_idxs_uniq
+            ]
+
+            m_n_idxs_lens = [len(m_n_idx) for m_n_idx in m_n_idxs]
+
+            m_n_idxs_lens.insert(0, 0)
+            blk_start_idxs = list(
+                np.cumsum(m_n_idxs_lens[:-1])
+            )  # index within K at which each block starts
+
+            # tupels: (block index in final K, block index global, indices of partials within block)
+            J = list(zip(blk_start_idxs, m_idxs_uniq, m_n_idxs))
+
+        K = mp.RawArray('d', K_n_rows * K_n_cols)
+        glob['K'], glob['K_shape'] = K, (K_n_rows, K_n_cols)
         glob['R_desc'], glob['R_desc_shape'] = _share_array(R_desc, 'd')
         glob['R_d_desc'], glob['R_d_desc_shape'] = _share_array(R_d_desc, 'd')
 
         start = timeit.default_timer()
-
         pool = mp.Pool(self._max_processes)
 
-        todo = (cols_m_limit ** 2 - cols_m_limit) // 2 + cols_m_limit
-        if cols_m_limit is not n_train:
-            todo += (n_train - cols_m_limit) * cols_m_limit
+        # todo = (cols_m_limit ** 2 - cols_m_limit) // 2 + cols_m_limit
+        # if cols_m_limit is not n_train:
+        #    todo += (n_train - cols_m_limit) * cols_m_limit
 
-        done_total = 0
-        for done in pool.imap_unordered(
+        todo, done = K_n_cols, 0
+        for done_wkr in pool.imap_unordered(
             partial(
                 _assemble_kernel_mat_wkr,
-                n_perms=n_perms,
                 tril_perms_lin=tril_perms_lin,
                 sig=sig,
                 use_E_cstr=use_E_cstr,
+                exploit_sym=exploit_sym,
                 cols_m_limit=cols_m_limit,
-                cols_3n_keep_idxs=cols_3n_keep_idxs,
+                # cols_3n_keep_idxs=cols_3n_keep_idxs,
             ),
-            list(range(cols_m_limit)),
+            J,
         ):
-            done_total += done
+            done += done_wkr
 
-            if progr_callback is not None:
-                if done_total == todo:
-                    stop = timeit.default_timer()
-
-                    dur_s = (stop - start) / 2
-                    sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
-                    progr_callback(done_total, todo, sec_disp_str=sec_disp_str)
-                else:
-                    progr_callback(done_total, todo)
+            if progr_callback is not None and done < todo:
+                progr_callback(done, todo)
 
         pool.close()
+        pool.join() # Wait for the worker processes to terminate (to measure total runtime correctly).
+        stop = timeit.default_timer()
+
+        if progr_callback is not None:
+            dur_s = (stop - start) / 2
+            sec_disp_str = 'took {:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
+            progr_callback(todo, todo, sec_disp_str=sec_disp_str)
 
         # Release some memory.
         glob.pop('K', None)
         glob.pop('R_desc', None)
         glob.pop('R_d_desc', None)
 
-        return np.frombuffer(K).reshape(glob['K_shape'])
+        return np.frombuffer(K).reshape(glob['K_shape']) #* 1./sig
 
     def draw_strat_sample(self, T, n, excl_idxs=None):
         """
@@ -1105,7 +1267,7 @@ class GDMLTrain(object):
         h = 2 * np.subtract(*np.percentile(T, [75, 25])) / np.cbrt(n)
         n_bins = int(np.ceil((np.max(T) - np.min(T)) / h)) if h > 0 else 1
         n_bins = min(
-            n_bins, n / 2
+            n_bins, int(n / 2)
         )  # Limit number of bins to half of requested subset size.
 
         bins = np.linspace(np.min(T), np.max(T), n_bins, endpoint=False)
@@ -1142,6 +1304,7 @@ class GDMLTrain(object):
                 uniq_all,
                 min(max_bin_reduction, np.abs(reduced_cnts_delta)),
                 p=(reduced_cnts - 1) / np.sum(reduced_cnts - 1, dtype=float),
+                replace=False,
             )
             uniq_outstanding, cnts_outstanding = np.unique(
                 outstanding, return_counts=True
@@ -1177,6 +1340,13 @@ class GDMLTrain(object):
 
                 K[np.diag_indices_from(K)] -= lam  # regularize
 
+                if callback is not None:
+                    callback = partial(
+                        callback,
+                        disp_str='Solving linear system (Cholesky factorization)',
+                    )
+                    callback(is_done=False)
+
                 try:
                     # Cholesky
                     L, lower = sp.linalg.cho_factor(
@@ -1186,6 +1356,13 @@ class GDMLTrain(object):
                         (L, lower), y, overwrite_b=True, check_finite=False
                     )
                 except np.linalg.LinAlgError:  # try a solver that makes less assumptions
+
+                    if callback is not None:
+                        callback = partial(
+                            callback,
+                            disp_str='Solving linear system (LU factorization)      ', # Keep whitespaces!
+                        )
+                        callback(is_done=False)
 
                     try:
                         # LU
@@ -1208,15 +1385,143 @@ class GDMLTrain(object):
                     print()
                     sys.exit()
             else:
-                # least squares
+
+                if callback is not None:
+                    callback = partial(
+                        callback,
+                        disp_str='Solving overdetermined linear system (least squares approximation)',
+                    )
+                    callback(is_done=False)
+
+                # least squares for non-square K
                 alphas = np.linalg.lstsq(K, y, rcond=-1)[0]
 
         stop = timeit.default_timer()
 
         if callback is not None:
-
             dur_s = (stop - start) / 2
-            sec_disp_str = '{:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
+            sec_disp_str = 'took {:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
             callback(is_done=True, sec_disp_str=sec_disp_str)
 
         return alphas
+
+    def _lev_scores(
+        self, R_desc, R_d_desc, tril_perms_lin, sig, lam, use_E_cstr, progr_callback=None
+    ):
+
+        n_train, _, dim_i = R_d_desc.shape
+
+        #self.log.info(
+        #    'Computing approximate leverage scores for Nystrom preconditioner.'
+        #)
+
+        mem_avail = virtual_memory().available
+        mem_per_point = n_train * dim_i ** 2 * 8 # There are 3 * n_atoms columns per training point. 
+
+        pts_max = int(np.round((mem_avail * 0.5) / mem_per_point)) # How many points can be fit into available memory?
+        inducing_pts = min(min(n_train, pts_max), 75) # How many inducing points to use (for Nystrom approximation, as well as the approximation of leverage scores). Never use more than 75 training points.
+
+        self.log.info(
+            '{:d} out of {:d} training points were chosen as support for Nystrom preconditioner.'.format(
+                inducing_pts, n_train
+            )
+        )
+
+        # Convert from training points to actual columns.
+        inducing_pts *= dim_i
+
+        # Which columns to use for leverage score approximation?
+        # lev_approx_idxs = np.sort(np.random.choice(n_train*dim_i, num_cols_approx, replace=False)) # random subset of columns
+        lev_approx_idxs = np.s_[
+            :inducing_pts
+        ]  # first 'inducing_pts' columns (faster kernel construction)
+
+        if progr_callback is not None:
+            progr_callback = partial(progr_callback, disp_str='Assembling partial kernel matrix (for approx. leverage scores)')
+
+        K_nm = self._assemble_kernel_mat(
+            R_desc,
+            R_d_desc,
+            tril_perms_lin,
+            sig,
+            use_E_cstr=use_E_cstr,
+            progr_callback=progr_callback,
+            col_idxs=lev_approx_idxs,
+        )
+
+        K_mm = K_nm[lev_approx_idxs, :]
+
+        L, lower = self._cho_factor_stable(-K_mm)
+
+        B = sp.linalg.solve_triangular(
+            L, -K_nm.T, lower=lower, trans='T', overwrite_b=True, check_finite=False
+        )
+        #from scipy.linalg.blas import dtrsv
+        #B = dtrsv(L, -K_nm.T, lower=lower, trans=1, overwrite_x=1) # same but faster
+
+        B_BT_lam = B.dot(B.T)
+        B_BT_lam[np.diag_indices_from(B_BT_lam)] += lam
+
+        # Leverage scores for all columns.
+        lev_scores = np.einsum('ij,ij->j', B, np.linalg.solve(B_BT_lam, B))
+
+        # Try to group columns by molecule to speed up kernel matrix generation:
+        lev_scores = np.around(lev_scores, decimals=1) # Round leverage scores to first decimal place, then sort by score and training point index combined.
+        point_idxs = np.tile(np.arange(n_train)[:, None], (1, dim_i)).ravel()
+        max_lev_idxs = np.sort(
+            np.lexsort((point_idxs, lev_scores))[-inducing_pts:]
+        )  # sort by 'lev_scores' then by 'point_idxs'
+
+        # indices of highest 'num_cols_approx' leverage scores
+        # max_lev_idxs = np.sort(np.argpartition(lev, -num_cols_approx)[-num_cols_approx:])
+
+        return lev_approx_idxs, max_lev_idxs
+
+
+    # performs a cholesky decompostion of a matrix, but regularizes the matrix (if neeeded) until its positive definite
+    def _cho_factor_stable(self, M, retry_limit=10):
+        """
+        Performs a Cholesky decompostion of a matrix, but regularizes
+        as needed until its positive definite.
+
+        Parameters
+        ----------
+            M : :obj:`numpy.ndarray`
+                Matrix to factorize.
+            retry_limit : int, optional
+                Limit the number of retries until giving up trying to make the matrix positive definite.
+
+        Returns
+        -------
+            :obj:`numpy.ndarray`
+                Matrix whose upper or lower triangle contains the Cholesky factor of a. Other parts of the matrix contain random data.
+            boolean
+                Flag indicating whether the factor is in the lower or upper triangle
+        """
+
+        n_retries = 0
+
+        retry = True
+        while retry:
+            try:
+
+                L, lower = sp.linalg.cho_factor(M, overwrite_a=True, check_finite=False)
+
+                n_retries += 1
+                retry = False
+
+            except np.linalg.LinAlgError as e:
+                    if 'not positive definite' in str(e) and n_retries < retry_limit:
+
+                        eps = np.finfo(float).eps
+                        lo_eig = sp.linalg.eigh(M, eigvals_only=True, eigvals=(0, 0))
+                        if lo_eig < 0:
+                            M[np.diag_indices_from(M)] += -lo_eig + eps
+                        elif lo_eig < eps:
+                            M[np.diag_indices_from(M)] += eps
+
+                        retry = True
+                    else:
+                        raise e
+
+        return L, lower

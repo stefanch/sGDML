@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 Stefan Chmiela
+# Copyright (c) 2018-2020 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,6 +25,7 @@
 from __future__ import print_function
 
 import logging
+import multiprocessing as mp
 import argparse
 import os
 import shutil
@@ -33,6 +34,13 @@ import time
 from functools import partial
 
 import numpy as np
+
+try:
+    import torch
+except ImportError:
+    _has_torch = False
+else:
+    _has_torch = True
 
 from . import __version__, MAX_PRINT_WIDTH
 from .predict import GDMLPredict
@@ -49,7 +57,13 @@ class AssistantError(Exception):
     pass
 
 
-def _print_splash():
+def _print_splash(max_processes=None):
+
+    logo_str = r"""         __________  __  _____
+   _____/ ____/ __ \/  |/  / /
+  / ___/ / __/ / / / /|_/ / /
+ (__  ) /_/ / /_/ / /  / / /___
+/____/\____/_____/_/  /_/_____/"""
 
     can_update, latest_version = _check_update()
 
@@ -60,15 +74,24 @@ def _print_splash():
         else ''
     )
 
-    print(
-        r"""         __________  __  _____
-   _____/ ____/ __ \/  |/  / /
-  / ___/ / __/ / / / /|_/ / /
- (__  ) /_/ / /_/ / /  / / /___
-/____/\____/_____/_/  /_/_____/  """
-        + version_str
+    # TODO: does this import test work in python3?
+    max_processes_str = (
+        ''
+        if max_processes is None or max_processes >= mp.cpu_count()
+        else ' [allowed to use {}]'.format(max_processes)
     )
+    hardware_str = 'found {:d} CPU(s){}'.format(mp.cpu_count(), max_processes_str)
 
+    if _has_torch and torch.cuda.is_available():
+        num_gpu = torch.cuda.device_count()
+        if num_gpu > 0:
+            hardware_str += ' / {:d} GPU(s)'.format(num_gpu)
+
+    logo_str_split = logo_str.splitlines()
+    print('\n'.join(logo_str_split[:-1]))
+    ui.print_two_column_str(logo_str_split[-1] + '  ' + version_str, hardware_str)
+
+    # Print update notice.
     if can_update:
         print(
             '\n'
@@ -76,9 +99,8 @@ def _print_splash():
             + '\n'
             + '-' * MAX_PRINT_WIDTH
         )
-
         print(
-            'A new stable release v{} of this software is available.'.format(
+            'A new stable release version {} of this software is available.'.format(
                 latest_version
             )
         )
@@ -169,6 +191,9 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
     print('  {:<18} {}'.format('Fingerprint:', ui.unicode_str(dataset['md5'])))
 
+    # if 'code_version' in dataset:
+    #    print('  {:<18} sGDML {}'.format('Created with:', ui.unicode_str(dataset['code_version'])))
+
     idx = np.random.choice(n_mols, 1)[0]
     r = dataset['R'][idx, :, :]
     e = np.squeeze(dataset['E'][idx]) if 'E' in dataset else None
@@ -190,7 +215,7 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
     cut_str = '--- CUT HERE '
     cut_str_reps = int(np.floor((MAX_PRINT_WIDTH - 6) / len(cut_str)))
-    cutline_str = ui.gray_str('  -' + cut_str * cut_str_reps + '---')
+    cutline_str = ui.gray_str('  -' + cut_str * cut_str_reps + '----')
 
     print(cutline_str)
     print(xyz_str)
@@ -202,6 +227,9 @@ def _print_task_properties(
 ):
 
     print(ui.white_bold_str(title_str))
+
+    #print('  {:<18} {}'.format('Solver:', ui.unicode_str('[solver name]')))
+    #print('    {:<16} {}'.format('Tolerance:', '[tol]'))
 
     energy_fix_str = (
         (
@@ -247,13 +275,16 @@ def _print_model_properties(model, title_str='Model properties'):
         '  {:<18} {}'.format(
             'Compression:',
             '{:<d} effective atoms'.format(n_atoms_kept)
-            if model['use_cprsn']
+            if 'use_cprsn' in model and model['use_cprsn']
             else 'n/a',
         )
     )
 
     print('  {:<18}'.format('Hyper-parameters:', len(model['perms'])))
     print('    {:<16} {:<d}'.format('Length scale:', model['sig']))
+
+    if 'lam' in model:
+        print('    {:<16} {:<.0e}'.format('Regularization:', model['lam']))
 
     n_train = len(model['idxs_train'])
     ui.print_two_column_str(
@@ -371,13 +402,14 @@ def all(
         max_processes,
         task_dir,
         model0,
+        solver=solver,
         **kwargs
     )
 
     ui.print_step_title('STEP 2', 'Training')
     task_dir_arg = io.is_dir_with_file_type(task_dir, 'task')
     model_dir_or_file_path = train(
-        task_dir_arg, overwrite, solver, max_processes, use_torch, **kwargs
+        task_dir_arg, overwrite, max_processes, use_torch, **kwargs
     )
 
     ui.print_step_title('STEP 3', 'Validation')
@@ -414,11 +446,6 @@ def all(
         **kwargs
     )
 
-    # TODO: background styling!
-    # log.done(
-    #    'Training assistant finished sucessfully.\n'
-    #    + 'Here is your model: \'{}\''.format(model_file_name)
-    # )
     print(
         '\n'
         + ui.color_str('  DONE  ', fore_color=ui.BLACK, back_color=ui.GREEN, bold=True)
@@ -443,6 +470,7 @@ def create(  # noqa: C901
     max_processes,
     task_dir=None,
     model0=None,
+    solver='analytic',
     command=None,
     **kwargs
 ):
@@ -488,14 +516,12 @@ def create(  # noqa: C901
                 )
             )
 
-    lam = 1e-15
+    # lam = 1e-15
     if sigs is None:
         log.info(
             'Kernel hyper-paramter sigma was automatically set to range \'2:10:100\'.'
         )
         sigs = list(range(2, 100, 10))  # default range
-
-    gdml_train = GDMLTrain(max_processes=max_processes)
 
     if task_dir is None:
         task_dir = io.train_dir_name(
@@ -585,6 +611,7 @@ def create(  # noqa: C901
 
             shutil.copy(model0_path, os.path.join(task_dir, 'm0.npz'))
 
+        gdml_train = GDMLTrain(max_processes=max_processes)
         try:
             tmpl_task = gdml_train.create_task(
                 dataset,
@@ -592,12 +619,14 @@ def create(  # noqa: C901
                 valid_dataset,
                 n_valid,
                 sig=1,
-                lam=lam,
                 use_sym=not gdml,
                 use_E=use_E,
                 use_E_cstr=use_E_cstr,
                 use_cprsn=use_cprsn,
                 model0=model0,
+                solver=solver,
+                toggle_callback=ui.progr_toggle,
+                progr_callback=ui.progr_bar,
             )  # template task
         except Exception as err:
             print()
@@ -630,9 +659,7 @@ def create(  # noqa: C901
     return task_dir
 
 
-def train(
-    task_dir, overwrite, solver, max_processes, use_torch, command=None, **kwargs
-):
+def train(task_dir, overwrite, max_processes, use_torch, command=None, **kwargs):
 
     task_dir, task_file_names = task_dir
     n_tasks = len(task_file_names)
@@ -652,19 +679,37 @@ def train(
         )
 
     desc_callback = partial(
-        ui.progr_bar, disp_str='Generating descriptors and their Jacobians...'
+        ui.progr_bar, disp_str='Generating descriptors and their Jacobians'
     )
-    ker_progr_callback = partial(ui.progr_bar, disp_str='Assembling kernel matrix...')
-    solve_callback = partial(ui.progr_toggle, disp_str='Solving linear system...   ')
+    ker_progr_callback = partial(ui.progr_bar, disp_str='Assembling kernel matrix')
+    solve_callback = partial(ui.progr_toggle, disp_str='Solving linear system')
+
+    unconv_model_file = '_unconv_model.npz'
+    unconv_model_path = os.path.join(task_dir, unconv_model_file)
 
     def save_progr_callback(
         unconv_model
     ):  # saves current (unconverged) model during iterative training
-        unconv_model_file = '_unconv_model.npz'
-        unconv_model_path = os.path.join(task_dir, unconv_model_file)
+
+        # HACK
+
+        # if 'it' in unconv_model:
+        #    unconv_model_file = '_' + str(unconv_model['it']) + 'unconv_model.npz'
+        #    unconv_model_path = os.path.join(task_dir, unconv_model_file)
+        # else:
+        # unconv_model_file = '_unconv_model.npz'
+        # unconv_model_path = os.path.join(task_dir, unconv_model_file)
+        # HACK
+
         np.savez_compressed(unconv_model_path, **unconv_model)
 
-    gdml_train = GDMLTrain(max_processes=max_processes, use_torch=use_torch)
+    try:
+        gdml_train = GDMLTrain(max_processes=max_processes, use_torch=use_torch)
+    except Exception as err:
+        print()
+        log.critical('Exception: ' + str(err))
+        sys.exit()
+
     for i, task_file_name in enumerate(task_file_names):
         if n_tasks > 1:
             if i > 0:
@@ -692,10 +737,18 @@ def train(
                 )
                 continue
 
+            # model = gdml_train.train(
+            #     task,
+            #     cprsn_callback,
+            #     desc_callback,
+            #     ker_progr_callback,
+            #     solve_callback,
+            #     save_progr_callback,
+            # )
+
             try:
                 model = gdml_train.train(
                     task,
-                    solver,
                     cprsn_callback,
                     desc_callback,
                     ker_progr_callback,
@@ -708,8 +761,19 @@ def train(
                 sys.exit()
             else:
                 if func_called_directly:
-                    log.done('Writing model to file \'{}\'...'.format(model_file_path))
+                    log.done('Writing model to file \'{}\''.format(model_file_path))
                 np.savez_compressed(model_file_path, **model)
+
+                # Delete temporary model, if one exists.
+                unconv_model_exists = os.path.isfile(unconv_model_path)
+                if unconv_model_exists:
+                    os.remove(unconv_model_path)
+
+                # Delete template model, if one exists.
+                templ_model_path = os.path.join(task_dir, 'm0.npz')
+                templ_model_exists = os.path.isfile(templ_model_path)
+                if templ_model_exists:
+                    os.remove(templ_model_path)
 
     model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir
     if func_called_directly:
@@ -887,7 +951,6 @@ def test(
 
         test_idxs = model['idxs_valid']
         if is_test:
-            gdml = GDMLTrain(max_processes=max_processes)
 
             # exclude training and/or test sets from validation set if necessary
             excl_idxs = np.empty((0,), dtype=np.uint)
@@ -926,7 +989,8 @@ def test(
                 )
 
             if 'E' in dataset:
-                test_idxs = gdml.draw_strat_sample(
+                gdml_train = GDMLTrain(max_processes=max_processes)
+                test_idxs = gdml_train.draw_strat_sample(
                     dataset['E'], n_test, excl_idxs=excl_idxs
                 )
             else:
@@ -952,24 +1016,26 @@ def test(
             log.critical('Exception: ' + str(err))
             sys.exit()
 
+        b_size = min(1000, len(test_idxs))
+
         if not use_torch:
             if num_workers == 0 or batch_size == 0:
-                ui.progr_toggle(is_done=False, disp_str='Optimizing parallelism...')
+                ui.progr_toggle(is_done=False, disp_str='Optimizing parallelism')
 
                 gps, is_from_cache = gdml_predict.prepare_parallel(
-                    n_bulk=1000, return_is_from_cache=True
+                    n_bulk=b_size, return_is_from_cache=True
                 )
                 num_workers, batch_size, bulk_mp = (
-                    gdml_predict._num_workers,
-                    gdml_predict._chunk_size,
-                    gdml_predict._bulk_mp,
+                    gdml_predict.num_workers,
+                    gdml_predict.chunk_size,
+                    gdml_predict.bulk_mp,
                 )
 
                 ui.progr_toggle(
                     is_done=True,
                     disp_str='Optimizing parallelism'
-                    + (' (from cache)...' if is_from_cache else '...'),
-                    sec_disp_str='%d wkr %s/ chunks of %d'
+                    + (' (from cache)' if is_from_cache else ''),
+                    sec_disp_str='%d workers %s/ chunks of %d'
                     % (num_workers, '[MP] ' if bulk_mp else '', batch_size),
                 )
             else:
@@ -985,7 +1051,6 @@ def test(
         cos_mae_sum, cos_rmse_sum = 0, 0
         mag_mae_sum, mag_rmse_sum = 0, 0
 
-        b_size = min(1000, len(test_idxs))
         n_done = 0
         t = time.time()
         for b_range in _batch(list(range(len(test_idxs))), b_size):
@@ -1044,7 +1109,7 @@ def test(
         f_rmse_pct = (f_rmse / f_err['rmse'] - 1.0) * 100
 
         if func_called_directly and n_models == 1:
-            print(ui.white_bold_str('\nMeasured test errors in this run (MAE, RMSE)'))
+            print(ui.white_bold_str('\nMeasured test errors in this run (MAE/RMSE)'))
 
             r_unit = 'unknown unit'
             e_unit = 'unknown unit'
@@ -1054,42 +1119,22 @@ def test(
                 e_unit = dataset['e_unit']
                 f_unit = str(dataset['e_unit']) + '/' + str(dataset['r_unit'])
 
-            format_str = '  {:<18} {:>.4f}/{:>.4f} '
+            format_str = '  {:<18} {:>.4f}/{:>.4f} [{}]'
             if model['use_E']:
-                print(
-                    (format_str + '[{}] {}').format(
-                        'Energy:',
-                        e_mae,
-                        e_rmse,
-                        e_unit,
-                        "%s (%+.1f %%)"
-                        % (
-                            'OK'
-                            if e_mae <= e_err['mae'] and e_rmse <= e_err['rmse']
-                            else '!!',
-                            e_rmse_pct,
-                        ),
-                    )
+                ui.print_two_column_str(
+                    format_str.format('Energy:', e_mae, e_rmse, e_unit),
+                    'relative to expected: {:+.1f}%'.format(e_rmse_pct),
                 )
-            print(
-                (format_str + '[{}] {}').format(
-                    'Forces:',
-                    f_mae,
-                    f_rmse,
-                    f_unit,
-                    "%s (%+.1f %%)"
-                    % (
-                        'OK'
-                        if f_mae <= f_err['mae'] and f_rmse <= f_err['rmse']
-                        else '!!',
-                        f_rmse_pct,
-                    ),
-                )
+
+            ui.print_two_column_str(
+                format_str.format('Forces:', f_mae, f_rmse, f_unit),
+                'relative to expected: {:+.1f}%'.format(f_rmse_pct),
             )
+
             print(
-                (format_str + '[{}]').format('  Magnitude:', mag_mae, mag_rmse, r_unit)
+                format_str.format('  Magnitude:', mag_mae, mag_rmse, r_unit)
             )
-            print((format_str + '[0-1], 0: best').format('  Angle:', cos_mae, cos_rmse))
+            print(format_str .format('  Angle:', cos_mae, cos_rmse, '0-1, lower is better'))
             print()
 
         model_mutable = dict(model)
@@ -1128,10 +1173,10 @@ def test(
             add_info_str = (
                 'the same number of'
                 if model['n_test'] == len(test_idxs)
-                else 'only {:d}'.format(len(test_idxs))
+                else 'only {:,}'.format(len(test_idxs))
             )
             log.warning(
-                'This model has previously been tested on {:d} points, which is why the errors for the current test run with {} points have NOT been recorded in the model file.\n'.format(
+                'This model has previously been tested on {:,} points, which is why the errors for the current test run with {} points have NOT been used to update the model file.\n'.format(
                     model['n_test'], add_info_str
                 )
                 + 'Run \'{} test -o {} {} {}\' to overwrite.'.format(
@@ -1243,8 +1288,8 @@ def select(
         sig_col = [row[0] for row in rows]
         if best_sig == min(sig_col) or best_sig == max(sig_col):
             log.warning(
-                'Optimal sigma lies on boundary of search grid.\n'
-                + 'Model performance might improve if search grid is extended in direction sigma {} {:d}.'.format(
+                'The optimal sigma lies on the boundary of the search grid.\n'
+                + 'Model performance might improve if the search grid is extended in direction sigma {} {:d}.'.format(
                     '<' if best_idx == 0 else '>', best_sig
                 )
             )
@@ -1271,7 +1316,7 @@ def select(
 
     if not model_exists or overwrite:
         if func_called_directly:
-            log.done('Writing model file \'{}\'...'.format(model_file))
+            log.done('Writing model file \'{}\''.format(model_file))
 
         shutil.copy(best_model_path, model_file)
         shutil.rmtree(model_dir, ignore_errors=True)
@@ -1329,10 +1374,9 @@ def reset(command=None, **kwargs):
                 log.critical('Exception: unable to delete benchmark cache.')
                 sys.exit()
 
-            log.done('Benchmark cache deleted.'.format(model_file_name))
+            log.done('Benchmark cache deleted.')
         else:
-            log.info('Benchmark cache is already empty.')
-
+            log.info('Benchmark cache was already empty.')
     else:
         print(' Cancelled.')
     print()
@@ -1513,24 +1557,16 @@ def main():
             help='user-defined model output file name',
         )
 
-    for subparser in [parser_all, parser_train]:
+    for subparser in [parser_all, parser_create]:  # NEW
         group = subparser.add_mutually_exclusive_group()
         group.add_argument(
             '--cg',
             dest='use_cg',
             action='store_true',
-            # help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
-            help=argparse.SUPPRESS
-        )
-        group.add_argument(
-            '--fk',
-            dest='use_fk',
-            action='store_true',
-            # help='use iterative solver (conjugate gradient) with Nystroem approximation',
+            #help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
             help=argparse.SUPPRESS
         )
 
-    for subparser in [parser_all, parser_create]:  # NEW
         subparser.add_argument(
             '-m0',
             '--model0',
@@ -1566,31 +1602,29 @@ def main():
         if not args.model_file.endswith('.npz'):
             args.model_file += '.npz'
 
-    _print_splash()
+    _print_splash(args.max_processes)
 
-    # check PyTorch GPU support
+    # Check PyTorch GPU support.
     if 'use_torch' in args and args.use_torch:
-        try:
-            import torch
-        except ImportError:
-            pass
-        else:
+        if _has_torch:
             if not torch.cuda.is_available():
                 print()  # TODO: print only if log level includes warning
                 log.warning(
-                    'Your PyTorch installation does not support GPU computation!\n'
-                    + 'We recommend running CPU calculations without \'--torch\' for improved performance.'
+                    'Your PyTorch installation does not see any GPU(s) on your system and will thus run all calculations on the CPU! Unless this is what you want, we recommend running CPU calculations without \'--torch\' for improved performance.'
                 )
+        else:
+            print()
+            log.critical(
+                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
+            )
+            sys.exit()
 
-    # replace solver flags with keyword
+    # Replace solver flags with keyword.
     args = vars(args)
     args['solver'] = 'analytic'
     if 'use_cg' in args and args['use_cg']:
         args['solver'] = 'cg'
-    elif 'use_fk' in args and args['use_fk']:
-        args['solver'] = 'fk'
     args.pop('use_cg', None)
-    args.pop('use_fk', None)
 
     try:
         # getattr(sys.modules[__name__], args.command)(**vars(args))

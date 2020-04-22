@@ -462,7 +462,7 @@ def print_two_column_str(str, sec_str=''):
 
     print(
         '{} \x1b[90m{:>{width}}\x1b[0m'.format(
-            str, sec_str, width=MAX_PRINT_WIDTH - len(str) - 1
+            str, sec_str, width=MAX_PRINT_WIDTH - str_plen(str) - 1
         )
     )
 

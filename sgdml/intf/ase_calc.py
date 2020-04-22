@@ -23,8 +23,11 @@
 import logging
 import numpy as np
 
-from ase.calculators.calculator import Calculator
-from ase.units import kcal, mol
+try:
+    from ase.calculators.calculator import Calculator
+    from ase.units import kcal, mol
+except ImportError:
+    raise ImportError('Optional ASE dependency not found! Please run \'pip install sgdml[ase]\' to install it.')
 
 from ..predict import GDMLPredict
 
@@ -62,7 +65,7 @@ class SGDMLCalculator(Calculator):
 
         model = np.load(model_path)
         self.gdml_predict = GDMLPredict(model)
-        # self.gdml_predict.prepare_parallel()
+        self.gdml_predict.prepare_parallel()
 
         self.log.warning(
             'Please remember to specify the proper conversion factors, if your model does not use \'kcal/mol\' and \'Ang\' as units.'

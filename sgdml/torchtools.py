@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2019 Jan Hermann
+# Copyright (c) 2019-2020 Jan Hermann, Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,12 +22,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
+from psutil import virtual_memory
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from .utils import desc
+from .utils.desc import Desc
 
 
 def expand_tril(xs):
@@ -47,24 +49,28 @@ class GDMLTorchPredict(nn.Module):
     :class:`torch.nn.Module`. Contains no trainable parameters.
     """
 
-    def __init__(self, model, lat_and_inv=None, batch_size=None, max_memory=4.0):
+    def __init__(self, model, lat_and_inv=None, batch_size=None, max_memory=None):
         """
         Parameters
         ----------
         model : Mapping
             Obtained from :meth:`~train.GDMLTrain.train`.
+        lat_and_inv : tuple of :obj:`numpy.ndarray`
+            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
         batch_size : int, optional
             Maximum batch size of geometries for prediction. Calculated from
             :paramref:`max_memory` if not given.
-        lat_and_inv : tuple of :obj:`numpy.ndarray`
-            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
         max_memory : float, optional
             (unit GB) Maximum allocated memory for prediction.
         """
 
+        global _batch_size
+
         super(GDMLTorchPredict, self).__init__()
 
-        model = dict(model)  # hack
+        self._log = logging.getLogger(__name__)
+
+        model = dict(model)
 
         self._dev = 'cuda' if torch.cuda.is_available() else 'cpu'
         self._lat_and_inv = (
@@ -76,9 +82,6 @@ class GDMLTorchPredict(nn.Module):
             )
         )
 
-        self._batch_size = batch_size
-        # self._max_memory = int(2 ** 30 * max_memory) if max_memory is not None else torch.cuda.get_device_properties(0).total_memory
-        self._max_memory = int(2 ** 30 * max_memory)
         self._sig = int(model['sig'])
         self._c = float(model['c'])
         self._std = float(model.get('std', 1))
@@ -101,30 +104,30 @@ class GDMLTorchPredict(nn.Module):
             )
         )
 
-        # DEBUG
-        # cuda_check = self._xs_train.is_cuda
-        # if cuda_check:
-        #    get_cuda_device = self._xs_train.get_device()
-        #    print('_xs_train')
-        #    print(get_cuda_device)
+        if max_memory is not None:
+            _max_memory = int(2 ** 30 * max_memory) # GB to bytes
+        else:
+            if torch.cuda.is_available():
+                _max_memory = max([torch.cuda.get_device_properties(i).total_memory for i in range(torch.cuda.device_count())])
+            else:
+                _max_memory = virtual_memory().total
 
-        # DEBUG
-        # cuda_check = self._Jx_alphas.is_cuda
-        # if cuda_check:
-        #    get_cuda_device = self._Jx_alphas.get_device()
-        #    print('self._Jx_alphas')
-        #    print(get_cuda_device)
+        _batch_size = _max_memory // self._memory_per_sample() if batch_size is None else batch_size
+        if torch.cuda.is_available():
+            _batch_size *= torch.cuda.device_count()
 
         self.desc_siz = desc_siz
         self.perm_idxs = perm_idxs
         self.n_perms = n_perms
+
+        self.desc = Desc(self._n_atoms, use_torch=True)
 
     def set_alphas(self, R_d_desc, alphas):
 
         r_dim = R_d_desc.shape[2]
         R_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim))
 
-        xs = torch.tensor(np.array(R_d_desc_alpha), device=self._dev)  # .to(self._dev)
+        xs = torch.tensor(np.array(R_d_desc_alpha), device=self._dev)
         self._Jx_alphas = nn.Parameter(
             xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, self.desc_siz),
             requires_grad=False,
@@ -140,7 +143,7 @@ class GDMLTorchPredict(nn.Module):
         diffs = Rs[:, :, None, :] - Rs[:, None, :, :]
         if self._lat_and_inv is not None:
             diffs_shape = diffs.shape
-            diffs = desc.pbc_diff_torch(
+            diffs = self.desc.pbc_diff(
                 diffs.reshape(-1, 3), self._lat_and_inv
             ).reshape(diffs_shape)
 
@@ -151,6 +154,7 @@ class GDMLTorchPredict(nn.Module):
         i, j = np.tril_indices(self._n_atoms, k=-1)
 
         xs = 1 / dists[:, i, j]  # R_desc (1000, 36)
+
         x_diffs = (q * xs)[:, None, :] - q * self._xs_train
         x_dists = x_diffs.norm(dim=-1)
         exp_xs = 5.0 / (3 * sig ** 2) * torch.exp(-x_dists)
@@ -169,7 +173,11 @@ class GDMLTorchPredict(nn.Module):
 
         return Es, Fs
 
-    def forward(self, Rs, batch_size=None, max_memory=None):
+    def get_batch_size(self): # returns current batch size
+
+        return _batch_size
+
+    def forward(self, Rs):
         """
         Predict energy and forces for a batch of geometries.
 
@@ -186,44 +194,42 @@ class GDMLTorchPredict(nn.Module):
             (dims M x N x 3) Nuclear gradients of the energy
         """
 
+        global _batch_size
+
         assert Rs.dim() == 3
         assert Rs.shape[1:] == (self._n_atoms, 3)
 
         dtype = Rs.dtype
         Rs = Rs.double()
-        batch_size = self._batch_size or self._max_memory // self._memory_per_sample()
 
-        if torch.cuda.is_available():
-            batch_size *= torch.cuda.device_count()
+        batch_size = _batch_size
 
-        try:
-            Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
+        retry = True
+        while retry:
 
-        except RuntimeError as e:
-            if 'out of memory' in str(e):
+            try:
+                Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
+                retry = False
 
-                print('NOTE: ran out of memory, but retrying!')
+            except RuntimeError as e:
+                if 'out of memory' in str(e):
+                    if batch_size > 2:
 
-                if batch_size > 2:
+                        import gc
+                        gc.collect()
 
-                    import gc
-                    gc.collect()
+                        torch.cuda.empty_cache()
 
-                    torch.cuda.empty_cache()
+                        batch_size -= 1
+                        _batch_size = batch_size
 
-                    # reverse batch multiplication
-                    if torch.cuda.is_available():
-                        batch_size /= torch.cuda.device_count()
+                        retry = True
 
-                    batch_size = int(batch_size / 0.1)
-                    self._batch_size = batch_size
-
-                    return self.forward(Rs, batch_size=self._batch_size)
+                    else:
+                        self._log.critical('Could not allocate enough memory to evaluate model, despite reducing batch size.')
+                        print()
+                        sys.exit()
                 else:
-                    print('ERROR: ran out of memory, FAILED!')
-                    sys.exit()
-            else:
-                raise e
+                    raise e
 
-        # Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
         return torch.cat(Es).to(dtype), torch.cat(Fs).to(dtype)

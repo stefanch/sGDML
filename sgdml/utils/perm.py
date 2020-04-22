@@ -118,7 +118,7 @@ def bipartite_match(R, z, max_processes=None):
         )
     ):
         match_perms_all.update(match_perms)
-        ui.progr_bar(i, n_train - 1, disp_str='Bi-partite matching...')
+        ui.progr_bar(i, n_train - 1, disp_str='Bi-partite matching')
     pool.close()
 
     match_cost = np.frombuffer(glob['match_cost']).reshape(glob['match_cost_shape'])
@@ -140,7 +140,7 @@ def sync_perm_mat(match_perms_all, match_cost, n_atoms):
         if perm is not None:
             perms = np.vstack((perms, perm))
     perms = np.unique(perms, axis=0)
-    ui.progr_toggle(is_done=True, disp_str='Permutation synchronization')
+    ui.progr_toggle(is_done=True, disp_str='Multi-partite matching (permutation synchronization)')
 
     return perms
 
@@ -162,7 +162,7 @@ def complete_sym_group(perms):
     ui.progr_toggle(
         is_done=True,
         disp_str='Symmetry group completion',
-        sec_disp_str='{:d} symmetries'.format(perms.shape[0]),
+        sec_disp_str='found {:d} symmetries'.format(perms.shape[0]),
     )
 
     return perms

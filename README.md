@@ -82,6 +82,19 @@ gdml = GDMLPredict(model, use_torch=True)
 **_NOTE:_**  PyTorch must be installed with GPU support, otherwise the CPU is used. However, we recommend performing CPU calculations without PyTorch for optimal performance.
 
 
+## Authors
+
+* Stefan Chmiela
+* Jan Hermann
+
+We appreciate and welcome contributions and would like to thank the following people for participating in this project:
+
+* Huziel Sauceda
+* Igor Poltavsky
+* Luis Galvez
+* Danny Panknin
+* Grégory Fonseca
+
 ## References
 
 * [1] Chmiela, S., Tkatchenko, A., Sauceda, H. E., Poltavsky, I., Schütt, K. T., Müller, K.-R.,

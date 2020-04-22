@@ -28,8 +28,11 @@ import argparse
 import os
 import sys
 
-#import ase.units
-from ase.io import read
+try:
+    from ase.io import read
+except ImportError:
+    raise ImportError('Optional ASE dependency not found! Please run \'pip install sgdml[ase]\' to install it.')
+
 import numpy as np
 
 from sgdml import __version__
