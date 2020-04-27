@@ -519,7 +519,7 @@ def create(  # noqa: C901
     # lam = 1e-15
     if sigs is None:
         log.info(
-            'Kernel hyper-paramter sigma was automatically set to range \'2:10:100\'.'
+            'Kernel hyper-parameter sigma was automatically set to range \'2:10:100\'.'
         )
         sigs = list(range(2, 100, 10))  # default range
 
