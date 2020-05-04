@@ -1018,11 +1018,11 @@ class GDMLPredict(object):
         # Use precomputed descriptors in training mode.
         train_mode = R_desc is not None and R_d_desc is not None
 
-        if self.use_torch:  # multi-GPU (or CPU if no GPUs are available)
+        # Add singleton dimension if input is (,3N).
+        if R.ndim == 1:
+            R = R[None, :]
 
-            # Add singleton dimension if input is (,3N).
-            if R.ndim == 1:
-                R = R[None, :]
+        if self.use_torch:  # multi-GPU (or CPU if no GPUs are available)
 
             n_train = R.shape[0]
             R_torch = torch.from_numpy(R.reshape(n_train, -1, 3)).to(self.torch_device)
