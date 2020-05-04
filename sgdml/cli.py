@@ -228,8 +228,8 @@ def _print_task_properties(
 
     print(ui.white_bold_str(title_str))
 
-    #print('  {:<18} {}'.format('Solver:', ui.unicode_str('[solver name]')))
-    #print('    {:<16} {}'.format('Tolerance:', '[tol]'))
+    # print('  {:<18} {}'.format('Solver:', ui.unicode_str('[solver name]')))
+    # print('    {:<16} {}'.format('Tolerance:', '[tol]'))
 
     energy_fix_str = (
         (
@@ -335,7 +335,6 @@ def _print_model_properties(model, title_str='Model properties'):
                 'Forces:', f_err['mae'], f_err['rmse'], f_unit
             )
         )
-
 
 def all(
     dataset,
@@ -1131,10 +1130,10 @@ def test(
                 'relative to expected: {:+.1f}%'.format(f_rmse_pct),
             )
 
+            print(format_str.format('  Magnitude:', mag_mae, mag_rmse, r_unit))
             print(
-                format_str.format('  Magnitude:', mag_mae, mag_rmse, r_unit)
+                format_str.format('  Angle:', cos_mae, cos_rmse, '0-1, lower is better')
             )
-            print(format_str .format('  Angle:', cos_mae, cos_rmse, '0-1, lower is better'))
             print()
 
         model_mutable = dict(model)
@@ -1196,7 +1195,7 @@ def select(
         ui.print_step_title('MODEL SELECTION')
 
     any_model_not_validated = False
-    # any_model_is_tested = False
+    any_model_is_tested = False
 
     model_dir, model_file_names = model_dir
     if len(model_file_names) > 1:
@@ -1256,7 +1255,7 @@ def select(
             print()
             sys.exit()
 
-        if is_model_tested:
+        if any_model_is_tested:
             log.error(
                 'One or more models in the given directory have already been tested. This means that their recorded expected errors are test errors, not validation errors. However, one should never perform model selection based on the test error!\n'
                 + 'Please run the validation command (again) with the overwrite option \'-o\', then this selection command.'
@@ -1563,10 +1562,9 @@ def main():
             '--cg',
             dest='use_cg',
             action='store_true',
-            #help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
+            # help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
             help=argparse.SUPPRESS
         )
-
         subparser.add_argument(
             '-m0',
             '--model0',

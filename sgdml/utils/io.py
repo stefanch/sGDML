@@ -293,7 +293,10 @@ def generate_xyz_str(r, z, e=None, f=None, lattice=None):
         comment_str += ':forces:R:3'
 
     species_str = '\n'.join([_z_to_z_str_dict[z_i] for z_i in z])
-    r_f_str = ui.merge_col_str(ui.gen_mat_str(r)[0], ui.gen_mat_str(f)[0])
+
+    r_f_str = ui.gen_mat_str(r)[0]
+    if f is not None:
+        r_f_str = ui.merge_col_str(r_f_str, ui.gen_mat_str(f)[0])
 
     xyz_str = str(len(r)) + '\n' + comment_str + '\n'
     xyz_str += ui.merge_col_str(species_str, r_f_str)

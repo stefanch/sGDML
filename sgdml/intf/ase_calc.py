@@ -27,7 +27,9 @@ try:
     from ase.calculators.calculator import Calculator
     from ase.units import kcal, mol
 except ImportError:
-    raise ImportError('Optional ASE dependency not found! Please run \'pip install sgdml[ase]\' to install it.')
+    raise ImportError(
+        'Optional ASE dependency not found! Please run \'pip install sgdml[ase]\' to install it.'
+    )
 
 from ..predict import GDMLPredict
 
@@ -37,7 +39,7 @@ class SGDMLCalculator(Calculator):
     implemented_properties = ['energy', 'forces']
 
     def __init__(
-        self, model_path, E_to_eV=kcal / mol, F_to_eV_Ang=kcal / mol, *args, **kwargs
+        self, model_path, E_to_eV=kcal/mol, F_to_eV_Ang=kcal/mol, *args, **kwargs
     ):
         """
         ASE calculator for the sGDML force field.
@@ -55,7 +57,7 @@ class SGDMLCalculator(Calculator):
                         Path to a sGDML model file
                 E_to_eV : float, optional
                         Conversion factor from whatever energy unit is used by the model to eV. By default this parameter is set to convert from kcal/mol.
-                F_to_eV_Ang : boolean, optional
+                F_to_eV_Ang : float, optional
                         Conversion factor from whatever length unit is used by the model to Angstrom. By default, the length unit is not converted.
         """
 

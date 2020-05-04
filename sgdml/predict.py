@@ -67,7 +67,7 @@ def share_array(arr_np):
 
 def _predict_wkr(
     r, r_desc_d_desc, lat_and_inv, glob_id, wkr_start_stop=None, chunk_size=None
-):  # TODO: document all
+):
     """
     Compute (part) of a prediction.
 
@@ -94,6 +94,9 @@ def _predict_wkr(
                         descriptor Jacobian for the molecules. It has dimension
                         D with 3N partial derivatives with respect to the 3N
                         Cartesian coordinates of each atom.
+            lat_and_inv : tuple of :obj:`numpy.ndarray`
+                    Tuple of 3 x 3 matrix containing lattice vectors as columns and
+                    its inverse.
             glob_id : int
                     Identifier of the global namespace that this
                     function is supposed to be using (zero if only one
@@ -276,9 +279,7 @@ class GDMLPredict(object):
 
         self.n_atoms = model['z'].shape[0]
 
-        self.desc = Desc(
-            self.n_atoms, max_processes=max_processes, use_torch=use_torch
-        )
+        self.desc = Desc(self.n_atoms, max_processes=max_processes)
         glob['desc_func'] = self.desc
 
         self.lat_and_inv = (
@@ -336,15 +337,13 @@ class GDMLPredict(object):
             from .torchtools import GDMLTorchPredict
 
             self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv).to(
-                self.torch_device
-            )
+            self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv)#.to(self.torch_device)
 
             # enable data parallelism
             n_gpu = torch.cuda.device_count()
             if n_gpu > 1:
                 self.torch_predict = torch.nn.DataParallel(self.torch_predict)
-                # self.torch_predict.to(self.torch_device) # needed?
+            self.torch_predict.to(self.torch_device)
 
             # is_cuda = next(self.torch_predict.parameters()).is_cuda
             # if is_cuda:
@@ -371,16 +370,19 @@ class GDMLPredict(object):
         self._set_chunk_size(batch_size)
 
     def __del__(self):
+
+        global globs
+
         if hasattr(self, 'pool') and self.pool is not None:
             self.pool.close()
 
-        globs[self.glob_id] = None
+        if 'globs' in globals() and globs is not None and self.glob_id < len(globs):
+            globs[self.glob_id] = None
+
 
     ## Public ##
 
-    def set_alphas(
-        self, R_d_desc, alphas, alphas_E=None
-    ):  # TODO: this only sets alphas_F # TODO: docuemnt
+    def set_alphas(self, R_d_desc, alphas_F, alphas_E=None):
         """
         Reconfigure the current model with a new set of regression parameters.
         This is necessary when training the model iteratively.
@@ -390,8 +392,11 @@ class GDMLPredict(object):
                 R_d_desc : :obj:`numpy.ndarray`
                     Array containing the Jacobian of the descriptor for
                     each training point.
-                alphas : :obj:`numpy.ndarray`
+                alphas_F : :obj:`numpy.ndarray`
                     1D array containing the new model parameters.
+                alphas_F : :obj:`numpy.ndarray`, optional
+                    1D array containing the additional new model parameters, if
+                    energy constraints are used in the kernel (`use_E_cstr=True`)
         """
 
         if self.use_torch:
@@ -399,7 +404,7 @@ class GDMLPredict(object):
             if isinstance(self.torch_predict, torch.nn.DataParallel):
                 model = model.module
 
-            model.set_alphas(R_d_desc, alphas)
+            model.set_alphas(R_d_desc, alphas_F)
 
             # TODO: E_cstr does not work on GPU!
 
@@ -410,7 +415,7 @@ class GDMLPredict(object):
 
             r_dim = R_d_desc.shape[2]
             R_d_desc_alpha = np.einsum(
-                'kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim)
+                'kji,ki->kj', R_d_desc, alphas_F.reshape(-1, r_dim)
             )
 
             R_d_desc_alpha_perms_new = np.tile(R_d_desc_alpha, self.n_perms)[
@@ -871,9 +876,7 @@ class GDMLPredict(object):
         else:
             return gps
 
-    def _save_cached_bmark_result(
-        self, n_bulk, num_workers, chunk_size, bulk_mp, gps
-    ):  # document me
+    def _save_cached_bmark_result(self, n_bulk, num_workers, chunk_size, bulk_mp, gps):
 
         pkg_dir = os.path.dirname(os.path.abspath(__file__))
         bmark_file = '_bmark_cache.npz'
@@ -905,7 +908,7 @@ class GDMLPredict(object):
 
         np.savez_compressed(bmark_path, **bmark)
 
-    def _load_cached_bmark_result(self, n_bulk):  # document me
+    def _load_cached_bmark_result(self, n_bulk):
 
         pkg_dir = os.path.dirname(os.path.abspath(__file__))
         bmark_file = '_bmark_cache.npz'
@@ -973,7 +976,7 @@ class GDMLPredict(object):
             if isinstance(self.torch_predict, torch.nn.DataParallel):
                 model = model.module
 
-            return model.get_batch_size()
+            return model._batch_size()
 
     def predict(self, R, R_desc=None, R_d_desc=None):
         """

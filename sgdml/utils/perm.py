@@ -140,7 +140,9 @@ def sync_perm_mat(match_perms_all, match_cost, n_atoms):
         if perm is not None:
             perms = np.vstack((perms, perm))
     perms = np.unique(perms, axis=0)
-    ui.progr_toggle(is_done=True, disp_str='Multi-partite matching (permutation synchronization)')
+    ui.progr_toggle(
+        is_done=True, disp_str='Multi-partite matching (permutation synchronization)'
+    )
 
     return perms
 

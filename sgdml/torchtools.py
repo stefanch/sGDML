@@ -23,11 +23,11 @@
 # SOFTWARE.
 
 import logging
-from psutil import virtual_memory
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from psutil import virtual_memory
 
 from .utils.desc import Desc
 
@@ -105,14 +105,23 @@ class GDMLTorchPredict(nn.Module):
         )
 
         if max_memory is not None:
-            _max_memory = int(2 ** 30 * max_memory) # GB to bytes
+            _max_memory = int(2 ** 30 * max_memory)  # GB to bytes
         else:
             if torch.cuda.is_available():
-                _max_memory = max([torch.cuda.get_device_properties(i).total_memory for i in range(torch.cuda.device_count())])
+                _max_memory = max(
+                    [
+                        torch.cuda.get_device_properties(i).total_memory
+                        for i in range(torch.cuda.device_count())
+                    ]
+                )
             else:
                 _max_memory = virtual_memory().total
 
-        _batch_size = _max_memory // self._memory_per_sample() if batch_size is None else batch_size
+        _batch_size = (
+            _max_memory // self._memory_per_sample()
+            if batch_size is None
+            else batch_size
+        )
         if torch.cuda.is_available():
             _batch_size *= torch.cuda.device_count()
 
@@ -120,9 +129,21 @@ class GDMLTorchPredict(nn.Module):
         self.perm_idxs = perm_idxs
         self.n_perms = n_perms
 
-        self.desc = Desc(self._n_atoms, use_torch=True)
+        #self.desc = Desc(self._n_atoms)
 
     def set_alphas(self, R_d_desc, alphas):
+        """
+        Reconfigure the current model with a new set of regression parameters.
+        This is necessary when training the model iteratively.
+
+        Parameters
+        ----------
+                R_d_desc : :obj:`numpy.ndarray`
+                    Array containing the Jacobian of the descriptor for
+                    each training point.
+                alphas : :obj:`numpy.ndarray`
+                    1D array containing the new model parameters.
+        """
 
         r_dim = R_d_desc.shape[2]
         R_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim))
@@ -136,6 +157,9 @@ class GDMLTorchPredict(nn.Module):
     def _memory_per_sample(self):
         return 3 * self._xs_train.nelement() * self._xs_train.element_size()
 
+    def _batch_size(self):
+        return _batch_size
+
     def _forward(self, Rs):
         sig = self._sig
         q = np.sqrt(5) / sig
@@ -143,9 +167,20 @@ class GDMLTorchPredict(nn.Module):
         diffs = Rs[:, :, None, :] - Rs[:, None, :, :]
         if self._lat_and_inv is not None:
             diffs_shape = diffs.shape
-            diffs = self.desc.pbc_diff(
-                diffs.reshape(-1, 3), self._lat_and_inv
-            ).reshape(diffs_shape)
+            #diffs = self.desc.pbc_diff(diffs.reshape(-1, 3), self._lat_and_inv).reshape(
+            #    diffs_shape
+            #)
+
+            lat, lat_inv = self._lat_and_inv
+            lat=lat.to(Rs.device)
+            lat_inv=lat_inv.to(Rs.device)
+            
+            diffs = diffs.reshape(-1, 3)
+
+            c = lat_inv.mm(diffs.t())
+            diffs -= lat.mm(c.round()).t()
+
+            diffs = diffs.reshape(diffs_shape)
 
         dists = diffs.norm(dim=-1)
         i, j = np.diag_indices(self._n_atoms)
@@ -173,17 +208,13 @@ class GDMLTorchPredict(nn.Module):
 
         return Es, Fs
 
-    def get_batch_size(self): # returns current batch size
-
-        return _batch_size
-
     def forward(self, Rs):
         """
         Predict energy and forces for a batch of geometries.
 
         Parameters
         ----------
-        R : :obj:`torch.Tensor`
+        Rs : :obj:`torch.Tensor`
             (dims M x N x 3) Cartesian coordinates of M molecules composed of N atoms
 
         Returns
@@ -226,7 +257,9 @@ class GDMLTorchPredict(nn.Module):
                         retry = True
 
                     else:
-                        self._log.critical('Could not allocate enough memory to evaluate model, despite reducing batch size.')
+                        self._log.critical(
+                            'Could not allocate enough memory to evaluate model, despite reducing batch size.'
+                        )
                         print()
                         sys.exit()
                 else:

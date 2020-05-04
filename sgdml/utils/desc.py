@@ -46,14 +46,23 @@ def _from_r_alias(obj, r, lat_and_inv=None):
 
 
 class Desc(object):
-    def __init__(self, n_atoms, max_processes=None, use_torch=False):
+    def __init__(self, n_atoms, max_processes=None):
         """
         Generate descriptors and their Jacobians for molecular geometries,
         including support for periodic boundary conditions.
+
+        Parameters
+        ----------
+                n_atoms : int
+                        Number of atoms in the represented system.
+                max_processes : int, optional
+                        Limit the max. number of processes. Otherwise
+                        all CPU cores are used. This parameters has no
+                        effect if `use_torch=True`.
         """
 
         self.n_atoms = n_atoms
-        self.dim_i = 3*n_atoms
+        self.dim_i = 3 * n_atoms
 
         # Size of the resulting descriptor vector.
         self.dim = (n_atoms * (n_atoms - 1)) // 2
@@ -70,14 +79,15 @@ class Desc(object):
         for a in range(1, n_atoms):
             self.M = np.concatenate((self.M, np.delete(np.arange(n_atoms), a)))
 
-        self.A = np.repeat(np.arange(n_atoms), n_atoms - 1)  # [0, 0, ..., 1, 1, ..., 2, 2, ...]
+        self.A = np.repeat(
+            np.arange(n_atoms), n_atoms - 1
+        )  # [0, 0, ..., 1, 1, ..., 2, 2, ...]
 
         self.d_desc = np.zeros(
             (self.dim, n_atoms, 3)
         )  # template for descriptor matrix (zeros are important)
 
         self.max_processes = max_processes
-        self.use_torch = use_torch
 
     def from_R(self, R, lat_and_inv=None, callback=None):
         """
@@ -130,11 +140,11 @@ class Desc(object):
         ):
             R_desc[i, :], R_d_desc[i, :, :] = r_desc_r_d_desc
 
-            if callback is not None and i < M-1:
-                callback(i, M-1)
+            if callback is not None and i < M - 1:
+                callback(i, M - 1)
 
         pool.close()
-        pool.join() # Wait for the worker processes to terminate (to measure total runtime correctly).
+        pool.join()  # Wait for the worker processes to terminate (to measure total runtime correctly).
         stop = timeit.default_timer()
 
         if callback is not None:
@@ -144,8 +154,7 @@ class Desc(object):
 
         return R_desc, R_d_desc
 
-
-    def pbc_diff(self, diffs, lat_and_inv):  # diffs: -> N x 3 matrix
+    def pbc_diff(self, diffs, lat_and_inv, use_torch=False):
         """
         Clamp differences of vectors to super cell.
 
@@ -155,6 +164,8 @@ class Desc(object):
                 N x 3 matrix of N pairwise differences between vectors `u - v`
             lat_and_inv : tuple of :obj:`numpy.ndarray`
                 Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
+            use_torch : boolean, optional
+                Enable, if the inputs are PyTorch objects.
 
         Returns
         -------
@@ -164,10 +175,12 @@ class Desc(object):
 
         lat, lat_inv = lat_and_inv
 
-        if self.use_torch and not _has_torch:
-            raise ImportError('Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.')
+        if use_torch and not _has_torch:
+            raise ImportError(
+                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
+            )
 
-        if self.use_torch:
+        if use_torch:
             c = lat_inv.mm(diffs.t())
             diffs -= lat.mm(c.round()).t()
         else:
@@ -206,7 +219,6 @@ class Desc(object):
         rest = rest[:, perm]
 
         return rest[np.tril_indices(n, -1)].astype(int)
-
 
     # Private
 
@@ -261,7 +273,7 @@ class Desc(object):
                 Array of size N x N containing all pairwise distances between atoms.
         """
 
-        r = r.reshape(-1,3)
+        r = r.reshape(-1, 3)
 
         if lat_and_inv is None:
             pdist = sp.spatial.distance.pdist(r, 'euclidean')
@@ -298,7 +310,6 @@ class Desc(object):
 
         return 1.0 / pdist[np.tril_indices(self.n_atoms, -1)]
 
-
     def _r_to_d_desc(self, r, pdist, lat_and_inv=None):
         """
         Generate descriptor Jacobian for a set of atom positions in
@@ -325,17 +336,19 @@ class Desc(object):
                 derivatives of the descriptor.
         """
 
-        r = r.reshape(-1,3)
+        r = r.reshape(-1, 3)
 
         np.seterr(divide='ignore', invalid='ignore')
 
         pdiff = r[:, None] - r[None, :]  # pairwise differences ri - rj
         if lat_and_inv is not None:
-            pdiff = self.pbc_diff(pdiff.reshape(self.n_atoms ** 2, 3), lat_and_inv).reshape(
-                self.n_atoms, self.n_atoms, 3
-            )
+            pdiff = self.pbc_diff(
+                pdiff.reshape(self.n_atoms ** 2, 3), lat_and_inv
+            ).reshape(self.n_atoms, self.n_atoms, 3)
 
         d_desc_elem = pdiff / (pdist ** 3)[:, :, None]
-        self.d_desc[self.d_desc_mask.ravel(), self.A, :] = d_desc_elem[self.M, self.A, :]
+        self.d_desc[self.d_desc_mask.ravel(), self.A, :] = d_desc_elem[
+            self.M, self.A, :
+        ]
 
         return self.d_desc.reshape(self.dim, self.dim_i)
