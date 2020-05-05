@@ -57,7 +57,7 @@ $ pip install sgdml[<optional1>,<optional2>]
 
 #### GPU support (via PyTorch)
 
-To enable GPU support, you need to install the optional PyTorch dependency using the ``torch`` keyword:
+To enable GPU support, you need to install the optional [PyTorch](https://pytorch.org/) dependency using the ``torch`` keyword:
 
 ```
 $ pip install sgdml[torch]
