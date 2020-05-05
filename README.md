@@ -49,7 +49,7 @@ Using the flag ``--user``, we can tell ``pip`` to install the package to the cur
 
 ### Optional dependencies
 
-Some functionality of this package relies on third-party libraries that are not installed by default. These optional dependencies (or `package extras`) are specified during installation using the `square bracket syntax`
+Some functionality of this package relies on third-party libraries that are not installed by default. These optional dependencies (or "package extras") are specified during installation using the "square bracket syntax":
 
 ```console
 $ pip install sgdml[<optional1>,<optional2>]
