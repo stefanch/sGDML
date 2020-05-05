@@ -17,7 +17,7 @@ Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 
 Most systems come with the default package manager for Python ``pip`` already preinstalled. Install ``sgdml`` by simply calling:
 
-`pip install sgdml`
+	`pip install sgdml`
 
 The ``sgdml`` command-line interface and the corresponding Python API can now be used from anywhere on the system.
 
@@ -25,9 +25,9 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 
 #### (1) Clone the repository
 
-`git clone https://github.com/stefanch/sGDML.git`
+	`git clone https://github.com/stefanch/sGDML.git`
 
-`cd sGDML`
+	`cd sGDML`
 
 ...or update your existing local copy with
 
@@ -38,12 +38,6 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 `pip install -e .`
 
 Using the flag ``--user``, we can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
-
-##### ...with GPU support
-
-For GPU support, the optional PyTorch dependency needs to be installed.
-
-`pip install -e .[torch]`
 
 
 ### Optional dependencies
