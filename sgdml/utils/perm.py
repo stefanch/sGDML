@@ -34,6 +34,7 @@ import scipy.spatial.distance
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import minimum_spanning_tree
 
+from .desc import Desc
 from . import ui
 
 glob = {}
@@ -81,7 +82,7 @@ def _bipartite_match_wkr(i, n_train, same_z_cost):
     return match_perms
 
 
-def bipartite_match(R, z, max_processes=None):
+def bipartite_match(R, z, lat_and_inv=None, max_processes=None):
 
     global glob
 
@@ -93,12 +94,20 @@ def bipartite_match(R, z, max_processes=None):
 
     match_cost = np.zeros((n_train, n_train))
 
+    desc = Desc(n_atoms, max_processes=max_processes)
+
     adj_set = np.empty((n_train, (n_atoms ** 2 - n_atoms) // 2))
     v_set = np.empty((n_train, n_atoms, n_atoms))
     for i in range(n_train):
         r = np.squeeze(R[i, :, :])
 
-        adj = scipy.spatial.distance.pdist(r, 'euclidean')
+        if lat_and_inv is None:
+            adj = scipy.spatial.distance.pdist(r, 'euclidean')
+        else:
+            adj = scipy.spatial.distance.pdist(
+                r, lambda u, v: np.linalg.norm(desc.pbc_diff(u - v, lat_and_inv))
+            )
+
         w, v = np.linalg.eig(scipy.spatial.distance.squareform(adj))
         v = v[:, w.argsort()[::-1]]
 
@@ -170,12 +179,12 @@ def complete_sym_group(perms):
     return perms
 
 
-def find_perms(R, z, max_processes=None):
+def find_perms(R, z, lat_and_inv=None, max_processes=None):
 
     n_atoms = len(z)
 
     # find matching for all pairs
-    match_perms_all, match_cost = bipartite_match(R, z, max_processes)
+    match_perms_all, match_cost = bipartite_match(R, z, lat_and_inv, max_processes)
 
     # remove inconsistencies
     match_perms = sync_perm_mat(match_perms_all, match_cost, n_atoms)

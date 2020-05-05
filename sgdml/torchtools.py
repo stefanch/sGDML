@@ -27,7 +27,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from psutil import virtual_memory
+#from psutil import virtual_memory
 
 from .utils.desc import Desc
 
@@ -115,7 +115,8 @@ class GDMLTorchPredict(nn.Module):
                     ]
                 )
             else:
-                _max_memory = virtual_memory().total
+                #_max_memory = virtual_memory().total
+                _max_memory = int(2 ** 30 * 32) # 32 GB TODO: hardcoded for now, to avoid psutils
 
         _batch_size = (
             _max_memory // self._memory_per_sample()
@@ -172,8 +173,10 @@ class GDMLTorchPredict(nn.Module):
             #)
 
             lat, lat_inv = self._lat_and_inv
-            lat=lat.to(Rs.device)
-            lat_inv=lat_inv.to(Rs.device)
+
+            if lat.device != Rs.device:
+                lat=lat.to(Rs.device)
+                lat_inv=lat_inv.to(Rs.device)
             
             diffs = diffs.reshape(-1, 3)
 

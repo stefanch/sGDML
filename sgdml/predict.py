@@ -217,7 +217,7 @@ def _predict_wkr(
 
     np.dot(F, r_d_desc, out=out[1:])
 
-    return out  # * 1./sig
+    return out
 
 
 class GDMLPredict(object):
@@ -336,13 +336,14 @@ class GDMLPredict(object):
 
             from .torchtools import GDMLTorchPredict
 
-            self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
             self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv)#.to(self.torch_device)
 
             # enable data parallelism
             n_gpu = torch.cuda.device_count()
             if n_gpu > 1:
                 self.torch_predict = torch.nn.DataParallel(self.torch_predict)
+
+            self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
             self.torch_predict.to(self.torch_device)
 
             # is_cuda = next(self.torch_predict.parameters()).is_cuda

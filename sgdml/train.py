@@ -33,7 +33,7 @@ import inspect
 import timeit
 import warnings
 from functools import partial
-from psutil import virtual_memory
+#from psutil import virtual_memory
 
 import numpy as np
 import scipy as sp
@@ -460,8 +460,18 @@ class GDMLTrain(object):
         if use_E:
             task['E_train'] = train_dataset['E'][idxs_train]
 
+        lat_and_inv = None
         if 'lattice' in train_dataset:
             task['lattice'] = train_dataset['lattice']
+
+            
+            #if 'lattice' in train_dataset:
+            try:
+                lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
+            except np.linalg.LinAlgError:
+                raise ValueError(  # TODO: Document me
+                    'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
+                )
 
         if 'r_unit' in train_dataset and 'e_unit' in train_dataset:
             task['r_unit'] = train_dataset['r_unit']
@@ -482,7 +492,7 @@ class GDMLTrain(object):
                     )
 
                 task['perms'] = perm.find_perms(
-                    R_train_sync_mat, train_dataset['z'], self._max_processes
+                    R_train_sync_mat, train_dataset['z'], lat_and_inv=lat_and_inv, max_processes=self._max_processes,
                 )
             else:
                 task['perms'] = np.arange(train_dataset['R'].shape[1])[
@@ -540,14 +550,14 @@ class GDMLTrain(object):
             perm_offsets = np.arange(n_perms)[:, None] * dim_d
             tril_perms_lin = (tril_perms + perm_offsets).flatten('F')
 
-            lat_and_inv = None
-            if 'lattice' in train_dataset:
-                try:
-                    lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
-                except np.linalg.LinAlgError:
-                    raise ValueError(  # TODO: Document me
-                        'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
-                    )
+            # lat_and_inv = None
+            # if 'lattice' in train_dataset:
+            #     try:
+            #         lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
+            #     except np.linalg.LinAlgError:
+            #         raise ValueError(  # TODO: Document me
+            #             'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
+            #         )
 
             R_desc, R_d_desc = desc.from_R(
                 R_train.reshape(n_train, -1), lat_and_inv=lat_and_inv
@@ -1530,14 +1540,18 @@ class GDMLTrain(object):
         #    'Computing approximate leverage scores for Nystrom preconditioner.'
         # )
 
-        mem_avail = virtual_memory().available
-        mem_per_point = (
-            n_train * dim_i ** 2 * 8
-        )  # There are 3 * n_atoms columns per training point.
+        # mem_avail = virtual_memory().available
+        # mem_per_point = (
+        #     n_train * dim_i ** 2 * 8
+        # )  # There are 3 * n_atoms columns per training point.
 
-        pts_max = int(
-            np.round((mem_avail * 0.5) / mem_per_point)
-        )  # How many points can be fit into available memory?
+        # pts_max = int(
+        #     np.round((mem_avail * 0.5) / mem_per_point)
+        # )  # How many points can be fit into available memory?
+
+
+        pts_max = 75 # TODO: hardcoded to avoid psutils
+
         inducing_pts = min(
             min(n_train, pts_max), 75
         )  # How many inducing points to use (for Nystrom approximation, as well as the approximation of leverage scores). Never use more than 75 training points.
