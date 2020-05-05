@@ -17,7 +17,7 @@ Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 
 Most systems come with the default package manager for Python ``pip`` already preinstalled. Install ``sgdml`` by simply calling:
 
-```bash
+```
 $ pip install sgdml
 ```
 
@@ -27,20 +27,20 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 
 #### (1) Clone the repository
 
-```bash
+```
 $ git clone https://github.com/stefanch/sGDML.git
 $ cd sGDML
 ```
 
 ...or update your existing local copy with
 
-```bash
+```
 $ git pull origin master
 ```
 
 #### (2) Install
 
-```bash
+```
 $ pip install -e .
 ```
 
@@ -51,7 +51,7 @@ Using the flag ``--user``, we can tell ``pip`` to install the package to the cur
 
 Some functionality of this package relies on third-party libraries that are not installed by default. These optional dependencies (or "package extras") are specified during installation using the "square bracket syntax":
 
-```bash
+```
 $ pip install sgdml[<optional1>,<optional2>]
 ```
 
@@ -59,16 +59,16 @@ $ pip install sgdml[<optional1>,<optional2>]
 
 To enable GPU support, you need to install the optional PyTorch dependency using the ``torch`` keyword:
 
-```bash
+```
 $ pip install sgdml[torch]
 ```
 
 
 #### Atomic Simulation Environment (ASE)
 
-If you are interested in interfacing ``sgdml`` with [ASE](https://wiki.fysik.dtu.dk/ase/) (see [here](http://quantum-machine.org/gdml/doc/applications.html) for examples), use the ``ase`` keyword:
+If you are interested in interfacing with [ASE](https://wiki.fysik.dtu.dk/ase/) (see [here](http://quantum-machine.org/gdml/doc/applications.html) for examples), use the ``ase`` keyword:
 
-```bash
+```
 $ pip install sgdml[ase]
 ```
 
@@ -76,13 +76,13 @@ $ pip install sgdml[ase]
 
 Download one of the example datasets:
 
-```bash
+```
 $ sgdml-get dataset ethanol_dft
 ```
 
 Train a force field model:
 
-```bash
+```
 $ sgdml all ethanol_dft.npz 200 1000 5000
 ```
 
