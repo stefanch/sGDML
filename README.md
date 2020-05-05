@@ -17,7 +17,9 @@ Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 
 Most systems come with the default package manager for Python ``pip`` already preinstalled. Install ``sgdml`` by simply calling:
 
-	`pip install sgdml`
+```console
+$ pip install sgdml
+```
 
 The ``sgdml`` command-line interface and the corresponding Python API can now be used from anywhere on the system.
 
@@ -25,17 +27,22 @@ The ``sgdml`` command-line interface and the corresponding Python API can now be
 
 #### (1) Clone the repository
 
-	`git clone https://github.com/stefanch/sGDML.git`
-
-	`cd sGDML`
+```console
+$ git clone https://github.com/stefanch/sGDML.git
+$ cd sGDML
+```
 
 ...or update your existing local copy with
 
-`git pull origin master`
+```console
+$ git pull origin master
+```
 
 #### (2) Install
 
-`pip install -e .`
+```console
+$ pip install -e .
+```
 
 Using the flag ``--user``, we can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
 
@@ -44,32 +51,40 @@ Using the flag ``--user``, we can tell ``pip`` to install the package to the cur
 
 Some functionality of this package relies on third-party libraries that are not installed by default. These optional dependencies (or `package extras`) are specified during installation using the `square bracket syntax`
 
-`pip install sgdml[<optional1>,<optional2>]`
-
+```console
+$ pip install sgdml[<optional1>,<optional2>]
+```
 
 #### GPU support (via PyTorch)
 
 To enable GPU support, you need to install the optional PyTorch dependency using the ``torch`` keyword:
 
-	`pip install sgdml[torch]`
+```console
+$ pip install sgdml[torch]
+```
 
 
 #### Atomic Simulation Environment (ASE)
 
 If you are interested in interfacing ``sgdml`` with [ASE](https://wiki.fysik.dtu.dk/ase/) (see [here](http://quantum-machine.org/gdml/doc/applications.html) for examples), use the ``ase`` keyword:
 
-	`pip install sgdml[ase]`
-
+```console
+$ pip install sgdml[ase]
+```
 
 ## Reconstruct your first force field
 
 Download one of the example datasets:
 
-`sgdml-get dataset ethanol_dft`
+```console
+$ sgdml-get dataset ethanol_dft
+```
 
 Train a force field model:
 
-`sgdml all ethanol_dft.npz 200 1000 5000`
+```console
+$ sgdml all ethanol_dft.npz 200 1000 5000
+```
 
 ## Query a force field
 
