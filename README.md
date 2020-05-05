@@ -45,6 +45,28 @@ For GPU support, the optional PyTorch dependency needs to be installed.
 
 `pip install -e .[torch]`
 
+
+### Optional dependencies
+
+Some functionality of this package relies on third-party libraries that are not installed by default. These optional dependencies (or `package extras`) are specified during installation using the `square bracket syntax`
+
+`pip install sgdml[<optional1>,<optional2>]`
+
+
+#### GPU support (via PyTorch)
+
+To enable GPU support, you need to install the optional PyTorch dependency using the ``torch`` keyword:
+
+	`pip install sgdml[torch]`
+
+
+#### Atomic Simulation Environment (ASE)
+
+If you are interested in interfacing ``sgdml`` with [ASE](https://wiki.fysik.dtu.dk/ase/) (see [here](http://quantum-machine.org/gdml/doc/applications.html) for examples), use the ``ase`` keyword:
+
+	`pip install sgdml[ase]`
+
+
 ## Reconstruct your first force field
 
 Download one of the example datasets:
@@ -71,17 +93,6 @@ e,f = gdml.predict(r)
 print e.shape # (1,)
 print f.shape # (1,27)
 ```
-
-### ...with GPU support
-
-Setting ``use_torch=True`` when instantiating the predictor redirects all calculations to PyTorch.
-
-```python
-gdml = GDMLPredict(model, use_torch=True)
-```
-
-**_NOTE:_**  PyTorch must be installed with GPU support, otherwise the CPU is used. However, we recommend performing CPU calculations without PyTorch for optimal performance.
-
 
 ## Authors
 
