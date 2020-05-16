@@ -336,6 +336,7 @@ def _print_model_properties(model, title_str='Model properties'):
             )
         )
 
+
 def all(
     dataset,
     valid_dataset,
@@ -1583,7 +1584,7 @@ def main():
 
     # show
     parser_show.add_argument(
-        'file', metavar='<file>', type=lambda x: io.is_valid_file_type(x), help=help
+        'file', metavar='<file>', type=lambda x: io.is_valid_file_type(x), help='path to dataset, task or model file'
     )
 
     args = parser.parse_args()
