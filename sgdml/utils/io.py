@@ -160,7 +160,7 @@ def z_to_z_str(z):
 
 
 def train_dir_name(
-    dataset, n_train, use_sym, use_cprsn, use_E, use_E_cstr, model0=None
+    dataset, n_train, use_sym, use_cprsn, use_E, use_E_cstr, descriptor, model0=None
 ):
 
     theory_level_str = re.sub(r'[^\w\-_\.]', '.', str(dataset['theory']))
@@ -172,10 +172,11 @@ def train_dir_name(
     noE_str = '-noE' if not use_E else ''
     Ecstr_str = '-Ecstr' if use_E_cstr else ''
 
-    return '%ssgdml_cv_%s-%s-train%d%s%s%s%s' % (
+    return '%ssgdml_cv_%s-%s-%s-train%d%s%s%s%s' % (
         m0_str,
         dataset['name'].astype(str),
         theory_level_str,
+        descriptor,
         n_train,
         sym_str,
         cprsn_str,
@@ -190,7 +191,7 @@ def task_file_name(task):
     n_perms = task['perms'].shape[0]
     sig = np.squeeze(task['sig'])
 
-    return 'task-train%d-sym%d-sig%04d.npz' % (n_train, n_perms, sig)
+    return 'task-%s-train%d-sym%d-sig%04d.npz' % (task['use_descriptor'][0], n_train, n_perms, sig)
 
 
 def model_file_name(task_or_model, is_extended=False):
@@ -205,8 +206,8 @@ def model_file_name(task_or_model, is_extended=False):
             r'[^\w\-_\.]', '.', str(np.squeeze(task_or_model['dataset_theory']))
         )
         theory_level_str = re.sub(r'\.\.', '.', theory_level_str)
-        return '%s-%s-train%d-sym%d.npz' % (dataset, theory_level_str, n_train, n_perms)
-    return 'model-train%d-sym%d-sig%04d.npz' % (n_train, n_perms, sig)
+        return '%s-%s-%s-train%d-sym%d.npz' % (dataset, theory_level_str, task_or_model['use_descriptor'][0], n_train, n_perms)
+    return 'model-%s-train%d-sym%d-sig%04d.npz' % (task_or_model['use_descriptor'][0], n_train, n_perms, sig)
 
 
 def dataset_md5(dataset):
@@ -705,3 +706,24 @@ def parse_list_or_range(arg):
             arg
         )
     )
+
+def parse_descriptor(arg):
+    """
+    Parses a string that represents either just descriptor's name or required arguments too.
+
+    Parameters
+    ----------
+        arg : :obj:`str`
+            string.
+
+    Returns
+    -------
+        str or :obj:`list` of str
+
+    Raises
+    ------
+        ArgumentTypeError
+            If input can neither be interpreted as a str or list of str.
+    """
+
+    return arg

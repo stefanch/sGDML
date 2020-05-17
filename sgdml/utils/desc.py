@@ -46,7 +46,7 @@ def _from_r_alias(obj, r, lat_and_inv=None):
 
 
 class Desc(object):
-    def __init__(self, n_atoms, max_processes=None):
+    def __init__(self, n_atoms, max_processes=None, use_descriptor='coulomb_matrix'):
         """
         Generate descriptors and their Jacobians for molecular geometries,
         including support for periodic boundary conditions.
@@ -64,28 +64,35 @@ class Desc(object):
         self.n_atoms = n_atoms
         self.dim_i = 3 * n_atoms
 
-        # Size of the resulting descriptor vector.
-        self.dim = (n_atoms * (n_atoms - 1)) // 2
+        self.use_descriptor = use_descriptor
 
-        # Precompute indices for nonzero entries in desriptor derivatives.
-        self.d_desc_mask = np.zeros((n_atoms, n_atoms - 1), dtype=np.int)
-        for a in range(n_atoms):  # for each partial derivative
-            rows, cols = np.tril_indices(n_atoms, -1)
-            self.d_desc_mask[a, :] = np.concatenate(
-                [np.where(rows == a)[0], np.where(cols == a)[0]]
-            )
+        if self.use_descriptor == 'coulomb_matrix' or self.use_descriptor == 'exp_decay_matrix':
+            # Size of the resulting descriptor vector.
+            self.dim = (n_atoms * (n_atoms - 1)) // 2
 
-        self.M = np.arange(1, n_atoms)  # indexes matrix row-wise, skipping diagonal
-        for a in range(1, n_atoms):
-            self.M = np.concatenate((self.M, np.delete(np.arange(n_atoms), a)))
+            # Precompute indices for nonzero entries in desriptor derivatives.
+            self.d_desc_mask = np.zeros((n_atoms, n_atoms - 1), dtype=np.int)
+            for a in range(n_atoms):  # for each partial derivative
+                rows, cols = np.tril_indices(n_atoms, -1)
+                self.d_desc_mask[a, :] = np.concatenate(
+                    [np.where(rows == a)[0], np.where(cols == a)[0]]
+                )
 
-        self.A = np.repeat(
-            np.arange(n_atoms), n_atoms - 1
-        )  # [0, 0, ..., 1, 1, ..., 2, 2, ...]
+            self.M = np.arange(1, n_atoms)  # indexes matrix row-wise, skipping diagonal
+            for a in range(1, n_atoms):
+                self.M = np.concatenate((self.M, np.delete(np.arange(n_atoms), a)))
 
-        self.d_desc = np.zeros(
-            (self.dim, n_atoms, 3)
-        )  # template for descriptor matrix (zeros are important)
+            self.A = np.repeat(
+                np.arange(n_atoms), n_atoms - 1
+            )  # [0, 0, ..., 1, 1, ..., 2, 2, ...]
+
+            self.d_desc = np.zeros(
+                (self.dim, n_atoms, 3)
+            )  # template for descriptor matrix (zeros are important)
+
+        # Add precomputable variables for new descriptor here
+        #elif self.use_descriptor == '':
+        #    pass
 
         self.max_processes = max_processes
 
@@ -248,10 +255,17 @@ class Desc(object):
         if r.ndim == 1:
             r = r[None, :]
 
-        pd = self._pdist(r, lat_and_inv)
+        if self.use_descriptor == 'coulomb_matrix':
+            pd = self._pdist(r, lat_and_inv)
 
-        r_desc = self._r_to_desc(r, pd)
-        r_d_desc = self._r_to_d_desc(r, pd, lat_and_inv)
+            r_desc = self._r_to_desc(r, pd)
+            r_d_desc = self._r_to_d_desc(r, pd, lat_and_inv)
+
+        elif self.use_descriptor == 'exp_decay_matrix':
+            pd = self._pdist(r, lat_and_inv)
+
+            r_desc = self._r_to_desc_exp_decay(r, pd)
+            r_d_desc = self._r_to_d_desc_exp_decay(r, pd, lat_and_inv)
 
         return r_desc, r_d_desc
 
@@ -284,6 +298,7 @@ class Desc(object):
 
         return sp.spatial.distance.squareform(pdist, checks=False)
 
+    # --- Coulomb Matrix descriptor
     def _r_to_desc(self, r, pdist):
         """
         Generate descriptor for a set of atom positions in Cartesian
@@ -347,6 +362,76 @@ class Desc(object):
             ).reshape(self.n_atoms, self.n_atoms, 3)
 
         d_desc_elem = pdiff / (pdist ** 3)[:, :, None]
+        self.d_desc[self.d_desc_mask.ravel(), self.A, :] = d_desc_elem[
+            self.M, self.A, :
+        ]
+
+        return self.d_desc.reshape(self.dim, self.dim_i)
+
+    # --- Exponential decay matrix
+    def _r_to_desc_exp_decay(self, r, pdist):
+        """
+        Generate descriptor for a set of atom positions in Cartesian
+        coordinates.
+
+        Parameters
+        ----------
+            r : :obj:`numpy.ndarray`
+                Array of size 3N containing the Cartesian coordinates of
+                each atom.
+            pdist : :obj:`numpy.ndarray`
+                Array of size N x N containing the Euclidean distance
+                (2-norm) for each pair of atoms.
+
+        Returns
+        -------
+            :obj:`numpy.ndarray`
+                Descriptor representation as 1D array of size N(N-1)/2
+        """
+
+        # Add singleton dimension if input is (,3N).
+        if r.ndim == 1:
+            r = r[None, :]
+
+        return np.exp(-pdist[np.tril_indices(self.n_atoms, -1)])
+
+    def _r_to_d_desc_exp_decay(self, r, pdist, lat_and_inv=None):
+        """
+        Generate descriptor Jacobian for a set of atom positions in
+        Cartesian coordinates.
+        This method can apply the minimum-image convention as periodic
+        boundary condition for distances between atoms, given the edge
+        length of the (square) unit cell.
+
+        Parameters
+        ----------
+            r : :obj:`numpy.ndarray`
+                Array of size 3N containing the Cartesian coordinates of
+                each atom.
+            pdist : :obj:`numpy.ndarray`
+                Array of size N x N containing the Euclidean distance
+                (2-norm) for each pair of atoms.
+            lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
+                Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
+
+        Returns
+        -------
+            :obj:`numpy.ndarray`
+                Array of size N(N-1)/2 x 3N containing all partial
+                derivatives of the descriptor.
+        """
+
+        r = r.reshape(-1, 3)
+
+        np.seterr(divide='ignore', invalid='ignore')
+
+        pdiff = r[:, None] - r[None, :]  # pairwise differences ri - rj
+        if lat_and_inv is not None:
+            pdiff = self.pbc_diff(
+                pdiff.reshape(self.n_atoms ** 2, 3), lat_and_inv
+            ).reshape(self.n_atoms, self.n_atoms, 3)
+
+        d_desc_elem = np.exp(-pdist[:, :, None]) * pdiff / pdist[:, :, None]
         self.d_desc[self.d_desc_mask.ravel(), self.A, :] = d_desc_elem[
             self.M, self.A, :
         ]
