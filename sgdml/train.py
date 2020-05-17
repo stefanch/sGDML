@@ -261,7 +261,8 @@ class GDMLTrain(object):
 
         if use_torch and not _has_torch:
             raise ImportError(
-                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
+                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or '
+                'disable the PyTorch option.'
             )
 
     def __del__(self):
@@ -275,6 +276,7 @@ class GDMLTrain(object):
         n_train,
         valid_dataset,
         n_valid,
+        use_descriptor,
         sig,
         lam=1e-15,
         use_sym=True,
@@ -311,6 +313,8 @@ class GDMLTrain(object):
                 validation dataset.
             n_valid : int
                 Number of validation points to sample.
+            use_descriptor : list
+                List containing the name of the descriptor to use.
             sig : int
                 Hyper-parameter (kernel length scale).
             lam : float, optional
@@ -453,6 +457,7 @@ class GDMLTrain(object):
             'use_E_cstr': use_E_cstr,
             'use_sym': use_sym,
             'use_cprsn': use_cprsn,
+            'use_descriptor': use_descriptor,
             'solver_name': solver,
             'solver_tol': solver_tol,
         }
@@ -470,7 +475,8 @@ class GDMLTrain(object):
                 lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
             except np.linalg.LinAlgError:
                 raise ValueError(  # TODO: Document me
-                    'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
+                    'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice '
+                    'vector matrices are supported.'
                 )
 
         if 'r_unit' in train_dataset and 'e_unit' in train_dataset:
@@ -486,7 +492,8 @@ class GDMLTrain(object):
                         np.random.choice(n_train, 1000, replace=False), :, :
                     ]
                     self.log.info(
-                        'Symmetry search has been restricted to a random subset of 1000/{:d} training points for faster convergence.'.format(
+                        'Symmetry search has been restricted to a random subset of 1000/{:d} training points for '
+                        'faster convergence.'.format(
                             n_train
                         )
                     )
@@ -701,6 +708,7 @@ class GDMLTrain(object):
             'tril_perms_lin': tril_perms_lin,
             'use_E': task['use_E'],
             'use_cprsn': task['use_cprsn'],
+            'use_descriptor': task['use_descriptor'],
         }
 
         if solver_resid is not None:
@@ -802,15 +810,25 @@ class GDMLTrain(object):
 
         n_train, n_atoms = task['R_train'].shape[:2]
 
+        use_descriptor = task['use_descriptor']
+
         desc = Desc(
-            n_atoms, max_processes=self._max_processes
+            n_atoms, max_processes=self._max_processes, use_descriptor=use_descriptor[0]
         )
 
         sig = np.squeeze(task['sig'])
         lam = np.squeeze(task['lam'])
 
         n_perms = task['perms'].shape[0]
-        tril_perms = np.array([desc.perm(p) for p in task['perms']])
+
+        if use_descriptor[0] == 'coulomb_matrix' or use_descriptor[0] == 'exp_decay_matrix':
+            tril_perms = np.array([desc.perm(p) for p in task['perms']])
+            descriptor_type = {
+                'use_descriptor': use_descriptor[0]
+            }
+
+        #elif 'other_descriptor' == use_descriptor[0]:
+        #    pass
 
         dim_i = 3 * n_atoms
         dim_d = desc.dim
@@ -826,7 +844,8 @@ class GDMLTrain(object):
                 lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
             except np.linalg.LinAlgError:
                 raise ValueError(  # TODO: Document me
-                    'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
+                    'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice '
+                    'vector matrices are supported.'
                 )
 
             # # TODO: check if all atoms are within unit cell
@@ -1085,14 +1104,17 @@ class GDMLTrain(object):
             self.log.warning(
                 'The provided dataset contains gradients instead of force labels (flipped sign). Please correct!\n'
                 + ui.color_str('Note:', bold=True)
-                + 'Note: The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
+                + 'Note: The energy prediction accuracy of the model will thus neither be validated nor tested in '
+                  'the following steps!'
             )
             return None
 
         if corrcoef < 0.95:
             self.log.warning(
                 'Inconsistent energy labels detected!\n'
-                + 'The predicted energies for the training data are only weakly correlated with the reference labels (correlation coefficient {:.2f}) which indicates that the issue is most likely NOT just a unit conversion error.\n\n'.format(
+                + 'The predicted energies for the training data are only weakly correlated with the reference labels '
+                  '(correlation coefficient {:.2f}) which indicates that the issue is most likely NOT just a unit '
+                  'conversion error.\n\n'.format(
                     corrcoef
                 )
                 + ui.color_str('Troubleshooting tips:\n', bold=True)
@@ -1132,7 +1154,8 @@ class GDMLTrain(object):
         if np.abs(e_fact - 1) > 1e-1:
             self.log.warning(
                 'Different scales in energy vs. force labels detected!\n'
-                + 'The integrated forces differ from the energy labels by factor ~{:.2f}, meaning that the trained model will likely fail to predict energies accurately.\n\n'.format(
+                + 'The integrated forces differ from the energy labels by factor ~{:.2f}, meaning that the trained '
+                  'model will likely fail to predict energies accurately.\n\n'.format(
                     e_fact
                 )
                 + ui.color_str('Troubleshooting tips:\n', bold=True)

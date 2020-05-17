@@ -205,7 +205,8 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
         + ui.white_bold_str('Example geometry')
         + ' (no. {:,}, chosen randomly)'.format(idx + 1)
     )
-    xyz_info_str = 'Copy&paste the string below into Jmol (www.jmol.org), Avogadro (www.avogadro.cc), etc. to visualize a geometry from this dataset. A new example will be drawn on each call.'
+    xyz_info_str = 'Copy&paste the string below into Jmol (www.jmol.org), Avogadro (www.avogadro.cc), etc. to ' \
+                   'visualize a geometry from this dataset. A new example will be drawn on each call.'
     xyz_info_str = ui.wrap_str(xyz_info_str, width=MAX_PRINT_WIDTH - 2)
     xyz_info_str = ui.indent_str(xyz_info_str, 2)
     print(xyz_info_str + '\n')
@@ -221,9 +222,8 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     print(xyz_str)
     print(cutline_str)
 
-
 def _print_task_properties(
-    use_sym, use_cprsn, use_E, use_E_cstr, title_str='Task properties'
+    use_sym, use_cprsn, use_E, use_E_cstr, descriptor, title_str='Task properties'
 ):
 
     print(ui.white_bold_str(title_str))
@@ -252,7 +252,11 @@ def _print_task_properties(
             'Compression:', 'requested' if use_cprsn else 'not requested'
         )
     )
-
+    print(
+        '  {:<16} {}'.format(
+            'Descriptor:', descriptor[0]
+        )
+    )
 
 def _print_model_properties(model, title_str='Model properties'):
 
@@ -270,6 +274,7 @@ def _print_model_properties(model, title_str='Model properties'):
     _, cprsn_keep_idxs = np.unique(
         np.sort(model['perms'], axis=0), axis=1, return_index=True
     )
+    print('  {:<18} {}'.format('Descriptor:', model['use_descriptor'][0]))
     n_atoms_kept = cprsn_keep_idxs.shape[0]
     print(
         '  {:<18} {}'.format(
@@ -349,6 +354,7 @@ def all(
     use_E,
     use_E_cstr,
     use_cprsn,
+    use_descriptor,
     overwrite,
     max_processes,
     use_torch,
@@ -398,6 +404,7 @@ def all(
         use_E,
         use_E_cstr,
         use_cprsn,
+        use_descriptor,
         overwrite,
         max_processes,
         task_dir,
@@ -424,6 +431,7 @@ def all(
         overwrite=False,
         max_processes=max_processes,
         use_torch=use_torch,
+        use_descriptor=use_descriptor,
         **kwargs
     )
 
@@ -443,6 +451,7 @@ def all(
         overwrite=False,
         max_processes=max_processes,
         use_torch=use_torch,
+        use_descriptor=use_descriptor,
         **kwargs
     )
 
@@ -466,6 +475,7 @@ def create(  # noqa: C901
     use_E,
     use_E_cstr,
     use_cprsn,
+    use_descriptor,
     overwrite,
     max_processes,
     task_dir=None,
@@ -487,7 +497,7 @@ def create(  # noqa: C901
         print()
 
     _print_task_properties(
-        use_sym=not gdml, use_cprsn=use_cprsn, use_E=use_E, use_E_cstr=use_E_cstr
+        use_sym=not gdml, use_cprsn=use_cprsn, use_E=use_E, use_E_cstr=use_E_cstr, descriptor=use_descriptor
     )
     print()
 
@@ -531,6 +541,7 @@ def create(  # noqa: C901
             use_cprsn=use_cprsn,
             use_E=use_E,
             use_E_cstr=use_E_cstr,
+            descriptor=use_descriptor[0],
             model0=model0,
         )
 
@@ -583,7 +594,8 @@ def create(  # noqa: C901
         if not use_E:
             log.info(
                 'Energy labels will be ignored for training.\n'
-                + 'Note: If available in the dataset file, the energy labels will however still be used to generate stratified training, test and validation datasets. Otherwise a random sampling is used.'
+                + 'Note: If available in the dataset file, the energy labels will however still be used to generate '
+                  'stratified training, test and validation datasets. Otherwise a random sampling is used.'
             )
 
         if 'E' not in dataset:
@@ -618,6 +630,7 @@ def create(  # noqa: C901
                 n_train,
                 valid_dataset,
                 n_valid,
+                use_descriptor,
                 sig=1,
                 use_sym=not gdml,
                 use_E=use_E,
@@ -808,7 +821,7 @@ def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
 
 
 def validate(
-    model_dir, dataset, overwrite, max_processes, use_torch, command=None, **kwargs
+    model_dir, dataset, overwrite, max_processes, use_torch, use_descriptor, command=None, **kwargs
 ):
 
     dataset_path_extracted, dataset_extracted = dataset
@@ -827,6 +840,7 @@ def validate(
         overwrite,
         max_processes,
         use_torch,
+        use_descriptor,
         command,
         **kwargs
     )
@@ -859,6 +873,7 @@ def test(
     overwrite,
     max_processes,
     use_torch,
+    use_descriptor,
     command=None,
     **kwargs
 ):  # noqa: C901
@@ -1176,7 +1191,8 @@ def test(
                 else 'only {:,}'.format(len(test_idxs))
             )
             log.warning(
-                'This model has previously been tested on {:,} points, which is why the errors for the current test run with {} points have NOT been used to update the model file.\n'.format(
+                'This model has previously been tested on {:,} points, which is why the errors for the current test '
+                'run with {} points have NOT been used to update the model file.\n'.format(
                     model['n_test'], add_info_str
                 )
                 + 'Run \'{} test -o {} {} {}\' to overwrite.'.format(
@@ -1258,8 +1274,11 @@ def select(
 
         if any_model_is_tested:
             log.error(
-                'One or more models in the given directory have already been tested. This means that their recorded expected errors are test errors, not validation errors. However, one should never perform model selection based on the test error!\n'
-                + 'Please run the validation command (again) with the overwrite option \'-o\', then this selection command.'
+                'One or more models in the given directory have already been tested. This means that their recorded '
+                'expected errors are test errors, not validation errors. However, one should never perform model '
+                'selection based on the test error!\n'
+                + 'Please run the validation command (again) with the overwrite option \'-o\', '
+                  'then this selection command.'
             )
             return
 
@@ -1439,6 +1458,18 @@ def main():
         action='store_true',
         help='use PyTorch for validation and test (including kernel evaluations in some numerical solvers)',
     )
+    # TODO: Add more descriptors
+    parent_parser.add_argument(
+        '-descr',
+        '--descriptor',
+        metavar='<descriptor [args...]>',
+        dest='use_descriptor',
+        type=io.parse_descriptor,
+        help='sets the descriptor to be used and their required arguments (e.g. -descr coulomb_matrix/exp_decay_matrix).',
+        # choices=['coulomb_matrix', 'exp_decay_matrix'],
+        default=['coulomb_matrix'],
+        nargs='+',
+    )
 
     subparsers = parser.add_subparsers(title='commands', dest='command')
     subparsers.required = True
@@ -1472,7 +1503,8 @@ def main():
     for subparser in [parser_all, parser_create]:
         _add_argument_dataset(
             subparser,
-            help='path to dataset file (train/validation/test subsets are sampled from here if no seperate dataset are specified)',
+            help='path to dataset file (train/validation/test subsets are sampled '
+                 'from here if no separated dataset are specified)',
         )
         _add_argument_sample_size(subparser, 'train')
         _add_argument_sample_size(subparser, 'valid')
@@ -1512,7 +1544,7 @@ def main():
         group.add_argument(
             '--gdml',
             action='store_true',
-            help='don\'t include symmetries in the model (GDML)',
+            help='do not include symmetries in the model (GDML)',
         )
         group.add_argument(
             '--cprsn',
@@ -1563,15 +1595,17 @@ def main():
             '--cg',
             dest='use_cg',
             action='store_true',
-            # help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
-            help=argparse.SUPPRESS
+            help='',
+            #help=argparse.SUPPRESS,
+            #help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
         )
         subparser.add_argument(
             '-m0',
             '--model0',
             metavar='<initial_model_file>',
             type=lambda x: io.is_file_type(x, 'model'),
-            help='initial model file used as a source for training task parameters, including training and validation subsets, permutations, initial set of coefficients (for numerical solvers)',
+            help='initial model file used as a source for training task parameters, including training and validation '
+                 'subsets, permutations, initial set of coefficients (for numerical solvers)',
             nargs='?',
             default=None,
         )
@@ -1601,6 +1635,16 @@ def main():
         if not args.model_file.endswith('.npz'):
             args.model_file += '.npz'
 
+    # post-processing of descriptor flag
+    # Looks for dependencies in case that an external descriptor is provided
+    if 'use_descriptor' in args:
+
+        if args.use_descriptor[0] == 'coulomb_matrix':
+            pass
+
+        if args.use_descriptor[0] == 'exp_decay_matrix':
+            pass
+
     _print_splash(args.max_processes)
 
     # Check PyTorch GPU support.
@@ -1609,12 +1653,15 @@ def main():
             if not torch.cuda.is_available():
                 print()  # TODO: print only if log level includes warning
                 log.warning(
-                    'Your PyTorch installation does not see any GPU(s) on your system and will thus run all calculations on the CPU! Unless this is what you want, we recommend running CPU calculations without \'--torch\' for improved performance.'
+                    'Your PyTorch installation does not see any GPU(s) on your system and will thus run all '
+                    'calculations on the CPU! Unless this is what you want, we recommend running CPU calculations '
+                    'without \'--torch\' for improved performance.'
                 )
         else:
             print()
             log.critical(
-                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
+                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or '
+                'disable the PyTorch option.'
             )
             sys.exit()
 
