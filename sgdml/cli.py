@@ -1558,14 +1558,14 @@ def main():
         )
 
     for subparser in [parser_all, parser_create]:  # NEW
-        group = subparser.add_mutually_exclusive_group()
-        group.add_argument(
-            '--cg',
-            dest='use_cg',
-            action='store_true',
-            # help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
-            help=argparse.SUPPRESS
-        )
+        #group = subparser.add_mutually_exclusive_group()
+        #group.add_argument(
+        #    '--cg',
+        #    dest='use_cg',
+        #    action='store_true',
+        #    # help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
+        #    help=argparse.SUPPRESS
+        #)
         subparser.add_argument(
             '-m0',
             '--model0',

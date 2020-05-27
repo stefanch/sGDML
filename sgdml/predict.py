@@ -215,7 +215,8 @@ def _predict_wkr(
         out = np.empty((dim_i + 1,))
         out[0] = E_F[0]
 
-    np.dot(F, r_d_desc, out=out[1:])
+    #np.dot(F, r_d_desc, out=out[1:])
+    out[1:] = np.dot(F, r_d_desc)
 
     return out
 
