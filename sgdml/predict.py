@@ -280,7 +280,12 @@ class GDMLPredict(object):
 
         self.n_atoms = model['z'].shape[0]
 
-        self.desc = Desc(self.n_atoms, max_processes=max_processes)
+        self.use_descriptor = model['use_descriptor']
+
+        # elif self.use_descriptor[0] == 'non_default_descr':
+        #    pass
+
+        self.desc = Desc(self.n_atoms, max_processes=max_processes, use_descriptor=self.use_descriptor[0])
         glob['desc_func'] = self.desc
 
         self.lat_and_inv = (
