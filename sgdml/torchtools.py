@@ -85,6 +85,7 @@ class GDMLTorchPredict(nn.Module):
         self._sig = int(model['sig'])
         self._c = float(model['c'])
         self._std = float(model.get('std', 1))
+        self.use_descriptor = model['use_descriptor']
 
         desc_siz = model['R_desc'].shape[0]
         n_perms, self._n_atoms = model['perms'].shape
@@ -191,20 +192,29 @@ class GDMLTorchPredict(nn.Module):
         dists[:, i, j] = np.inf
         i, j = np.tril_indices(self._n_atoms, k=-1)
 
-        xs = 1 / dists[:, i, j]  # R_desc (1000, 36)
+        if self.use_descriptor[0] == 'coulomb_matrix':
+            xs = 1 / dists[:, i, j]
+        elif self.use_descriptor[0] == 'exp_decay_matrix':
+            exp_dists = torch.exp(-dists)
+            xs = exp_dists[:, i, j]
 
         x_diffs = (q * xs)[:, None, :] - q * self._xs_train
         x_dists = x_diffs.norm(dim=-1)
-        exp_xs = 5.0 / (3 * sig ** 2) * torch.exp(-x_dists)
-        dot_x_diff_Jx_alphas = (x_diffs * self._Jx_alphas).sum(dim=-1)
-        exp_xs_1_x_dists = exp_xs * (1 + x_dists)
-        F1s_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
+        exp_xs = 5.0 / (3 * sig ** 2) * torch.exp(-x_dists) # ok
+        dot_x_diff_Jx_alphas = (x_diffs * self._Jx_alphas).sum(dim=-1) # ok
+        exp_xs_1_x_dists = exp_xs * (1 + x_dists) # ok
+        F1s_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1) # ok
         F2s_x = exp_xs_1_x_dists.mm(self._Jx_alphas)
         Fs_x = (F1s_x - F2s_x) * self._std
 
-        Fs = ((expand_tril(Fs_x) / dists ** 3)[..., None] * diffs).sum(
-            dim=1
-        )  # * R_d_desc
+        if self.use_descriptor[0] == 'coulomb_matrix':
+            Fs = ((expand_tril(Fs_x) / dists ** 3)[..., None] * diffs).sum(
+                dim=1
+            )  # * R_d_desc
+        elif self.use_descriptor[0] == 'exp_decay_matrix':
+            Fs = ((expand_tril(Fs_x) * exp_dists / dists)[..., None] * diffs).sum(
+                dim=1
+            )  # * R_d_desc
 
         Es = (exp_xs_1_x_dists * dot_x_diff_Jx_alphas).sum(dim=-1) / q
         Es = self._c + Es * self._std
