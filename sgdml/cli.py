@@ -1557,25 +1557,6 @@ def main():
             help='user-defined model output file name',
         )
 
-    for subparser in [parser_all, parser_create]:  # NEW
-        #group = subparser.add_mutually_exclusive_group()
-        #group.add_argument(
-        #    '--cg',
-        #    dest='use_cg',
-        #    action='store_true',
-        #    # help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
-        #    help=argparse.SUPPRESS
-        #)
-        subparser.add_argument(
-            '-m0',
-            '--model0',
-            metavar='<initial_model_file>',
-            type=lambda x: io.is_file_type(x, 'model'),
-            help='initial model file used as a source for training task parameters, including training and validation subsets, permutations, initial set of coefficients (for numerical solvers)',
-            nargs='?',
-            default=None,
-        )
-
     # train
     _add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
 

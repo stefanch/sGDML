@@ -147,9 +147,11 @@ class GDMLTorchPredict(nn.Module):
         """
 
         r_dim = R_d_desc.shape[2]
-        R_d_desc_alpha = np.einsum('kji,ki->kj', R_d_desc, alphas.reshape(-1, r_dim))
+        R_d_desc_alpha = np.einsum('jik,jk->ji', R_d_desc, alphas.reshape(-1, r_dim))
 
         xs = torch.tensor(np.array(R_d_desc_alpha), device=self._dev)
+        #xs = torch.from_numpy(R_d_desc_alpha).to(self._dev)
+
         self._Jx_alphas = nn.Parameter(
             xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, self.desc_siz),
             requires_grad=False,

@@ -126,10 +126,9 @@ else:
         + ' Dataset \'{}\' already exists.'.format(dataset_file_name)
     )
 
-mols = read(dataset.name, index=':')
-
 lattice, R, z, E, F = None, None, None, None, None
 
+mols = read(dataset.name, index=':')
 calc = mols[0].get_calculator()
 is_extxyz = calc is not None
 if is_extxyz:

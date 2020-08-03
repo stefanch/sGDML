@@ -375,8 +375,10 @@ class GDMLPredict(object):
 
         global globs
 
-        if hasattr(self, 'pool') and self.pool is not None:
+        try:
             self.pool.close()
+        except: 
+            pass
 
         if 'globs' in globals() and globs is not None and self.glob_id < len(globs):
             globs[self.glob_id] = None
