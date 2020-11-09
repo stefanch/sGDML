@@ -27,7 +27,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-#from psutil import virtual_memory
 
 from .utils.desc import Desc
 
@@ -38,9 +37,21 @@ def expand_tril(xs):
     i, j = np.tril_indices(n, k=-1)
     xs_full[:, i, j] = xs
     xs_full[:, j, i] = xs
-    i, j = np.diag_indices(n)
-    xs_full[:, i, j] = 0
+
+    # needed?
+    #i, j = np.diag_indices(n)
+    #xs_full[:, i, j] = 0
+
     return xs_full
+
+def expand_tril_multiply(xs, mat):
+    
+    n = mat.shape[1]
+    i, j = np.tril_indices(n, k=-1)
+    mat[:, i, j, :] *= xs[:, :, None]
+    mat[:, j, i, :] *= xs[:, :, None]
+
+    return mat
 
 
 class GDMLTorchPredict(nn.Module):
@@ -104,33 +115,30 @@ class GDMLTorchPredict(nn.Module):
             )
         )
 
-        if max_memory is not None:
-            _max_memory = int(2 ** 30 * max_memory)  # GB to bytes
-        else:
+        if max_memory is None:
             if torch.cuda.is_available():
-                _max_memory = max(
+                max_memory = max(
                     [
                         torch.cuda.get_device_properties(i).total_memory
                         for i in range(torch.cuda.device_count())
                     ]
                 )
             else:
-                #_max_memory = virtual_memory().total
-                _max_memory = int(2 ** 30 * 32) # 32 GB TODO: hardcoded for now, to avoid psutils
+                max_memory = 32 # TODO: 32 GB as default (hardcoded for now...)
 
         _batch_size = (
-            _max_memory // self._memory_per_sample()
+            int(2 ** 30 * max_memory) // self._memory_per_sample() # max_memory: GB to bytes
             if batch_size is None
             else batch_size
         )
         if torch.cuda.is_available():
             _batch_size *= torch.cuda.device_count()
 
-        self.desc_siz = desc_siz
+        n_atoms = model['z'].shape[0]
+        self.desc = Desc(n_atoms) # NOTE: max processes not set!!
+
         self.perm_idxs = perm_idxs
         self.n_perms = n_perms
-
-        #self.desc = Desc(self._n_atoms)
 
     def set_alphas(self, R_d_desc, alphas):
         """
@@ -146,14 +154,18 @@ class GDMLTorchPredict(nn.Module):
                     1D array containing the new model parameters.
         """
 
-        r_dim = R_d_desc.shape[2]
-        R_d_desc_alpha = np.einsum('jik,jk->ji', R_d_desc, alphas.reshape(-1, r_dim))
+        dim_d = self.desc.dim
+        dim_i = self.desc.dim_i
 
-        xs = torch.tensor(np.array(R_d_desc_alpha), device=self._dev)
-        #xs = torch.from_numpy(R_d_desc_alpha).to(self._dev)
+        R_d_desc_alpha = self.desc.d_desc_dot_vec(R_d_desc, alphas.reshape(-1, dim_i))
+
+        #r_dim = R_d_desc.shape[2]
+        #R_d_desc_alpha = np.einsum('jik,jk->ji', R_d_desc, alphas.reshape(-1, r_dim))
+
+        xs = torch.from_numpy(R_d_desc_alpha).to(self._dev)
 
         self._Jx_alphas = nn.Parameter(
-            xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, self.desc_siz),
+            xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, dim_d),
             requires_grad=False,
         )
 
@@ -177,8 +189,8 @@ class GDMLTorchPredict(nn.Module):
             lat, lat_inv = self._lat_and_inv
 
             if lat.device != Rs.device:
-                lat=lat.to(Rs.device)
-                lat_inv=lat_inv.to(Rs.device)
+                lat = lat.to(Rs.device)
+                lat_inv = lat_inv.to(Rs.device)
             
             diffs = diffs.reshape(-1, 3)
 
@@ -189,10 +201,9 @@ class GDMLTorchPredict(nn.Module):
 
         dists = diffs.norm(dim=-1)
         i, j = np.diag_indices(self._n_atoms)
-
         dists[:, i, j] = np.inf
-        i, j = np.tril_indices(self._n_atoms, k=-1)
 
+        i, j = np.tril_indices(self._n_atoms, k=-1)
         xs = 1 / dists[:, i, j]  # R_desc (1000, 36)
 
         x_diffs = (q * xs)[:, None, :] - q * self._xs_train
@@ -202,14 +213,28 @@ class GDMLTorchPredict(nn.Module):
         exp_xs_1_x_dists = exp_xs * (1 + x_dists)
         F1s_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
         F2s_x = exp_xs_1_x_dists.mm(self._Jx_alphas)
-        Fs_x = (F1s_x - F2s_x) * self._std
+        #Fs_x = (F1s_x - F2s_x)  * self._std
 
-        Fs = ((expand_tril(Fs_x) / dists ** 3)[..., None] * diffs).sum(
-            dim=1
-        )  # * R_d_desc
+        #Fs = ((expand_tril(Fs_x) / dists ** 3)[..., None] * diffs).sum(
+        #    dim=1
+        #)  # * R_d_desc
+
+        #Fs = (expand_tril(Fs_x * (xs ** 3))[..., None] * diffs).sum(
+        #    dim=1
+        #)  # * R_d_desc
+
+        #Fs = expand_tril_multiply(Fs_x * (xs ** 3), diffs).sum(
+        #    dim=1
+        #)
+
+        Fs_x = (F1s_x - F2s_x) * (xs ** 3)
+        diffs[:, i, j, :] *= Fs_x[..., None]
+        diffs[:, j, i, :] *= Fs_x[..., None]
+
+        Fs = diffs.sum(dim=1) * self._std
 
         Es = (exp_xs_1_x_dists * dot_x_diff_Jx_alphas).sum(dim=-1) / q
-        Es = self._c + Es * self._std
+        Es = Es * self._std + self._c
 
         return Es, Fs
 
@@ -238,27 +263,23 @@ class GDMLTorchPredict(nn.Module):
         dtype = Rs.dtype
         Rs = Rs.double()
 
-        batch_size = _batch_size
-
         retry = True
         while retry:
 
             try:
-                Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=batch_size)))
+                Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=_batch_size)))
                 retry = False
 
             except RuntimeError as e:
                 if 'out of memory' in str(e):
-                    if batch_size > 2:
+                    if _batch_size > 2:
 
                         import gc
                         gc.collect()
 
                         torch.cuda.empty_cache()
 
-                        batch_size -= 1
-                        _batch_size = batch_size
-
+                        _batch_size -= 1
                         retry = True
 
                     else:

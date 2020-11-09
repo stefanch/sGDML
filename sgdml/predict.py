@@ -29,7 +29,11 @@ from __future__ import print_function
 import sys
 import logging
 import os
+
 import multiprocessing as mp
+
+Pool = mp.get_context('fork').Pool
+
 import timeit
 from functools import partial
 
@@ -143,7 +147,8 @@ def _predict_wkr(
     if chunk_size is None:
         chunk_size = n_train
 
-    dim_d, dim_i = r_d_desc.shape
+    dim_d = desc_func.dim
+    dim_i = desc_func.dim_i
     dim_c = chunk_size * n_perms
 
     # Pre-allocate memory.
@@ -151,6 +156,8 @@ def _predict_wkr(
     a_x2 = np.empty((dim_c,))
     mat52_base = np.empty((dim_c,))
 
+    # avoid divisions (slower)
+    sig_inv = 1.0 / sig
     mat52_base_fact = 5.0 / (3 * sig ** 3)
     diag_scale_fact = 5.0 / sig
     sqrt5 = np.sqrt(5.0)
@@ -182,7 +189,7 @@ def _predict_wkr(
         )
         norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
 
-        np.exp(-norm_ab_perms / sig, out=mat52_base)
+        np.exp(-norm_ab_perms * sig_inv, out=mat52_base)
         mat52_base *= mat52_base_fact
         np.einsum(
             'ji,ji->j', diff_ab_perms, rj_d_desc_alpha_perms, out=a_x2
@@ -202,8 +209,8 @@ def _predict_wkr(
             F += alphas_E_lin[b_start:b_stop].dot(K_fe)
 
             K_ee = (
-                1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
-            ) * np.exp(-norm_ab_perms / sig)
+                1 + (norm_ab_perms * sig_inv) * (1 + norm_ab_perms / (3 * sig))
+            ) * np.exp(-norm_ab_perms * sig_inv)
             E_F[0] += K_ee.dot(alphas_E_lin[b_start:b_stop])
 
         b_start = b_stop
@@ -215,8 +222,9 @@ def _predict_wkr(
         out = np.empty((dim_i + 1,))
         out[0] = E_F[0]
 
-    #np.dot(F, r_d_desc, out=out[1:])
-    out[1:] = np.dot(F, r_d_desc)
+    out[1:] = desc_func.vec_dot_d_desc(
+        r_d_desc, F,
+    )  # 'r_d_desc.T.dot(F)' for our special representation of 'r_d_desc'
 
     return out
 
@@ -280,7 +288,12 @@ class GDMLPredict(object):
 
         self.n_atoms = model['z'].shape[0]
 
-        self.desc = Desc(self.n_atoms, max_processes=max_processes)
+        interact_cut_off = (
+            model['interact_cut_off'] if 'interact_cut_off' in model else None
+        )  # NEW
+        self.desc = Desc(
+            self.n_atoms, interact_cut_off=interact_cut_off, max_processes=max_processes
+        )
         glob['desc_func'] = self.desc
 
         self.lat_and_inv = (
@@ -337,7 +350,9 @@ class GDMLPredict(object):
 
             from .torchtools import GDMLTorchPredict
 
-            self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv)#.to(self.torch_device)
+            self.torch_predict = GDMLTorchPredict(
+                model, self.lat_and_inv
+            )  # .to(self.torch_device)
 
             # enable data parallelism
             n_gpu = torch.cuda.device_count()
@@ -346,14 +361,6 @@ class GDMLPredict(object):
 
             self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
             self.torch_predict.to(self.torch_device)
-
-            # is_cuda = next(self.torch_predict.parameters()).is_cuda
-            # if is_cuda:
-            #    self.log.info('Numbers of CUDA devices found: {:d}'.format(n_gpu))
-            # else:
-            #    self.log.warning(
-            #        'No CUDA devices found! PyTorch is running on the CPU.'
-            #    )
 
         # Parallel processing configuration
 
@@ -377,12 +384,11 @@ class GDMLPredict(object):
 
         try:
             self.pool.close()
-        except: 
+        except:
             pass
 
         if 'globs' in globals() and globs is not None and self.glob_id < len(globs):
             globs[self.glob_id] = None
-
 
     ## Public ##
 
@@ -408,18 +414,19 @@ class GDMLPredict(object):
             if isinstance(self.torch_predict, torch.nn.DataParallel):
                 model = model.module
 
-            model.set_alphas(R_d_desc, alphas_F)
-
             # TODO: E_cstr does not work on GPU!
+            assert alphas_E is None
+
+            model.set_alphas(R_d_desc, alphas_F)
 
         else:
 
             global globs
             glob = globs[self.glob_id]
 
-            r_dim = R_d_desc.shape[2]
-            R_d_desc_alpha = np.einsum(
-                'kji,ki->kj', R_d_desc, alphas_F.reshape(-1, r_dim)
+            dim_i = self.desc.dim_i
+            R_d_desc_alpha = self.desc.d_desc_dot_vec(
+                R_d_desc, alphas_F.reshape(-1, dim_i)
             )
 
             R_d_desc_alpha_perms_new = np.tile(R_d_desc_alpha, self.n_perms)[
@@ -469,7 +476,7 @@ class GDMLPredict(object):
 
             self.num_workers = 1
             if num_workers is None or num_workers > 1:
-                self.pool = mp.Pool(processes=num_workers)
+                self.pool = Pool(processes=num_workers)
                 self.num_workers = self.pool._processes
 
         # Data ranges for processes
@@ -494,7 +501,7 @@ class GDMLPredict(object):
             self.pool.join()
             self.pool = None
 
-        self.pool = mp.Pool(processes=self.num_workers)
+        self.pool = Pool(processes=self.num_workers)
         self.num_workers = self.pool._processes
 
     def _set_chunk_size(self, chunk_size=None):
@@ -660,9 +667,9 @@ class GDMLPredict(object):
                         from cache.
         """
 
-        global globs
-        glob = globs[self.glob_id]
-        n_perms = glob['n_perms']
+        # global globs
+        # glob = globs[self.glob_id]
+        # n_perms = glob['n_perms']
 
         # No benchmarking necessary if prediction is running on GPUs.
         if self.use_torch:

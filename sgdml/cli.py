@@ -30,8 +30,8 @@ import argparse
 import os
 import shutil
 import sys
+import traceback
 import time
-from functools import partial
 
 import numpy as np
 
@@ -42,7 +42,7 @@ except ImportError:
 else:
     _has_torch = True
 
-from . import __version__, MAX_PRINT_WIDTH
+from . import __version__, DONE, NOT_DONE, MAX_PRINT_WIDTH
 from .predict import GDMLPredict
 from .train import GDMLTrain
 from .utils import io, ui
@@ -205,7 +205,7 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
         + ui.white_bold_str('Example geometry')
         + ' (no. {:,}, chosen randomly)'.format(idx + 1)
     )
-    xyz_info_str = 'Copy&paste the string below into Jmol (www.jmol.org), Avogadro (www.avogadro.cc), etc. to visualize a geometry from this dataset. A new example will be drawn on each call.'
+    xyz_info_str = 'Copy & paste the string below into Jmol (www.jmol.org), Avogadro (www.avogadro.cc), etc. to visualize one of the geometries from this dataset. A new example will be drawn on each run.'
     xyz_info_str = ui.wrap_str(xyz_info_str, width=MAX_PRINT_WIDTH - 2)
     xyz_info_str = ui.indent_str(xyz_info_str, 2)
     print(xyz_info_str + '\n')
@@ -213,9 +213,9 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     xyz_str = io.generate_xyz_str(r, dataset['z'], e=e, f=f, lattice=lattice)
     xyz_str = ui.indent_str(xyz_str, 2)
 
-    cut_str = '--- CUT HERE '
+    cut_str = '---- COPY HERE '
     cut_str_reps = int(np.floor((MAX_PRINT_WIDTH - 6) / len(cut_str)))
-    cutline_str = ui.gray_str('  -' + cut_str * cut_str_reps + '----')
+    cutline_str = ui.gray_str('  -' + cut_str * cut_str_reps + '-----')
 
     print(cutline_str)
     print(xyz_str)
@@ -353,6 +353,8 @@ def all(
     max_processes,
     use_torch,
     solver,
+    max_inducing_pts,
+    interact_cut_off,
     task_dir=None,
     model_file=None,
     model0=None,
@@ -366,7 +368,9 @@ def all(
     _, dataset_extracted = dataset
     _print_dataset_properties(dataset_extracted, title_str='Properties')
 
-    if valid_dataset is not None:
+    if valid_dataset is None:
+        valid_dataset = dataset
+    else:
         _, valid_dataset_extracted = valid_dataset
         print()
         _print_dataset_properties(
@@ -378,7 +382,9 @@ def all(
                 'Atom composition or order in validation dataset does not match the one in bulk dataset.'
             )
 
-    if test_dataset is not None:
+    if test_dataset is None:
+        test_dataset = dataset
+    else:
         _, test_dataset_extracted = test_dataset
         _print_dataset_properties(test_dataset_extracted, title_str='Properties (test)')
 
@@ -403,39 +409,28 @@ def all(
         task_dir,
         model0,
         solver=solver,
+        max_inducing_pts=max_inducing_pts,
+        interact_cut_off=interact_cut_off,
         **kwargs
     )
 
-    ui.print_step_title('STEP 2', 'Training')
+    ui.print_step_title('STEP 2', 'Training and validation')
     task_dir_arg = io.is_dir_with_file_type(task_dir, 'task')
     model_dir_or_file_path = train(
-        task_dir_arg, overwrite, max_processes, use_torch, **kwargs
+        task_dir_arg, valid_dataset, overwrite, max_processes, use_torch, **kwargs
     )
 
-    ui.print_step_title('STEP 3', 'Validation')
     model_dir_arg = io.is_dir_with_file_type(
         model_dir_or_file_path, 'model', or_file=True
     )
-    if valid_dataset is None:
-        valid_dataset = dataset
-    validate(
-        model_dir_arg,
-        valid_dataset,
-        overwrite=False,
-        max_processes=max_processes,
-        use_torch=use_torch,
-        **kwargs
-    )
 
-    ui.print_step_title('STEP 4', 'Hyper-parameter selection')
+    ui.print_step_title('STEP 3', 'Hyper-parameter selection')
     model_file_name = select(
         model_dir_arg, overwrite, max_processes, model_file, **kwargs
     )
 
-    ui.print_step_title('STEP 5', 'Testing')
+    ui.print_step_title('STEP 4', 'Testing')
     model_dir_arg = io.is_dir_with_file_type(model_file_name, 'model', or_file=True)
-    if test_dataset is None:
-        test_dataset = dataset
     test(
         model_dir_arg,
         test_dataset,
@@ -471,9 +466,13 @@ def create(  # noqa: C901
     task_dir=None,
     model0=None,
     solver='analytic',
+    max_inducing_pts=None,
+    interact_cut_off=None,
     command=None,
     **kwargs
 ):
+
+    has_valid_dataset = not (valid_dataset is None or valid_dataset == dataset)
 
     dataset_path, dataset = dataset
     n_data = dataset['F'].shape[0]
@@ -498,7 +497,7 @@ def create(  # noqa: C901
             )
         )
 
-    if valid_dataset is None:
+    if not has_valid_dataset:
         valid_dataset_path, valid_dataset = dataset_path, dataset
         if n_data - n_train < n_valid:
             raise AssistantError(
@@ -516,7 +515,6 @@ def create(  # noqa: C901
                 )
             )
 
-    # lam = 1e-15
     if sigs is None:
         log.info(
             'Kernel hyper-parameter sigma was automatically set to range \'2:10:100\'.'
@@ -588,12 +586,12 @@ def create(  # noqa: C901
 
         if 'E' not in dataset:
             log.warning(
-                'Training dataset will be sampled with no guidance from energy labels (randomly)!'
+                'Training dataset will be sampled with no guidance from energy labels (i.e. randomly)!'
             )
 
         if 'E' not in valid_dataset:
             log.warning(
-                'Validation dataset will be sampled with no guidance from energy labels (randomly)!\n'
+                'Validation dataset will be sampled with no guidance from energy labels (i.e. randomly)!\n'
                 + 'Note: Larger validation datasets are recommended due to slower convergence of the error.'
             )
 
@@ -625,12 +623,13 @@ def create(  # noqa: C901
                 use_cprsn=use_cprsn,
                 model0=model0,
                 solver=solver,
-                toggle_callback=ui.progr_toggle,
-                progr_callback=ui.progr_bar,
+                max_inducing_pts=max_inducing_pts,
+                interact_cut_off=interact_cut_off,
+                callback=ui.callback,
             )  # template task
-        except Exception as err:
+        except:
             print()
-            log.critical('Exception: ' + str(err))
+            log.critical(traceback.format_exc())
             sys.exit()
 
     n_written = 0
@@ -659,7 +658,9 @@ def create(  # noqa: C901
     return task_dir
 
 
-def train(task_dir, overwrite, max_processes, use_torch, command=None, **kwargs):
+def train(
+    task_dir, valid_dataset, overwrite, max_processes, use_torch, command=None, **kwargs
+):
 
     task_dir, task_file_names = task_dir
     n_tasks = len(task_file_names)
@@ -678,45 +679,29 @@ def train(task_dir, overwrite, max_processes, use_torch, command=None, **kwargs)
             + 'Note: Compression reduces the size of the optimization problem the cost of prediction accuracy!'
         )
 
-    desc_callback = partial(
-        ui.progr_bar, disp_str='Generating descriptors and their Jacobians'
-    )
-    ker_progr_callback = partial(ui.progr_bar, disp_str='Assembling kernel matrix')
-    solve_callback = partial(ui.progr_toggle, disp_str='Solving linear system')
-
     unconv_model_file = '_unconv_model.npz'
     unconv_model_path = os.path.join(task_dir, unconv_model_file)
 
     def save_progr_callback(
-        unconv_model
+        unconv_model,
     ):  # saves current (unconverged) model during iterative training
-
-        # HACK
-
-        # if 'it' in unconv_model:
-        #    unconv_model_file = '_' + str(unconv_model['it']) + 'unconv_model.npz'
-        #    unconv_model_path = os.path.join(task_dir, unconv_model_file)
-        # else:
-        # unconv_model_file = '_unconv_model.npz'
-        # unconv_model_path = os.path.join(task_dir, unconv_model_file)
-        # HACK
 
         np.savez_compressed(unconv_model_path, **unconv_model)
 
     try:
         gdml_train = GDMLTrain(max_processes=max_processes, use_torch=use_torch)
-    except Exception as err:
+    except:
         print()
-        log.critical('Exception: ' + str(err))
+        log.critical(traceback.format_exc())
         sys.exit()
+
+    prev_valid_err = -1
 
     for i, task_file_name in enumerate(task_file_names):
         if n_tasks > 1:
             if i > 0:
                 print()
-            print(
-                ui.white_bold_str('Training task {:d} of {:d}'.format(i + 1, n_tasks))
-            )
+            print(ui.white_bold_str('Task {:d} of {:d}'.format(i + 1, n_tasks)))
 
         task_file_path = os.path.join(task_dir, task_file_name)
         with np.load(task_file_path, allow_pickle=True) as task:
@@ -737,27 +722,13 @@ def train(task_dir, overwrite, max_processes, use_torch, command=None, **kwargs)
                 )
                 continue
 
-            # model = gdml_train.train(
-            #     task,
-            #     cprsn_callback,
-            #     desc_callback,
-            #     ker_progr_callback,
-            #     solve_callback,
-            #     save_progr_callback,
-            # )
-
             try:
                 model = gdml_train.train(
-                    task,
-                    cprsn_callback,
-                    desc_callback,
-                    ker_progr_callback,
-                    solve_callback,
-                    save_progr_callback,
+                    task, cprsn_callback, save_progr_callback, ui.callback
                 )
-            except Exception as err:
+            except:
                 print()
-                log.critical('Exception: ' + str(err))
+                log.critical(traceback.format_exc())
                 sys.exit()
             else:
                 if func_called_directly:
@@ -774,6 +745,28 @@ def train(task_dir, overwrite, max_processes, use_torch, command=None, **kwargs)
                 templ_model_exists = os.path.isfile(templ_model_path)
                 if templ_model_exists:
                     os.remove(templ_model_path)
+
+            # Validate model.
+            model_dir = (task_dir, [model_file_name])
+            valid_errs = test(
+                model_dir,
+                valid_dataset,
+                -1,  # n_test = -1 -> validation mode
+                overwrite,
+                max_processes,
+                use_torch,
+                command,
+                **kwargs
+            )
+
+            if prev_valid_err != -1 and prev_valid_err < valid_errs[0]:
+                print()
+                log.warning(
+                    'Skipping remaining training tasks, as validation error is rising again.'
+                )
+                break
+
+            prev_valid_err = valid_errs[0]
 
     model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir
     if func_called_directly:
@@ -808,10 +801,16 @@ def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
 
 
 def validate(
-    model_dir, dataset, overwrite, max_processes, use_torch, command=None, **kwargs
+    model_dir,
+    valid_dataset,
+    overwrite,
+    max_processes,
+    use_torch,
+    command=None,
+    **kwargs
 ):
 
-    dataset_path_extracted, dataset_extracted = dataset
+    dataset_path_extracted, dataset_extracted = valid_dataset
 
     func_called_directly = (
         command == 'validate'
@@ -822,7 +821,7 @@ def validate(
 
     test(
         model_dir,
-        dataset,
+        valid_dataset,
         -1,  # n_test = -1 -> validation mode
         overwrite,
         max_processes,
@@ -854,7 +853,7 @@ def validate(
 
 def test(
     model_dir,
-    dataset,
+    test_dataset,
     n_test,
     overwrite,
     max_processes,
@@ -872,13 +871,14 @@ def test(
     is_validation = n_test < 0
     is_test = n_test >= 0
 
-    if (
-        is_validation and n_models == 1
-    ):  # validation mode with only one model to validate
-        log.warning('Skipping validation step as there is only one model to validate.')
-        return
+    # NEW: turn me back on!
+    # if (
+    #    is_validation and n_models == 1
+    # ):  # validation mode with only one model to validate
+    #    log.warning('Skipping validation step as there is only one model to validate.')
+    #    return
 
-    dataset_path, dataset = dataset
+    dataset_path, dataset = test_dataset
 
     func_called_directly = (
         command == 'test'
@@ -887,7 +887,24 @@ def test(
         ui.print_step_title('MODEL TEST')
         _print_dataset_properties(dataset)
 
+    F_rmse = []  # NEW
+
+    # NEW
+
+    DEBUG_WRITE = False
+
+    if DEBUG_WRITE:
+        if os.path.exists('test_pred.xyz'):
+            os.remove('test_pred.xyz')
+        if os.path.exists('test_ref.xyz'):
+            os.remove('test_ref.xyz')
+        if os.path.exists('test_diff.xyz'):
+            os.remove('test_diff.xyz')
+
+    # NEW
+
     num_workers, batch_size = 0, 0
+    gdml_train = None
     for i, model_file_name in enumerate(model_file_names):
 
         model_path = os.path.join(model_dir, model_file_name)
@@ -917,7 +934,6 @@ def test(
             e_err = model['e_err'].item()
         f_err = model['f_err'].item()
 
-        # is_model_tested = model['n_test'] > 0
         is_model_validated = not (np.isnan(f_err['mae']) or np.isnan(f_err['rmse']))
 
         if n_models > 1:
@@ -962,12 +978,9 @@ def test(
                 excl_idxs = np.concatenate([excl_idxs, model['idxs_valid']]).astype(
                     np.uint
                 )
-            if len(excl_idxs) == 0:
-                excl_idxs = None
 
-            n_data_eff = dataset['F'].shape[0]
-            if excl_idxs is not None:
-                n_data_eff -= len(excl_idxs)
+            n_data = dataset['F'].shape[0]
+            n_data_eff = n_data - len(excl_idxs)
 
             if (
                 n_test == 0 and n_data_eff != 0
@@ -989,16 +1002,24 @@ def test(
                 )
 
             if 'E' in dataset:
-                gdml_train = GDMLTrain(max_processes=max_processes)
+                if gdml_train is None:
+                    gdml_train = GDMLTrain(max_processes=max_processes)
                 test_idxs = gdml_train.draw_strat_sample(
                     dataset['E'], n_test, excl_idxs=excl_idxs
                 )
             else:
+                test_idxs = np.delete(np.arange(n_data), excl_idxs)
+
                 log.warning(
                     'Test dataset will be sampled with no guidance from energy labels (randomly)!\n'
                     + 'Note: Larger test datasets are recommended due to slower convergence of the error.'
                 )
-        np.random.shuffle(test_idxs)  # shuffle to improve convergence of online error
+        # shuffle to improve convergence of online error
+        np.random.shuffle(test_idxs)
+
+        # NEW
+        if DEBUG_WRITE:
+            test_idxs = np.sort(test_idxs)
 
         z = dataset['z']
         R = dataset['R'][test_idxs, :, :]
@@ -1011,16 +1032,16 @@ def test(
             gdml_predict = GDMLPredict(
                 model, max_processes=max_processes, use_torch=use_torch
             )
-        except Exception as err:
+        except:
             print()
-            log.critical('Exception: ' + str(err))
+            log.critical(traceback.format_exc())
             sys.exit()
 
         b_size = min(1000, len(test_idxs))
 
         if not use_torch:
             if num_workers == 0 or batch_size == 0:
-                ui.progr_toggle(is_done=False, disp_str='Optimizing parallelism')
+                ui.callback(NOT_DONE, disp_str='Optimizing parallelism')
 
                 gps, is_from_cache = gdml_predict.prepare_parallel(
                     n_bulk=b_size, return_is_from_cache=True
@@ -1031,8 +1052,8 @@ def test(
                     gdml_predict.bulk_mp,
                 )
 
-                ui.progr_toggle(
-                    is_done=True,
+                ui.callback(
+                    DONE,
                     disp_str='Optimizing parallelism'
                     + (' (from cache)' if is_from_cache else ''),
                     sec_disp_str='%d workers %s/ chunks of %d'
@@ -1061,17 +1082,15 @@ def test(
             r = R[b_range].reshape(n_done_step, -1)
             e_pred, f_pred = gdml_predict.predict(r)
 
-            if model['use_E']:
-                e = E[b_range]
-            f = F[b_range].reshape(n_done_step, -1)
-
             # energy error
             if model['use_E']:
+                e = E[b_range]
                 e_mae, e_mae_sum, e_rmse, e_rmse_sum = _online_err(
                     np.squeeze(e) - e_pred, 1, n_done, e_mae_sum, e_rmse_sum
                 )
 
             # force component error
+            f = F[b_range].reshape(n_done_step, -1)
             f_mae, f_mae_sum, f_rmse, f_rmse_sum = _online_err(
                 f - f_pred, 3 * n_atoms, n_done, f_mae_sum, f_rmse_sum
             )
@@ -1091,6 +1110,78 @@ def test(
                 cos_err, n_atoms, n_done, cos_mae_sum, cos_rmse_sum
             )
 
+            # NEW
+
+            if is_test and DEBUG_WRITE:
+
+                try:
+                    with open('test_pred.xyz', 'a') as file:
+
+                        n = r.shape[0]
+                        for i, ri in enumerate(r):
+
+                            r_out = ri.reshape(-1, 3)
+                            e_out = e_pred[i]
+                            f_out = f_pred[i].reshape(-1, 3)
+
+                            ext_xyz_str = (
+                                io.generate_xyz_str(r_out, model['z'], e=e_out, f=f_out)
+                                + '\n'
+                            )
+
+                            file.write(ext_xyz_str)
+
+                except IOError:
+                    sys.exit("ERROR: Writing xyz file failed.")
+
+                try:
+                    with open('test_ref.xyz', 'a') as file:
+
+                        n = r.shape[0]
+                        for i, ri in enumerate(r):
+
+                            r_out = ri.reshape(-1, 3)
+                            e_out = (
+                                None
+                                if not model['use_E']
+                                else np.squeeze(E[b_range][i])
+                            )
+                            f_out = f[i].reshape(-1, 3)
+
+                            ext_xyz_str = (
+                                io.generate_xyz_str(r_out, model['z'], e=e_out, f=f_out)
+                                + '\n'
+                            )
+                            file.write(ext_xyz_str)
+
+                except IOError:
+                    sys.exit("ERROR: Writing xyz file failed.")
+
+                try:
+                    with open('test_diff.xyz', 'a') as file:
+
+                        n = r.shape[0]
+                        for i, ri in enumerate(r):
+
+                            r_out = ri.reshape(-1, 3)
+                            e_out = (
+                                None
+                                if not model['use_E']
+                                else (np.squeeze(E[b_range][i]) - e_pred[i])
+                            )
+                            f_out = (f[i] - f_pred[i]).reshape(-1, 3)
+
+                            ext_xyz_str = (
+                                io.generate_xyz_str(r_out, model['z'], e=e_out, f=f_out)
+                                + '\n'
+                            )
+                            file.write(ext_xyz_str)
+
+                except IOError:
+                    sys.exit("ERROR: Writing xyz file failed.")
+
+            # NEW
+
             sps = n_done / (time.time() - t)  # examples per second
             disp_str = 'energy %.3f/%.3f, ' % (e_mae, e_rmse) if model['use_E'] else ''
             disp_str += 'forces %.3f/%.3f' % (f_mae, f_rmse)
@@ -1100,16 +1191,30 @@ def test(
             )
             sec_disp_str = '@ %.1f geo/s' % sps if b_range is not None else ''
 
-            ui.progr_bar(
-                n_done, len(test_idxs), disp_str=disp_str, sec_disp_str=sec_disp_str
+            ui.callback(
+                n_done,
+                len(test_idxs),
+                disp_str=disp_str,
+                sec_disp_str=sec_disp_str,
+                newline_when_done=False,
             )
+
+        if is_test:
+            ui.callback(
+                DONE,
+                disp_str='Testing on {:,} points'.format(n_test),
+                sec_disp_str=sec_disp_str,
+            )
+        else:
+            ui.callback(DONE, disp_str=disp_str, sec_disp_str=sec_disp_str)
 
         if model['use_E']:
             e_rmse_pct = (e_rmse / e_err['rmse'] - 1.0) * 100
         f_rmse_pct = (f_rmse / f_err['rmse'] - 1.0) * 100
 
-        if func_called_directly and n_models == 1:
-            print(ui.white_bold_str('\nMeasured test errors in this run (MAE/RMSE)'))
+        # if func_called_directly and n_models == 1:
+        if is_test and n_models == 1:
+            print(ui.white_bold_str('\nTest errors (MAE/RMSE)'))
 
             r_unit = 'unknown unit'
             e_unit = 'unknown unit'
@@ -1168,8 +1273,6 @@ def test(
                 log.info('Expected errors were updated in model file.')
 
         else:
-            model_path = os.path.join(model_dir, model_file_names[i])
-
             add_info_str = (
                 'the same number of'
                 if model['n_test'] == len(test_idxs)
@@ -1183,6 +1286,10 @@ def test(
                     PACKAGE_NAME, os.path.relpath(model_path), dataset_path, n_test
                 )
             )
+
+        F_rmse.append(f_rmse)
+
+    return F_rmse
 
 
 def select(
@@ -1383,10 +1490,13 @@ def reset(command=None, **kwargs):
 
 
 def main():
-    def _add_argument_dataset(parser, help='path to dataset file'):
+    def _add_argument_dataset(parser, qualifier_str='', help='path to dataset file'):
         parser.add_argument(
             'dataset',
-            metavar='<dataset_file>',
+            metavar='<'
+            + qualifier_str
+            + ('_' if qualifier_str != '' else '')
+            + 'dataset_file>',
             type=lambda x: io.is_file_type(x, 'dataset'),
             help=help,
         )
@@ -1465,21 +1575,25 @@ def main():
         help='print details about dataset, task or model file',
         parents=[parent_parser],
     )
-    parser_reset = subparsers.add_parser(
+    subparsers.add_parser(
         'reset', help='delete all caches and temporary files', parents=[parent_parser]
     )
 
     for subparser in [parser_all, parser_create]:
-        _add_argument_dataset(
-            subparser,
+
+        subparser.add_argument(
+            'dataset',
+            metavar='<dataset_file>',
+            type=lambda x: io.is_file_type(x, 'dataset'),
             help='path to dataset file (train/validation/test subsets are sampled from here if no seperate dataset are specified)',
         )
+
         _add_argument_sample_size(subparser, 'train')
         _add_argument_sample_size(subparser, 'valid')
         subparser.add_argument(
             '-v',
             '--validation_dataset',
-            metavar='<validation_dataset_file>',
+            metavar='<valid_dataset_file>',
             dest='valid_dataset',
             type=lambda x: io.is_file_type(x, 'dataset'),
             help='path to validation dataset file',
@@ -1537,7 +1651,19 @@ def main():
 
     for subparser in [parser_valid, parser_test]:
         _add_argument_dir_with_file_type(subparser, 'model', or_file=True)
-        _add_argument_dataset(subparser)
+
+    parser_valid.add_argument(
+        'valid_dataset',
+        metavar='<valid_dataset_file>',
+        type=lambda x: io.is_file_type(x, 'dataset'),
+        help='path to validation dataset file',
+    )
+    parser_test.add_argument(
+        'test_dataset',
+        metavar='<test_dataset_file>',
+        type=lambda x: io.is_file_type(x, 'dataset'),
+        help='path to test dataset file',
+    )
 
     for subparser in [parser_all, parser_test]:
         subparser.add_argument(
@@ -1557,15 +1683,54 @@ def main():
             help='user-defined model output file name',
         )
 
+    for subparser in [parser_all, parser_create]:  # NEW
+        group = subparser.add_mutually_exclusive_group()
+        subparser.add_argument(
+            '--ip',
+            dest='max_inducing_pts',
+            metavar='<max_inducing_pts>',
+            type=io.is_strict_pos_int,
+            help='maximum number of inducing points (<= n_train) to use for preconditioner matrix (larger value: fewer iterations, but higher per-iteration memory and processing cost)',
+            nargs='?',
+            default=None,
+        )
+        subparser.add_argument(
+            '--coff',
+            dest='interact_cut_off',
+            metavar='<interact_cut_off>',
+            type=io.is_strict_pos_int,
+            help='decay pairwise interactions to zero from a given distance (localizes the model)',
+            nargs='?',
+            default=None,
+        )
+        subparser.add_argument(
+            '-m0',
+            '--model0',
+            metavar='<initial_model_file>',
+            type=lambda x: io.is_file_type(x, 'model'),
+            help='initial model file used as a source for training task parameters, including training and validation subsets, permutations, initial set of coefficients (for numerical solvers)',
+            nargs='?',
+            default=None,
+        )
+
     # train
     _add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
+    parser_train.add_argument(
+        'valid_dataset',
+        metavar='<valid_dataset_file>',
+        type=lambda x: io.is_file_type(x, 'dataset'),
+        help='path to validation dataset file',
+    )
 
     # select
     _add_argument_dir_with_file_type(parser_select, 'model')
 
     # show
     parser_show.add_argument(
-        'file', metavar='<file>', type=lambda x: io.is_valid_file_type(x), help='path to dataset, task or model file'
+        'file',
+        metavar='<file>',
+        type=lambda x: io.is_valid_file_type(x),
+        help='path to dataset, task or model file',
     )
 
     args = parser.parse_args()
@@ -1607,11 +1772,14 @@ def main():
     args.pop('use_cg', None)
 
     try:
-        # getattr(sys.modules[__name__], args.command)(**vars(args))
         getattr(sys.modules[__name__], args['command'])(**args)
     except AssistantError as err:
         print()
-        log.critical('Exception: ' + str(err))
+        log.error(str(err))
+        sys.exit('')
+    except:
+        print()
+        log.critical(traceback.format_exc())
         sys.exit()
 
 

@@ -51,7 +51,7 @@ setup(
     author_email='sgdml@chmiela.com',
     license='LICENSE.txt',
     packages=find_packages(),
-    install_requires=['numpy >= 1.13.0', 'scipy >= 1.1.0', 'future'],
+    install_requires=['numpy >= 1.19.0', 'scipy >= 1.1.0', 'future'],
     entry_points={
         'console_scripts': ['sgdml=sgdml.cli:main', 'sgdml-get=sgdml.get:main']
     },

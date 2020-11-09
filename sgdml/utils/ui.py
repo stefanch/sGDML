@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2019 Stefan Chmiela
+# Copyright (c) 2018-2020 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -53,80 +53,89 @@ def yes_or_no(question):
     else:
         return True
 
-
-def progr_bar(current, total, disp_str='', sec_disp_str=None):
+last_callback_pct = 0
+def callback(current, total=1, disp_str='', sec_disp_str=None, done_with_warning=False, newline_when_done=True):
     """
-    Print progress bar.
+    Print progress or toggle bar.
 
-    Example:
+    Example (progress):
     ``[ 45%] Task description (secondary string)``
+    
+    Example (toggle, not done):
+    ``[ .. ] Task description (secondary string)``
+
+    Example (toggle, done):
+    ``[DONE] Task description (secondary string)``
 
     Parameters
     ----------
         current : int
             How many items already processed?
-        total : int
-            Total number of items?
+        total : int, optional
+            Total number of items? If there is only
+            one item, the toggle style is used.
         disp_str : :obj:`str`, optional
             Task description.
         sec_disp_str : :obj:`str`, optional
             Additional string shown in gray.
+        done_with_warning : bool, optional
+            Indicate that the process did not 
+            finish successfully.
+        newline_when_done : bool, optional
+            Finish with a newline character once
+            current=total (default: True)?
     """
 
+    global last_callback_pct
+
+    is_toggle = total == 1
     is_done = np.isclose(current - total, 0.0)
-    progr = float(current) / total
 
-    str_color = pass_str if is_done else info_str
-    sys.stdout.write(('\r' + str_color('[%3d%%]') + ' %s') % (progr * 100, disp_str))
+    if is_toggle:
 
-    if sec_disp_str is not None:
-        w = MAX_PRINT_WIDTH - LOG_LEVELNAME_WIDTH - len(disp_str) - 1
-        sys.stdout.write(' \x1b[90m{0: >{width}}\x1b[0m'.format(sec_disp_str, width=w))
+        if is_done:
+            flag_str = warn_str('[WARN]') if done_with_warning else pass_str('[DONE]')
+        else:
+            flag_str = info_str('[') + info_str(blink_str(' .. ')) + info_str(']')
+    else:
+        str_color = pass_str if is_done else info_str
 
-    if is_done:
-        sys.stdout.write('\n')
+        # do not print, if there is no need to
+        pct = int(float(current) * 100 / total)
+        if not is_done and pct == last_callback_pct:
+            return
+        else:
+            last_callback_pct = pct
+        
+        flag_str = str_color('[{:3d}%]'.format(pct))
 
-    sys.stdout.flush()
-
-
-def progr_toggle(is_done, disp_str='', sec_disp_str=None):
-    """
-    Print progress toggle.
-
-    Example (not done):
-    ``[ .. ] Task description (secondary string)``
-
-    Example (done):
-    ``[DONE] Task description (secondary string)``
-
-    Parameters
-    ----------
-        is_done : bool
-            Task done?
-        disp_str : :obj:`str`, optional
-            Task description.
-        sec_disp_str : :obj:`str`, optional
-            Additional string shown in gray.
-    """
-
-    sys.stdout.write(
-        '\r%s '
-        % (
-            pass_str('[DONE]')
-            if is_done
-            else info_str('[') + info_str(blink_str(' .. ')) + info_str(']')
-        )
-    )
-    sys.stdout.write(disp_str)
+    sys.stdout.write('\r{} {}'.format(flag_str, disp_str))
 
     if sec_disp_str is not None:
         w = MAX_PRINT_WIDTH - LOG_LEVELNAME_WIDTH - len(disp_str) - 1
         sys.stdout.write(' \x1b[90m{0: >{width}}\x1b[0m'.format(sec_disp_str, width=w))
 
-    if is_done:
+    if is_done and newline_when_done:
         sys.stdout.write('\n')
 
     sys.stdout.flush()
+
+
+# use this to integrate a callback for a subtask with an existing callback function
+# 'subtask_callback = partial(ui.sec_callback, main_callback=self.callback)'
+def sec_callback(current, total=1, disp_str=None, sec_disp_str=None, main_callback=None, **kwargs):
+
+    assert main_callback is not None
+
+    is_toggle = total == 1
+
+    sec_disp_str = disp_str
+    if not is_toggle:
+        pct = int(float(current) * 100 / total)
+        sec_disp_str = '{} | {:3d}%'.format(disp_str, pct)
+
+    main_callback(0, sec_disp_str=sec_disp_str, **kwargs)
+    
 
 
 # COLORS
@@ -181,31 +190,9 @@ def info_str(str):
 
 def pass_str(str):
     return color_str(str, fore_color=GREEN, bold=True)
-    # return '\x1b[1;32m' + str + '\x1b[0m'
 
-
-# def warn_str(str):
-#    return '\x1b[1;33m' + str + '\x1b[0m'
-
-
-# def fail_str(str):
-#    return '\x1b[1;31m' + str + '\x1b[0m'
-
-
-# def warning(str):
-#    print(ui.WARN_str('[WARN]') + ' %s' % err)
-
-# def is_lattice_supported(lat):  # TODO: remove me
-
-#     is_supported = False
-#     if (
-#         np.all(lat == np.diag(np.diagonal(lat)))
-#         and len(set(np.diag(lat)))  # diagonal matrix?
-#         == 1  # all diagonal elements all the same?
-#     ):
-#         is_supported = True
-
-#     return is_supported
+def warn_str(str):
+    return color_str(str, fore_color=YELLOW, bold=True)
 
 
 def unicode_str(s):
@@ -438,7 +425,6 @@ def gen_range_str(min, max):
 
     """
 
-    # arr_min, arr_max = np.min(arr), np.max(arr)
     return '{:<.3} |-- {:^8.3} --| {:<9.3}'.format(min, max - min, max)
 
 

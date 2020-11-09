@@ -94,7 +94,7 @@ for s in ['train', 'valid']:
         print(ui.info_str('[INFO]') + ' Overwriting existing model file.')
     if not file_exists or args.overwrite:
         np.savez_compressed(subset_file_name, **base_vars)
-        ui.progr_toggle(is_done=True, disp_str='Extracted %s dataset saved to \'%s\'' % (s, subset_file_name))
+        ui.callback(1, disp_str='Extracted %s dataset saved to \'%s\'' % (s, subset_file_name)) # DONE
     else:
         print(
             ui.warn_str('[WARN]')

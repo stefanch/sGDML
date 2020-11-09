@@ -65,7 +65,7 @@ class SGDMLCalculator(Calculator):
 
         self.log = logging.getLogger(__name__)
 
-        model = np.load(model_path)
+        model = np.load(model_path, allow_pickle=True)
         self.gdml_predict = GDMLPredict(model)
         self.gdml_predict.prepare_parallel()
 

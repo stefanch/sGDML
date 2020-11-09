@@ -22,10 +22,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-__version__ = '0.4.5.dev0'
+__version__ = '0.4.7.dev3'
 
 MAX_PRINT_WIDTH = 100
 LOG_LEVELNAME_WIDTH = 7  # do not modify
+
+# more descriptive callback status
+DONE = 1
+NOT_DONE = 0
 
 
 # Logging
@@ -76,8 +80,9 @@ class ColoredFormatter(logging.Formatter):
             bold=True,
         )
 
-        # wrap long messages
-        msg = ui.wrap_str(msg)
+        if _record.levelname != 'CRITICAL':
+            # wrap long messages (except for critical [i.e. exceptions, since they print a formatted traceback string])
+            msg = ui.wrap_str(msg)
 
         # indent multiline strings after the first line
         msg = ui.indent_str(msg, LOG_LEVELNAME_WIDTH)[LOG_LEVELNAME_WIDTH:]

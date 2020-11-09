@@ -85,7 +85,7 @@ try:
             file.write(ext_xyz_str)
 
             progr = float(i) / (n - 1)
-            ui.progr_bar(i, n - 1, disp_str='Exporting %d data points...' % n)
+            ui.callback(i, n - 1, disp_str='Exporting %d data points...' % n)
             
 except IOError:
     sys.exit("ERROR: Writing xyz file failed.")

@@ -148,6 +148,8 @@ base_vars = {
     'z': z,
     'E': E[:, None],
     'F': F,
+    'e_unit': 'kcal/mol',
+    'r_unit': 'Ang',
     'name': name,
     'theory': 'unknown',
 }

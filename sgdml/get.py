@@ -60,7 +60,7 @@ def download(command, file_name):
         size += len(buffer)
         file.write(buffer)
 
-        ui.progr_bar(
+        ui.callback(
             size,
             filesize,
             disp_str='Downloading: {}'.format(file_name),

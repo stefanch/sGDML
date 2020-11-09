@@ -372,6 +372,9 @@ def is_file_type(arg, type):
             md5_str = os.path.basename(os.path.normpath(arg))
             dir = os.path.dirname(os.path.normpath(arg))
 
+            if dir == '': # it is only a filename after all, hence not the right type
+                raise argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
+
             if re.search(r'^[a-f0-9]{32}$', md5_str) and not os.path.isdir(
                 dir
             ):  # path has MD5 hash string at the end, but directory is not valid

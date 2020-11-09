@@ -5,8 +5,8 @@ For more details visit: [http://sgdml.org/](http://sgdml.org/)
 Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 
 #### Requirements:
-- Python 2.7/3.7
-- NumPy (>=1.13.0)
+- Python 2.7/3.8+
+- NumPy (>=1.19.0)
 - SciPy
 - PyTorch (optional)
 - ASE (optional)
@@ -132,8 +132,3 @@ Nature Communications, 9(1), 3887 (2018)
 *sGDML: Constructing Accurate and Data Efficient Molecular Force Fields Using Machine Learning.*
 Computer Physics Communications, 240, 38-45 (2019)
 [10.1016/j.cpc.2019.02.007](https://doi.org/10.1016/j.cpc.2019.02.007)
-
-* [4] Sauceda, H. E., Chmiela, S., Poltavsky, I., Müller, K.-R., & Tkatchenko, A.,
-*Molecular Force Fields with Gradient-Domain Machine Learning: Construction and Application to Dynamics of Small Molecules with Coupled Cluster Forces.*
-The Journal of Chemical Physics, 150, 114102 (2019)
-[10.1063/1.5078687](https://doi.org/10.1063/1.5078687)

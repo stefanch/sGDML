@@ -24,7 +24,10 @@
 
 import numpy as np
 import scipy as sp
+
 import multiprocessing as mp
+Pool = mp.get_context('fork').Pool
+
 from functools import partial
 from scipy import spatial
 import timeit
@@ -37,16 +40,194 @@ else:
     _has_torch = True
 
 
-def _from_r_alias(obj, r, lat_and_inv=None):
+def _pbc_diff(diffs, lat_and_inv, use_torch=False):
     """
-    Alias for instance method that allows the method to be called in a 
-    multiprocessing pool
+    Clamp differences of vectors to super cell.
+
+    Parameters
+    ----------
+        diffs : :obj:`numpy.ndarray`
+            N x 3 matrix of N pairwise differences between vectors `u - v`
+        lat_and_inv : tuple of :obj:`numpy.ndarray`
+            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
+        use_torch : boolean, optional
+            Enable, if the inputs are PyTorch objects.
+
+    Returns
+    -------
+        :obj:`numpy.ndarray`
+            N x 3 matrix clamped differences
     """
-    return obj._from_r(r, lat_and_inv=lat_and_inv)
+
+    lat, lat_inv = lat_and_inv
+
+    if use_torch and not _has_torch:
+        raise ImportError(
+            'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
+        )
+
+    if use_torch:
+        c = lat_inv.mm(diffs.t())
+        diffs -= lat.mm(c.round()).t()
+    else:
+        c = lat_inv.dot(diffs.T)
+        diffs -= lat.dot(np.rint(c)).T
+
+    return diffs
+
+
+def _pdist(r, lat_and_inv=None): # TODO: update return (no squareform anymore)
+    """
+    Compute pairwise Euclidean distance matrix between all atoms.
+
+    Parameters
+    ----------
+        r : :obj:`numpy.ndarray`
+            Array of size 3N containing the Cartesian coordinates of
+            each atom.
+        lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
+            Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
+
+    Returns
+    -------
+        :obj:`numpy.ndarray`
+            Array of size N x N containing all pairwise distances between atoms.
+    """
+
+    r = r.reshape(-1, 3)
+    n_atoms = r.shape[0]
+
+    if lat_and_inv is None:
+        pdist = sp.spatial.distance.pdist(r, 'euclidean')
+    else:
+        pdist = sp.spatial.distance.pdist(
+            r, lambda u, v: np.linalg.norm(_pbc_diff(u - v, lat_and_inv))
+        )
+
+    tril_idxs = np.tril_indices(n_atoms, k=-1)
+    return sp.spatial.distance.squareform(pdist, checks=False)[tril_idxs]
+
+def _r_to_desc(r, pdist):
+    """
+    Generate descriptor for a set of atom positions in Cartesian
+    coordinates.
+
+    Parameters
+    ----------
+        r : :obj:`numpy.ndarray`
+            Array of size 3N containing the Cartesian coordinates of
+            each atom.
+        pdist : :obj:`numpy.ndarray`
+            Array of size N x N containing the Euclidean distance
+            (2-norm) for each pair of atoms.
+
+    Returns
+    -------
+        :obj:`numpy.ndarray`
+            Descriptor representation as 1D array of size N(N-1)/2
+    """
+
+    # Add singleton dimension if input is (,3N).
+    if r.ndim == 1:
+        r = r[None, :]
+
+    return 1.0 / pdist
+
+    #if self.coff_dist is None:
+    #    return 1.0 / pdist
+    #else:
+    #    cutoff_factor = -1.0 / (1.0 + np.exp(-self.coff_slope * (pdist - self.coff_dist))) + 1
+    #    return cutoff_factor / pdist
+
+
+def _r_to_d_desc(r, pdist, lat_and_inv=None): # TODO: fix documentation!
+    """
+    Generate descriptor Jacobian for a set of atom positions in
+    Cartesian coordinates.
+    This method can apply the minimum-image convention as periodic
+    boundary condition for distances between atoms, given the edge
+    length of the (square) unit cell.
+
+    Parameters
+    ----------
+        r : :obj:`numpy.ndarray`
+            Array of size 3N containing the Cartesian coordinates of
+            each atom.
+        pdist : :obj:`numpy.ndarray`
+            Array of size N x N containing the Euclidean distance
+            (2-norm) for each pair of atoms.
+        lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
+            Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
+
+    Returns
+    -------
+        :obj:`numpy.ndarray`
+            Array of size N(N-1)/2 x 3N containing all partial
+            derivatives of the descriptor.
+    """
+
+    r = r.reshape(-1, 3)
+    pdiff = r[:, None] - r[None, :]  # pairwise differences ri - rj
+   
+    n_atoms = r.shape[0]
+    i, j = np.tril_indices(n_atoms, k=-1)
+
+    pdiff = pdiff[i, j, :] # lower triangular
+
+    if lat_and_inv is not None:
+        pdiff = _pbc_diff(
+            pdiff, lat_and_inv
+        )
+
+    d_desc_elem = pdiff / (pdist ** 3)[:, None]
+
+    #if self.coff_dist is None:
+    #    d_desc_elem = pdiff / (pdist ** 3)[:, None]
+    #else:
+
+    #    cutoff_factor = 1.0 - 1.0 / (np.exp(-self.coff_slope * (pdist[:, None] - self.coff_dist)) + 1.0)
+    #    cutoff_term = self.coff_slope * np.exp(-self.coff_slope * (pdist[:, None] - self.coff_dist)) / (pdiff * (np.exp(-self.coff_slope * (pdist[:, None] - self.coff_dist)) + 1)**2)
+    #    cutoff_term[cutoff_term == np.inf] = 0
+    #    d_desc_elem = cutoff_factor * pdiff / (pdist ** 3)[:, None] + cutoff_term
+
+    return d_desc_elem
+
+def _from_r(r, lat_and_inv=None):
+    """
+    Generate descriptor and its Jacobian for one molecular geometry
+    in Cartesian coordinates.
+
+    Parameters
+    ----------
+        r : :obj:`numpy.ndarray`
+            Array of size 3N containing the Cartesian coordinates of
+            each atom.
+        lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
+            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
+
+    Returns
+    -------
+        :obj:`numpy.ndarray`
+            Descriptor representation as 1D array of size N(N-1)/2
+        :obj:`numpy.ndarray`
+            Array of size N(N-1)/2 x 3N containing all partial
+            derivatives of the descriptor.
+    """
+
+    # Add singleton dimension if input is (,3N).
+    if r.ndim == 1:
+        r = r[None, :]
+
+    pd = _pdist(r, lat_and_inv)
+
+    r_desc = _r_to_desc(r, pd)
+    r_d_desc = _r_to_d_desc(r, pd, lat_and_inv)
+
+    return r_desc, r_d_desc
 
 
 class Desc(object):
-    def __init__(self, n_atoms, max_processes=None):
+    def __init__(self, n_atoms, interact_cut_off=None, max_processes=None):
         """
         Generate descriptors and their Jacobians for molecular geometries,
         including support for periodic boundary conditions.
@@ -75,6 +256,10 @@ class Desc(object):
                 [np.where(rows == a)[0], np.where(cols == a)[0]]
             )
 
+        self.dim_range = np.arange(self.dim) # [0, 1, ..., dim-1]
+
+        # Precompute indices for nonzero entries in desriptor derivatives.
+
         self.M = np.arange(1, n_atoms)  # indexes matrix row-wise, skipping diagonal
         for a in range(1, n_atoms):
             self.M = np.concatenate((self.M, np.delete(np.arange(n_atoms), a)))
@@ -83,11 +268,15 @@ class Desc(object):
             np.arange(n_atoms), n_atoms - 1
         )  # [0, 0, ..., 1, 1, ..., 2, 2, ...]
 
-        self.d_desc = np.zeros(
-            (self.dim, n_atoms, 3)
-        )  # template for descriptor matrix (zeros are important)
-
         self.max_processes = max_processes
+
+        # NEW: cutoff
+        self.coff_dist = interact_cut_off if not hasattr(interact_cut_off, '__iter__') else interact_cut_off.item() # TODO: that's a hack :(
+        self.coff_slope = 10
+        # NEW
+
+        self.tril_indices = np.tril_indices(n_atoms, k=-1)
+
 
     def from_R(self, R, lat_and_inv=None, callback=None):
         """
@@ -127,16 +316,17 @@ class Desc(object):
 
         M = R.shape[0]
         if M == 1:
-            return self._from_r(R, lat_and_inv)
+            return _from_r(R, lat_and_inv)
 
         R_desc = np.empty([M, self.dim])
-        R_d_desc = np.empty([M, self.dim, self.dim_i])
+        R_d_desc = np.empty([M, self.dim, 3])
 
         # Generate descriptor and their Jacobians
         start = timeit.default_timer()
-        pool = mp.Pool(self.max_processes)
+        pool = Pool(self.max_processes)
+
         for i, r_desc_r_d_desc in enumerate(
-            pool.imap(partial(_from_r_alias, self, lat_and_inv=lat_and_inv), R)
+            pool.imap(partial(_from_r, lat_and_inv=lat_and_inv), R)
         ):
             R_desc[i, :], R_d_desc[i, :, :] = r_desc_r_d_desc
 
@@ -153,41 +343,6 @@ class Desc(object):
             callback(M, M, sec_disp_str=sec_disp_str)
 
         return R_desc, R_d_desc
-
-    def pbc_diff(self, diffs, lat_and_inv, use_torch=False):
-        """
-        Clamp differences of vectors to super cell.
-
-        Parameters
-        ----------
-            diffs : :obj:`numpy.ndarray`
-                N x 3 matrix of N pairwise differences between vectors `u - v`
-            lat_and_inv : tuple of :obj:`numpy.ndarray`
-                Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
-            use_torch : boolean, optional
-                Enable, if the inputs are PyTorch objects.
-
-        Returns
-        -------
-            :obj:`numpy.ndarray`
-                N x 3 matrix clamped differences
-        """
-
-        lat, lat_inv = lat_and_inv
-
-        if use_torch and not _has_torch:
-            raise ImportError(
-                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
-            )
-
-        if use_torch:
-            c = lat_inv.mm(diffs.t())
-            diffs -= lat.mm(c.round()).t()
-        else:
-            c = lat_inv.dot(diffs.T)
-            diffs -= lat.dot(np.rint(c)).T
-
-        return diffs
 
     def perm(self, perm):
         """
@@ -220,135 +375,89 @@ class Desc(object):
 
         return rest[np.tril_indices(n, -1)].astype(int)
 
+
     # Private
 
-    def _from_r(self, r, lat_and_inv=None):
-        """
-        Generate descriptor and its Jacobian for one molecular geometry
-        in Cartesian coordinates.
+    # multiplies descriptor(s) jacobian with 3N-vector(s) from the right side 
+    def d_desc_dot_vec(self, R_d_desc, vecs):
 
-        Parameters
-        ----------
-            r : :obj:`numpy.ndarray`
-                Array of size 3N containing the Cartesian coordinates of
-                each atom.
-            lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
-                Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
+        if R_d_desc.ndim == 2:
+            R_d_desc = R_d_desc[None, ...]
 
-        Returns
-        -------
-            :obj:`numpy.ndarray`
-                Descriptor representation as 1D array of size N(N-1)/2
-            :obj:`numpy.ndarray`
-                Array of size N(N-1)/2 x 3N containing all partial
-                derivatives of the descriptor.
-        """
+        if vecs.ndim == 1:
+            vecs = vecs[None, ...]
 
-        # Add singleton dimension if input is (,3N).
-        if r.ndim == 1:
-            r = r[None, :]
+        i, j = self.tril_indices
 
-        pd = self._pdist(r, lat_and_inv)
+        vecs = vecs.reshape(vecs.shape[0], -1, 3)
+        return np.einsum('kji,kji->kj', R_d_desc, vecs[:, j, :] - vecs[:, i, :])
 
-        r_desc = self._r_to_desc(r, pd)
-        r_d_desc = self._r_to_d_desc(r, pd, lat_and_inv)
 
-        return r_desc, r_d_desc
+    # multiplies descriptor(s) jacobian with N(N-1)/2-vector(s) from the left side 
+    def vec_dot_d_desc(self, R_d_desc, vecs, out=None):
 
-    def _pdist(self, r, lat_and_inv=None):
-        """
-        Compute pairwise Euclidean distance matrix between all atoms.
+        if R_d_desc.ndim == 2:
+            R_d_desc = R_d_desc[None, ...]
 
-        Parameters
-        ----------
-            r : :obj:`numpy.ndarray`
-                Array of size 3N containing the Cartesian coordinates of
-                each atom.
-            lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
-                Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
+        if vecs.ndim == 1:
+            vecs = vecs[None, ...]
 
-        Returns
-        -------
-            :obj:`numpy.ndarray`
-                Array of size N x N containing all pairwise distances between atoms.
-        """
+        assert R_d_desc.shape[0] == 1 or vecs.shape[0] == 1 or R_d_desc.shape[0] == vecs.shape[0] # either multiple descriptors or multiple vectors at once, not both (or the same number of both, than it will must be a multidot)
 
-        r = r.reshape(-1, 3)
+        n = np.max((R_d_desc.shape[0], vecs.shape[0]))
+        i, j = self.tril_indices
 
-        if lat_and_inv is None:
-            pdist = sp.spatial.distance.pdist(r, 'euclidean')
-        else:
-            pdist = sp.spatial.distance.pdist(
-                r, lambda u, v: np.linalg.norm(self.pbc_diff(u - v, lat_and_inv))
-            )
+        #R_d_desc_full = np.zeros((n, self.n_atoms, self.n_atoms, 3))
+        #R_d_desc_full[:, i, j, :] = R_d_desc * vecs[..., None]
+        #R_d_desc_full[:, j, i, :] = -R_d_desc_full[:, i, j, :]
+        #return R_d_desc_full.sum(axis=1).reshape(n, -1)
 
-        return sp.spatial.distance.squareform(pdist, checks=False)
+        if out is None or out.shape != (n, self.n_atoms*3):
+            out = np.zeros((n, self.n_atoms*3))
 
-    def _r_to_desc(self, r, pdist):
-        """
-        Generate descriptor for a set of atom positions in Cartesian
-        coordinates.
+        R_d_desc_full = np.zeros((self.n_atoms, self.n_atoms, 3))
+        for a in range(n):
 
-        Parameters
-        ----------
-            r : :obj:`numpy.ndarray`
-                Array of size 3N containing the Cartesian coordinates of
-                each atom.
-            pdist : :obj:`numpy.ndarray`
-                Array of size N x N containing the Euclidean distance
-                (2-norm) for each pair of atoms.
+            R_d_desc_full[i, j, :] = R_d_desc * vecs[a, :, None]
+            R_d_desc_full[j, i, :] = -R_d_desc_full[i, j, :]
+            out[a,:] = R_d_desc_full.sum(axis=0).ravel()
 
-        Returns
-        -------
-            :obj:`numpy.ndarray`
-                Descriptor representation as 1D array of size N(N-1)/2
-        """
+        return out
 
-        # Add singleton dimension if input is (,3N).
-        if r.ndim == 1:
-            r = r[None, :]
 
-        return 1.0 / pdist[np.tril_indices(self.n_atoms, -1)]
+    # inflate desc
+    # add_to_vec - instead of creating a new array for the expanded descriptor Jacobian, add it onto an existing representation
+    def d_desc_from_comp(self, R_d_desc):
 
-    def _r_to_d_desc(self, r, pdist, lat_and_inv=None):
-        """
-        Generate descriptor Jacobian for a set of atom positions in
-        Cartesian coordinates.
-        This method can apply the minimum-image convention as periodic
-        boundary condition for distances between atoms, given the edge
-        length of the (square) unit cell.
+        if R_d_desc.ndim == 2:
+            R_d_desc= R_d_desc[None, ...]
 
-        Parameters
-        ----------
-            r : :obj:`numpy.ndarray`
-                Array of size 3N containing the Cartesian coordinates of
-                each atom.
-            pdist : :obj:`numpy.ndarray`
-                Array of size N x N containing the Euclidean distance
-                (2-norm) for each pair of atoms.
-            lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
-                Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
+        n = R_d_desc.shape[0]
+        i, j = self.tril_indices
 
-        Returns
-        -------
-            :obj:`numpy.ndarray`
-                Array of size N(N-1)/2 x 3N containing all partial
-                derivatives of the descriptor.
-        """
+        out = np.zeros((n, self.dim, self.n_atoms, 3))
+        out[:, self.dim_range, j, :] = R_d_desc
+        out[:, self.dim_range, i, :] = -R_d_desc
 
-        r = r.reshape(-1, 3)
+        return out.reshape(-1, self.dim, self.dim_i)
 
-        np.seterr(divide='ignore', invalid='ignore')
+    # deflate desc
+    def d_desc_to_comp(self, R_d_desc):
 
-        pdiff = r[:, None] - r[None, :]  # pairwise differences ri - rj
-        if lat_and_inv is not None:
-            pdiff = self.pbc_diff(
-                pdiff.reshape(self.n_atoms ** 2, 3), lat_and_inv
-            ).reshape(self.n_atoms, self.n_atoms, 3)
+        # Add singleton dimension for single inputs.
+        if R_d_desc.ndim == 2:
+            R_d_desc= R_d_desc[None, ...]
 
-        d_desc_elem = pdiff / (pdist ** 3)[:, :, None]
-        self.d_desc[self.d_desc_mask.ravel(), self.A, :] = d_desc_elem[
-            self.M, self.A, :
-        ]
+        n = R_d_desc.shape[0]
+        n_atoms = int(R_d_desc.shape[2] / 3)
 
-        return self.d_desc.reshape(self.dim, self.dim_i)
+        R_d_desc = R_d_desc.reshape(n, -1, n_atoms, 3)
+
+        ret = np.zeros((n, n_atoms, n_atoms, 3))
+        ret[:, self.M, self.A, :] = R_d_desc[:, self.d_desc_mask.ravel(), self.A, :]
+
+        # only take upper triangle
+        i, j = self.tril_indices
+        ret = ret[:, i, j, :]
+
+        return ret
