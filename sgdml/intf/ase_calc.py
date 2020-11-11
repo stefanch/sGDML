@@ -58,7 +58,7 @@ class SGDMLCalculator(Calculator):
                 E_to_eV : float, optional
                         Conversion factor from whatever energy unit is used by the model to eV. By default this parameter is set to convert from kcal/mol.
                 F_to_eV_Ang : float, optional
-                        Conversion factor from whatever length unit is used by the model to Angstrom. By default, the length unit is not converted.
+                        Conversion factor from whatever length unit is used by the model to Angstrom. By default, the length unit is not converted (assumed to be in Angstrom)
         """
 
         super(SGDMLCalculator, self).__init__(*args, **kwargs)
@@ -76,6 +76,9 @@ class SGDMLCalculator(Calculator):
         # Converts energy from the unit used by the sGDML model to eV.
         self.E_to_eV = E_to_eV
 
+        # Converts length from eV to unit used in sGDML model.
+        self.Ang_to_R = F_to_eV_Ang / E_to_eV
+
         # Converts force from the unit used by the sGDML model to eV/Ang.
         self.F_to_eV_Ang = F_to_eV_Ang
 
@@ -83,7 +86,9 @@ class SGDMLCalculator(Calculator):
 
         super(SGDMLCalculator, self).calculate(atoms, *args, **kwargs)
 
-        r = np.array(atoms.get_positions())
+        # convert model units to ASE default units
+        r = np.array(atoms.get_positions()) * self.Ang_to_R
+
         e, f = self.gdml_predict.predict(r.ravel())
 
         # convert model units to ASE default units (eV and Ang)
