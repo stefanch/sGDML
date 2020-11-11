@@ -5,11 +5,13 @@ For more details visit: [http://sgdml.org/](http://sgdml.org/)
 Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 
 #### Requirements:
-- Python 2.7/3.8+
-- NumPy (>=1.19.0)
-- SciPy
-- PyTorch (optional)
-- ASE (optional)
+- Python 2.7/3.7+
+- NumPy (>=1.19)
+- SciPy (>=1.1)
+
+#### Optional:
+- PyTorch (for GPU acceleration)
+- ASE (to run atomistic simulations)
 
 ## Getting started
 
@@ -44,7 +46,7 @@ $ git pull origin master
 $ pip install -e .
 ```
 
-Using the flag ``--user``, we can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
+Using the flag ``--user``, you can tell ``pip`` to install the package to the current users's home directory, instead of system-wide. This option might require you to update your system's ``PATH`` variable accordingly.
 
 
 ### Optional dependencies
@@ -55,7 +57,7 @@ Some functionality of this package relies on third-party libraries that are not 
 $ pip install sgdml[<optional1>,<optional2>]
 ```
 
-#### GPU support (via PyTorch)
+#### GPU acceleration (via PyTorch)
 
 To enable GPU support, you need to install the optional [PyTorch](https://pytorch.org/) dependency using the ``torch`` keyword:
 
@@ -66,7 +68,7 @@ $ pip install sgdml[torch]
 
 #### Atomic Simulation Environment (ASE)
 
-If you are interested in interfacing with [ASE](https://wiki.fysik.dtu.dk/ase/) (see [here](http://quantum-machine.org/gdml/doc/applications.html) for examples), use the ``ase`` keyword:
+If you are interested in interfacing with [ASE](https://wiki.fysik.dtu.dk/ase/) to perform atomistic simulations (see [here](http://quantum-machine.org/gdml/doc/applications.html) for examples), use the ``ase`` keyword:
 
 ```
 $ pip install sgdml[ase]

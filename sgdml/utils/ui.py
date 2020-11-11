@@ -128,9 +128,12 @@ def sec_callback(current, total=1, disp_str=None, sec_disp_str=None, main_callba
     assert main_callback is not None
 
     is_toggle = total == 1
+    is_done = np.isclose(current - total, 0.0)
 
     sec_disp_str = disp_str
-    if not is_toggle:
+    if is_toggle:
+        sec_disp_str = '{} | {}'.format(disp_str, 'DONE' if is_done else ' .. ')
+    else:
         pct = int(float(current) * 100 / total)
         sec_disp_str = '{} | {:3d}%'.format(disp_str, pct)
 

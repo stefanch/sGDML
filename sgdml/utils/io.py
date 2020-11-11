@@ -551,7 +551,7 @@ def is_dir_with_file_type(arg, type, or_file=False):
     if or_file and os.path.isfile(arg):  # arg: file path
         _, file = is_file_type(
             arg, type
-        )  # raises exception if there is a problem with file
+        )  # raises exception if there is a problem with the file
         file.close()
         file_name = os.path.basename(arg)
         file_dir = os.path.dirname(arg)

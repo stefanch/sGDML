@@ -407,22 +407,22 @@ class Desc(object):
         n = np.max((R_d_desc.shape[0], vecs.shape[0]))
         i, j = self.tril_indices
 
-        #R_d_desc_full = np.zeros((n, self.n_atoms, self.n_atoms, 3))
-        #R_d_desc_full[:, i, j, :] = R_d_desc * vecs[..., None]
-        #R_d_desc_full[:, j, i, :] = -R_d_desc_full[:, i, j, :]
-        #return R_d_desc_full.sum(axis=1).reshape(n, -1)
+        out = np.zeros((n, self.n_atoms, self.n_atoms, 3))
+        out[:, i, j, :] = R_d_desc * vecs[..., None]
+        out[:, j, i, :] = -out[:, i, j, :]
+        return out.sum(axis=1).reshape(n, -1)
 
-        if out is None or out.shape != (n, self.n_atoms*3):
-            out = np.zeros((n, self.n_atoms*3))
+        #if out is None or out.shape != (n, self.n_atoms*3):
+        #    out = np.zeros((n, self.n_atoms*3))
 
-        R_d_desc_full = np.zeros((self.n_atoms, self.n_atoms, 3))
-        for a in range(n):
+        #R_d_desc_full = np.zeros((self.n_atoms, self.n_atoms, 3))
+        #for a in range(n):
 
-            R_d_desc_full[i, j, :] = R_d_desc * vecs[a, :, None]
-            R_d_desc_full[j, i, :] = -R_d_desc_full[i, j, :]
-            out[a,:] = R_d_desc_full.sum(axis=0).ravel()
+        #   R_d_desc_full[i, j, :] = R_d_desc * vecs[a, :, None]
+        #    R_d_desc_full[j, i, :] = -R_d_desc_full[i, j, :]
+        #    out[a,:] = R_d_desc_full.sum(axis=0).ravel()
 
-        return out
+        #return out
 
 
     # inflate desc

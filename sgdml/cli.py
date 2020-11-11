@@ -34,6 +34,7 @@ import traceback
 import time
 
 import numpy as np
+import scipy as sp
 
 try:
     import torch
@@ -41,6 +42,13 @@ except ImportError:
     _has_torch = False
 else:
     _has_torch = True
+
+try:
+    import ase
+except ImportError:
+    _has_ase = False
+else:
+    _has_ase = True
 
 from . import __version__, DONE, NOT_DONE, MAX_PRINT_WIDTH
 from .predict import GDMLPredict
@@ -517,9 +525,9 @@ def create(  # noqa: C901
 
     if sigs is None:
         log.info(
-            'Kernel hyper-parameter sigma was automatically set to range \'2:10:100\'.'
+            'Kernel hyper-parameter sigma was automatically set to range \'10:10:100\'.'
         )
-        sigs = list(range(2, 100, 10))  # default range
+        sigs = list(range(10, 100, 10))  # default range
 
     if task_dir is None:
         task_dir = io.train_dir_name(
@@ -1523,8 +1531,11 @@ def main():
         action='version',
         version='%(prog)s '
         + __version__
-        + ' [python '
-        + '.'.join(map(str, sys.version_info[:3]))
+        + ' [Python {}, NumPy {}, SciPy {}'.format(
+            '.'.join(map(str, sys.version_info[:3])), np.__version__, sp.__version__
+        )
+        + ', PyTorch {}'.format(torch.__version__ if _has_torch else 'N/A')
+        + ', ASE {}'.format(ase.__version__ if _has_ase else 'N/A')
         + ']',
     )
 
@@ -1547,7 +1558,7 @@ def main():
         '--torch',
         dest='use_torch',
         action='store_true',
-        help='use PyTorch for validation and test (including kernel evaluations in some numerical solvers)',
+        help='use PyTorch to enable GPU acceleration',
     )
 
     subparsers = parser.add_subparsers(title='commands', dest='command')

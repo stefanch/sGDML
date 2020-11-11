@@ -46,6 +46,7 @@ else:
 
 from . import __version__, DONE, NOT_DONE
 from .solvers.analytic import Analytic
+from .solvers.iterative import Iterative
 from .predict import GDMLPredict
 from .utils.desc import Desc
 from .utils import io, perm, ui
@@ -165,11 +166,7 @@ def _assemble_kernel_mat_wkr(
         diff_ab_perms = R_desc[i, :] - rj_desc_perms
         norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
 
-        #print('1')
-
         mat52_base_perms = np.exp(-norm_ab_perms / sig) / mat52_base_div * 5
-
-        #print('2')
 
         diff_ab_outer_perms = 5 * np.einsum(
             'ki,kj->ij',
@@ -177,24 +174,14 @@ def _assemble_kernel_mat_wkr(
             np.einsum('ik,jki -> ij', diff_ab_perms, rj_d_desc_perms),
         )
 
-        #print('3')
-
         diff_ab_outer_perms -= np.einsum(
             'ijk,k->ji',
             rj_d_desc_perms,
             (sig_pow2 + sig * norm_ab_perms) * mat52_base_perms,
         )
 
-        #print('4')
-
-        #print(diff_ab_outer_perms.T.shape)
-        #print(R_d_desc[i, :, :].shape)
-
-        #ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0]
-        #k = diff_ab_outer_perms.T.dot(ri_d_desc)
-
-        #K[blk_i, blk_j] = k
-        #print(ri_d_desc.shape)
+        ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0]
+        K[blk_i, blk_j] = diff_ab_outer_perms.T.dot(ri_d_desc).T
 
         # K[blk_i, blk_j] = desc_func.vec_dot_d_desc(
         #     R_d_desc[i, :, :], diff_ab_outer_perms.T
@@ -203,11 +190,9 @@ def _assemble_kernel_mat_wkr(
         # K[blk_i, blk_j] = desc_func.vec_dot_d_desc(
         #     R_d_desc[i, :, :], diff_ab_outer_perms.T
         # ).T
-        desc_func.vec_dot_d_desc(
-            R_d_desc[i, :, :], diff_ab_outer_perms.T, out=K[blk_i, blk_j].T
-        )
-
-        #print('5')
+        #desc_func.vec_dot_d_desc(
+        #    R_d_desc[i, :, :], diff_ab_outer_perms.T, out=K[blk_i, blk_j].T
+        #)
 
         if exploit_sym and (
             cols_m_limit is None or i < cols_m_limit
@@ -238,7 +223,7 @@ def _assemble_kernel_mat_wkr(
                 1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
             ).dot(np.exp(-norm_ab_perms / sig))
 
-    return blk_j.stop - blk_j.start  # TODO: fix me
+    return blk_j.stop - blk_j.start
 
 
 class GDMLTrain(object):
@@ -664,7 +649,7 @@ class GDMLTrain(object):
             'std': std,
             'sig': task['sig'],
             'lam': task['lam'],
-            'alphas_F': alphas_F,  # needed?
+            'alphas_F': alphas_F,
             'perms': task['perms'],
             'tril_perms_lin': tril_perms_lin,
             'use_E': task['use_E'],
@@ -1195,7 +1180,7 @@ class GDMLTrain(object):
             # tupels: (block index in final K, block index global, indices of partials within block)
             J = list(zip(blk_start_idxs, m_idxs_uniq, m_n_idxs))
 
-        callback(NOT_DONE)
+        callback(0, 100) # 0%
 
         K = mp.RawArray('d', K_n_rows * K_n_cols)
         glob['K'], glob['K_shape'] = K, (K_n_rows, K_n_cols)
