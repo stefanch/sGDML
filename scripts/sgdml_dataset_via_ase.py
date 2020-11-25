@@ -50,6 +50,7 @@ parser.add_argument(
     metavar='<dataset>',
     type=argparse.FileType('r'),
     help='path to input dataset file',
+    nargs='+',
 )
 parser.add_argument(
     '-o',
@@ -61,8 +62,23 @@ parser.add_argument(
 args = parser.parse_args()
 dataset = args.dataset
 
+if len(dataset) == 1:
+    name = os.path.splitext(os.path.basename(dataset.name))[0]
+else:
+    import difflib
 
-name = os.path.splitext(os.path.basename(dataset.name))[0]
+    def name_overlap(name1, name2):
+        i, _, lenght = difflib.SequenceMatcher(None, name1, name2).find_longest_match(0, len(name1), 0, len(name2))
+        return name1[i:i + lenght]
+
+    base_name = []
+    for idx1, name1 in enumerate(dataset):
+        for name2 in dataset[idx1+1:]:
+            base_name.append(name_overlap(name1.name, name2.name))
+
+    name = list(set(base_name))[0]
+    name = os.path.splitext(os.path.basename(name))[0]
+
 dataset_file_name = name + '.npz'
 
 dataset_exists = os.path.isfile(dataset_file_name)
@@ -76,45 +92,73 @@ else:
         + ' Dataset \'{}\' already exists.'.format(dataset_file_name)
     )
 
-mols = read(dataset.name, index=':')
+lattice_new, R_new, z_new, E_new, F_new = None, None, None, None, None
 
-lattice, R, z, E, F = None, None, None, None, None
+for i_f, file_i in enumerate(dataset):
+    print("Reading file: {}".format(file_i.name))
 
-calc = mols[0].get_calculator()
+    lattice, R, z, E, F = None, None, None, None, None
+
+    mols = read(file_i.name, index=':')
 
 
-print("\rNumber geometries found: {:,}\n".format(len(mols)))
+    calc = mols[0].get_calculator()
 
-if 'forces' not in calc.results:
-    sys.exit(
-        ui.color_str('[FAIL]', fore_color=ui.RED, bold=True)
-        + ' Forces are missing in the input file!'
-    )
 
-lattice = np.array(mols[0].get_cell())
-if not np.any(lattice):
-    print(
-        ui.color_str('[INFO]', bold=True)
-        + ' No lattice vectors specified in extended XYZ file.'
-    )
+    print("\rNumber geometries found: {:,}\n".format(len(mols)))
 
-Z = np.array([mol.get_atomic_numbers() for mol in mols])
-all_z_the_same = (Z == Z[0]).all()
-if not all_z_the_same:
-    sys.exit(
-        ui.color_str('[FAIL]', fore_color=ui.RED, bold=True)
-        + ' Order of atoms changes accross dataset.'
-    )
+    if 'forces' not in calc.results:
+        sys.exit(
+            ui.color_str('[FAIL]', fore_color=ui.RED, bold=True)
+            + ' Forces are missing in the input file!'
+        )
 
-lattice = np.array(mols[0].get_cell())
-if not np.any(lattice): # all zeros
-    lattice = None
+    lattice = np.array(mols[0].get_cell())
+    if not np.any(lattice):
+        print(
+            ui.color_str('[INFO]', bold=True)
+            + ' No lattice vectors specified in extended XYZ file.'
+        )
 
-R = np.array([mol.get_positions() for mol in mols])
-z = Z[0]
+    Z = np.array([mol.get_atomic_numbers() for mol in mols])
+    all_z_the_same = (Z == Z[0]).all()
+    if not all_z_the_same:
+        sys.exit(
+            ui.color_str('[FAIL]', fore_color=ui.RED, bold=True)
+            + ' Order of atoms changes accross dataset.'
+        )
 
-E = np.array([mol.get_potential_energy() for mol in mols])
-F = np.array([mol.get_forces() for mol in mols])
+    lattice = np.array(mols[0].get_cell())
+    if not np.any(lattice): # all zeros
+        lattice = None
+
+    R = np.array([mol.get_positions() for mol in mols])
+    z = Z[0]
+
+    E = np.array([mol.get_potential_energy() for mol in mols])
+    F = np.array([mol.get_forces() for mol in mols])
+
+
+    num_min = np.amin(np.array([R.shape[0], E.shape[0], F.shape[0]]))
+    print("\rNumber geometries found: {:,}\n".format(num_min))
+
+    if i_f == 0:
+        R_new = R[:num_min].copy()
+        E_new = E[:num_min].copy()
+        F_new = F[:num_min].copy()
+        z_new = z.copy()
+    else:
+        R_new = np.concatenate((R_new, R[:num_min]), axis=0)
+        E_new = np.concatenate((E_new, E[:num_min]), axis=0)
+        F_new = np.concatenate((F_new, F[:num_min]), axis=0)
+
+R = R_new.copy()
+E = E_new.copy()
+F = F_new.copy()
+z = z_new.copy()
+
+if len(dataset) > 1:
+    print("Final number of concatenated datapoints:", R.shape[0])
 
 print('Please provide a name for this dataset. Otherwise the original filename will be reused.')
 custom_name = raw_input('> ').strip()
