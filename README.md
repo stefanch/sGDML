@@ -1,6 +1,7 @@
 # Symmetric Gradient Domain Machine Learning (sGDML)
 
 For more details visit: [http://sgdml.org/](http://sgdml.org/)
+
 Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 
 #### Requirements:
