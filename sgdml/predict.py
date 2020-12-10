@@ -223,7 +223,8 @@ def _predict_wkr(
         out[0] = E_F[0]
 
     out[1:] = desc_func.vec_dot_d_desc(
-        r_d_desc, F,
+        r_d_desc,
+        F,
     )  # 'r_d_desc.T.dot(F)' for our special representation of 'r_d_desc'
 
     return out
@@ -314,53 +315,53 @@ class GDMLPredict(object):
 
         self.tril_perms_lin = model['tril_perms_lin']
 
-        # Precompute permuted training descriptors and its first derivatives multiplied with the coefficients (only needed for cached variant).
-
-        R_desc_perms = (
-            np.tile(model['R_desc'].T, n_perms)[:, self.tril_perms_lin]
-            .reshape(self.n_train, n_perms, -1, order='F')
-            .reshape(self.n_train * n_perms, -1)
-        )
-        glob['R_desc_perms'], glob['R_desc_perms_shape'] = share_array(R_desc_perms)
-
-        R_d_desc_alpha_perms = (
-            np.tile(model['R_d_desc_alpha'], n_perms)[:, self.tril_perms_lin]
-            .reshape(self.n_train, n_perms, -1, order='F')
-            .reshape(self.n_train * n_perms, -1)
-        )
-        glob['R_d_desc_alpha_perms'], glob['R_d_desc_alpha_perms_shape'] = share_array(
-            R_d_desc_alpha_perms
-        )
-
-        if 'alphas_E' in model:
-            alphas_E_lin = np.tile(model['alphas_E'][:, None], (1, n_perms)).ravel()
-            glob['alphas_E_lin'], glob['alphas_E_lin_shape'] = share_array(alphas_E_lin)
-
-        # GPU support
-
-        self.use_torch = use_torch
-
-        if use_torch and not _has_torch:
-            raise ImportError(
-                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
-            )
-
         self.torch_predict = None
-        if self.use_torch:
+        self.use_torch = use_torch
+        if use_torch:
+
+            if not _has_torch:
+                raise ImportError(
+                    'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
+                )
 
             from .torchtools import GDMLTorchPredict
 
-            self.torch_predict = GDMLTorchPredict(
-                model, self.lat_and_inv
-            )  # .to(self.torch_device)
+            self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv)
 
-            # enable data parallelism
+            # Enable data parallelism
             n_gpu = torch.cuda.device_count()
             if n_gpu > 1:
                 self.torch_predict = torch.nn.DataParallel(self.torch_predict)
 
             self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
             self.torch_predict.to(self.torch_device)
+
+        else:
+
+            # Precompute permuted training descriptors and its first derivatives multiplied with the coefficients.
+
+            R_desc_perms = (
+                np.tile(model['R_desc'].T, n_perms)[:, self.tril_perms_lin]
+                .reshape(self.n_train, n_perms, -1, order='F')
+                .reshape(self.n_train * n_perms, -1)
+            )
+            glob['R_desc_perms'], glob['R_desc_perms_shape'] = share_array(R_desc_perms)
+
+            R_d_desc_alpha_perms = (
+                np.tile(model['R_d_desc_alpha'], n_perms)[:, self.tril_perms_lin]
+                .reshape(self.n_train, n_perms, -1, order='F')
+                .reshape(self.n_train * n_perms, -1)
+            )
+            (
+                glob['R_d_desc_alpha_perms'],
+                glob['R_d_desc_alpha_perms_shape'],
+            ) = share_array(R_d_desc_alpha_perms)
+
+            if 'alphas_E' in model:
+                alphas_E_lin = np.tile(model['alphas_E'][:, None], (1, n_perms)).ravel()
+                glob['alphas_E_lin'], glob['alphas_E_lin_shape'] = share_array(
+                    alphas_E_lin
+                )
 
         # Parallel processing configuration
 

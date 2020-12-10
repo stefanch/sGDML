@@ -39,7 +39,13 @@ class SGDMLCalculator(Calculator):
     implemented_properties = ['energy', 'forces']
 
     def __init__(
-        self, model_path, E_to_eV=kcal/mol, F_to_eV_Ang=kcal/mol, *args, **kwargs
+        self,
+        model_path,
+        E_to_eV=kcal / mol,
+        F_to_eV_Ang=kcal / mol,
+        use_torch=False,
+        *args,
+        **kwargs
     ):
         """
         ASE calculator for the sGDML force field.
@@ -59,6 +65,8 @@ class SGDMLCalculator(Calculator):
                         Conversion factor from whatever energy unit is used by the model to eV. By default this parameter is set to convert from kcal/mol.
                 F_to_eV_Ang : float, optional
                         Conversion factor from whatever length unit is used by the model to Angstrom. By default, the length unit is not converted (assumed to be in Angstrom)
+                use_torch : boolean, optional
+                        Use PyTorch to calculate predictions
         """
 
         super(SGDMLCalculator, self).__init__(*args, **kwargs)
@@ -66,7 +74,7 @@ class SGDMLCalculator(Calculator):
         self.log = logging.getLogger(__name__)
 
         model = np.load(model_path, allow_pickle=True)
-        self.gdml_predict = GDMLPredict(model)
+        self.gdml_predict = GDMLPredict(model, use_torch=use_torch)
         self.gdml_predict.prepare_parallel()
 
         self.log.warning(

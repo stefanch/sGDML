@@ -26,6 +26,7 @@ import numpy as np
 import scipy as sp
 
 import multiprocessing as mp
+
 Pool = mp.get_context('fork').Pool
 
 from functools import partial
@@ -76,7 +77,7 @@ def _pbc_diff(diffs, lat_and_inv, use_torch=False):
     return diffs
 
 
-def _pdist(r, lat_and_inv=None): # TODO: update return (no squareform anymore)
+def _pdist(r, lat_and_inv=None):  # TODO: update return (no squareform anymore)
     """
     Compute pairwise Euclidean distance matrix between all atoms.
 
@@ -107,7 +108,8 @@ def _pdist(r, lat_and_inv=None): # TODO: update return (no squareform anymore)
     tril_idxs = np.tril_indices(n_atoms, k=-1)
     return sp.spatial.distance.squareform(pdist, checks=False)[tril_idxs]
 
-def _r_to_desc(r, pdist):
+
+def _r_to_desc(r, pdist, coff=None):
     """
     Generate descriptor for a set of atom positions in Cartesian
     coordinates.
@@ -131,16 +133,18 @@ def _r_to_desc(r, pdist):
     if r.ndim == 1:
         r = r[None, :]
 
-    return 1.0 / pdist
+    if coff is None:
 
-    #if self.coff_dist is None:
-    #    return 1.0 / pdist
-    #else:
-    #    cutoff_factor = -1.0 / (1.0 + np.exp(-self.coff_slope * (pdist - self.coff_dist))) + 1
-    #    return cutoff_factor / pdist
+        return 1.0 / pdist
+    else:
+
+        coff_dist, coff_slope = coff
+        cutoff_factor = -1.0 / (1.0 + np.exp(-coff_slope * (pdist - coff_dist))) + 1
+
+        return cutoff_factor / pdist
 
 
-def _r_to_d_desc(r, pdist, lat_and_inv=None): # TODO: fix documentation!
+def _r_to_d_desc(r, pdist, lat_and_inv=None, coff=None):  # TODO: fix documentation!
     """
     Generate descriptor Jacobian for a set of atom positions in
     Cartesian coordinates.
@@ -168,31 +172,35 @@ def _r_to_d_desc(r, pdist, lat_and_inv=None): # TODO: fix documentation!
 
     r = r.reshape(-1, 3)
     pdiff = r[:, None] - r[None, :]  # pairwise differences ri - rj
-   
+
     n_atoms = r.shape[0]
     i, j = np.tril_indices(n_atoms, k=-1)
 
-    pdiff = pdiff[i, j, :] # lower triangular
+    pdiff = pdiff[i, j, :]  # lower triangular
 
     if lat_and_inv is not None:
-        pdiff = _pbc_diff(
-            pdiff, lat_and_inv
+        pdiff = _pbc_diff(pdiff, lat_and_inv)
+
+    if coff is None:
+        d_desc_elem = pdiff / (pdist ** 3)[:, None]
+    else:
+        coff_dist, coff_slope = coff
+
+        cutoff_factor = 1.0 - 1.0 / (
+            np.exp(-coff_slope * (pdist[:, None] - coff_dist)) + 1.0
         )
-
-    d_desc_elem = pdiff / (pdist ** 3)[:, None]
-
-    #if self.coff_dist is None:
-    #    d_desc_elem = pdiff / (pdist ** 3)[:, None]
-    #else:
-
-    #    cutoff_factor = 1.0 - 1.0 / (np.exp(-self.coff_slope * (pdist[:, None] - self.coff_dist)) + 1.0)
-    #    cutoff_term = self.coff_slope * np.exp(-self.coff_slope * (pdist[:, None] - self.coff_dist)) / (pdiff * (np.exp(-self.coff_slope * (pdist[:, None] - self.coff_dist)) + 1)**2)
-    #    cutoff_term[cutoff_term == np.inf] = 0
-    #    d_desc_elem = cutoff_factor * pdiff / (pdist ** 3)[:, None] + cutoff_term
+        cutoff_term = (
+            coff_slope
+            * np.exp(-coff_slope * (pdist[:, None] - coff_dist))
+            / (pdiff * (np.exp(-coff_slope * (pdist[:, None] - coff_dist)) + 1) ** 2)
+        )
+        cutoff_term[cutoff_term == np.inf] = 0
+        d_desc_elem = cutoff_factor * pdiff / (pdist ** 3)[:, None] + cutoff_term
 
     return d_desc_elem
 
-def _from_r(r, lat_and_inv=None):
+
+def _from_r(r, lat_and_inv=None, coff=None):
     """
     Generate descriptor and its Jacobian for one molecular geometry
     in Cartesian coordinates.
@@ -220,8 +228,8 @@ def _from_r(r, lat_and_inv=None):
 
     pd = _pdist(r, lat_and_inv)
 
-    r_desc = _r_to_desc(r, pd)
-    r_d_desc = _r_to_d_desc(r, pd, lat_and_inv)
+    r_desc = _r_to_desc(r, pd, coff=coff)
+    r_d_desc = _r_to_d_desc(r, pd, lat_and_inv, coff=coff)
 
     return r_desc, r_d_desc
 
@@ -256,7 +264,7 @@ class Desc(object):
                 [np.where(rows == a)[0], np.where(cols == a)[0]]
             )
 
-        self.dim_range = np.arange(self.dim) # [0, 1, ..., dim-1]
+        self.dim_range = np.arange(self.dim)  # [0, 1, ..., dim-1]
 
         # Precompute indices for nonzero entries in desriptor derivatives.
 
@@ -271,12 +279,15 @@ class Desc(object):
         self.max_processes = max_processes
 
         # NEW: cutoff
-        self.coff_dist = interact_cut_off if not hasattr(interact_cut_off, '__iter__') else interact_cut_off.item() # TODO: that's a hack :(
+        self.coff_dist = (
+            interact_cut_off
+            if not hasattr(interact_cut_off, '__iter__')
+            else interact_cut_off.item()
+        )  # TODO: that's a hack :(
         self.coff_slope = 10
         # NEW
 
         self.tril_indices = np.tril_indices(n_atoms, k=-1)
-
 
     def from_R(self, R, lat_and_inv=None, callback=None):
         """
@@ -325,8 +336,10 @@ class Desc(object):
         start = timeit.default_timer()
         pool = Pool(self.max_processes)
 
+        coff = None if self.coff_dist is None else (self.coff_dist, self.coff_slope)
+
         for i, r_desc_r_d_desc in enumerate(
-            pool.imap(partial(_from_r, lat_and_inv=lat_and_inv), R)
+            pool.imap(partial(_from_r, lat_and_inv=lat_and_inv, coff=coff), R)
         ):
             R_desc[i, :], R_d_desc[i, :, :] = r_desc_r_d_desc
 
@@ -350,8 +363,8 @@ class Desc(object):
 
         A permutation of N atoms is converted to a permutation that acts on
         the corresponding descriptor representation. Applying the converted
-        permutation to a descriptor is equivalent to permuting the atoms 
-        first and then generating the descriptor. 
+        permutation to a descriptor is equivalent to permuting the atoms
+        first and then generating the descriptor.
 
         Parameters
         ----------
@@ -375,10 +388,9 @@ class Desc(object):
 
         return rest[np.tril_indices(n, -1)].astype(int)
 
-
     # Private
 
-    # multiplies descriptor(s) jacobian with 3N-vector(s) from the right side 
+    # multiplies descriptor(s) jacobian with 3N-vector(s) from the right side
     def d_desc_dot_vec(self, R_d_desc, vecs):
 
         if R_d_desc.ndim == 2:
@@ -392,8 +404,7 @@ class Desc(object):
         vecs = vecs.reshape(vecs.shape[0], -1, 3)
         return np.einsum('kji,kji->kj', R_d_desc, vecs[:, j, :] - vecs[:, i, :])
 
-
-    # multiplies descriptor(s) jacobian with N(N-1)/2-vector(s) from the left side 
+    # multiplies descriptor(s) jacobian with N(N-1)/2-vector(s) from the left side
     def vec_dot_d_desc(self, R_d_desc, vecs, out=None):
 
         if R_d_desc.ndim == 2:
@@ -402,7 +413,11 @@ class Desc(object):
         if vecs.ndim == 1:
             vecs = vecs[None, ...]
 
-        assert R_d_desc.shape[0] == 1 or vecs.shape[0] == 1 or R_d_desc.shape[0] == vecs.shape[0] # either multiple descriptors or multiple vectors at once, not both (or the same number of both, than it will must be a multidot)
+        assert (
+            R_d_desc.shape[0] == 1
+            or vecs.shape[0] == 1
+            or R_d_desc.shape[0] == vecs.shape[0]
+        )  # either multiple descriptors or multiple vectors at once, not both (or the same number of both, than it will must be a multidot)
 
         n = np.max((R_d_desc.shape[0], vecs.shape[0]))
         i, j = self.tril_indices
@@ -412,30 +427,35 @@ class Desc(object):
         out[:, j, i, :] = -out[:, i, j, :]
         return out.sum(axis=1).reshape(n, -1)
 
-        #if out is None or out.shape != (n, self.n_atoms*3):
+        # if out is None or out.shape != (n, self.n_atoms*3):
         #    out = np.zeros((n, self.n_atoms*3))
 
-        #R_d_desc_full = np.zeros((self.n_atoms, self.n_atoms, 3))
-        #for a in range(n):
+        # R_d_desc_full = np.zeros((self.n_atoms, self.n_atoms, 3))
+        # for a in range(n):
 
         #   R_d_desc_full[i, j, :] = R_d_desc * vecs[a, :, None]
         #    R_d_desc_full[j, i, :] = -R_d_desc_full[i, j, :]
         #    out[a,:] = R_d_desc_full.sum(axis=0).ravel()
 
-        #return out
-
+        # return out
 
     # inflate desc
     # add_to_vec - instead of creating a new array for the expanded descriptor Jacobian, add it onto an existing representation
-    def d_desc_from_comp(self, R_d_desc):
+    def d_desc_from_comp(self, R_d_desc, out=None):
+
+        # NOTE: out must be filled with zeros!
 
         if R_d_desc.ndim == 2:
-            R_d_desc= R_d_desc[None, ...]
+            R_d_desc = R_d_desc[None, ...]
 
         n = R_d_desc.shape[0]
         i, j = self.tril_indices
 
-        out = np.zeros((n, self.dim, self.n_atoms, 3))
+        if out is None:
+            out = np.zeros((n, self.dim, self.n_atoms, 3))
+        else:
+            out = out.reshape(n, self.dim, self.n_atoms, 3)
+
         out[:, self.dim_range, j, :] = R_d_desc
         out[:, self.dim_range, i, :] = -R_d_desc
 
@@ -446,7 +466,7 @@ class Desc(object):
 
         # Add singleton dimension for single inputs.
         if R_d_desc.ndim == 2:
-            R_d_desc= R_d_desc[None, ...]
+            R_d_desc = R_d_desc[None, ...]
 
         n = R_d_desc.shape[0]
         n_atoms = int(R_d_desc.shape[2] / 3)

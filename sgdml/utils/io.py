@@ -372,7 +372,7 @@ def is_file_type(arg, type):
             md5_str = os.path.basename(os.path.normpath(arg))
             dir = os.path.dirname(os.path.normpath(arg))
 
-            if dir == '': # it is only a filename after all, hence not the right type
+            if dir == '':  # it is only a filename after all, hence not the right type
                 raise argparse.ArgumentTypeError('{0} is not a .npz file'.format(arg))
 
             if re.search(r'^[a-f0-9]{32}$', md5_str) and not os.path.isdir(
@@ -389,8 +389,10 @@ def is_file_type(arg, type):
                 )
             )
         elif len(file_names) > 1:
-            error_str = "Multiple {0} files with fingerprint '{1}' found in '{2}'".format(
-                type, md5_str, dir
+            error_str = (
+                "Multiple {0} files with fingerprint '{1}' found in '{2}'".format(
+                    type, md5_str, dir
+                )
             )
             for file_name in file_names:
                 error_str += '\n       {0}'.format(file_name)

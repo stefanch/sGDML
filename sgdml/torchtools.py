@@ -22,6 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import sys
 import logging
 import numpy as np
 import torch
@@ -29,29 +30,6 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from .utils.desc import Desc
-
-
-def expand_tril(xs):
-    n = int((1 + np.sqrt(8 * xs.shape[-1] + 1)) / 2)
-    xs_full = torch.zeros((xs.shape[0], n, n), dtype=xs.dtype, device=xs.device)
-    i, j = np.tril_indices(n, k=-1)
-    xs_full[:, i, j] = xs
-    xs_full[:, j, i] = xs
-
-    # needed?
-    #i, j = np.diag_indices(n)
-    #xs_full[:, i, j] = 0
-
-    return xs_full
-
-def expand_tril_multiply(xs, mat):
-    
-    n = mat.shape[1]
-    i, j = np.tril_indices(n, k=-1)
-    mat[:, i, j, :] *= xs[:, :, None]
-    mat[:, j, i, :] *= xs[:, :, None]
-
-    return mat
 
 
 class GDMLTorchPredict(nn.Module):
@@ -97,6 +75,8 @@ class GDMLTorchPredict(nn.Module):
         self._c = float(model['c'])
         self._std = float(model.get('std', 1))
 
+        self.n_atoms = model['z'].shape[0]
+
         desc_siz = model['R_desc'].shape[0]
         n_perms, self._n_atoms = model['perms'].shape
         perm_idxs = (
@@ -104,6 +84,7 @@ class GDMLTorchPredict(nn.Module):
             .view(-1, n_perms)
             .t()
         )
+
         self._xs_train, self._Jx_alphas = (
             nn.Parameter(
                 xs.repeat(1, n_perms)[:, perm_idxs].reshape(-1, desc_siz),
@@ -115,27 +96,31 @@ class GDMLTorchPredict(nn.Module):
             )
         )
 
+        # constant memory requirement (bytes): _xs_train and _Jx_alphas
+        const_memory = 2 * self._xs_train.nelement() * self._xs_train.element_size()
+
         if max_memory is None:
             if torch.cuda.is_available():
-                max_memory = max(
+                max_memory = min(
                     [
                         torch.cuda.get_device_properties(i).total_memory
                         for i in range(torch.cuda.device_count())
                     ]
                 )
             else:
-                max_memory = 32 # TODO: 32 GB as default (hardcoded for now...)
+                max_memory = int(
+                    2 ** 30 * 32
+                )  # 32 GB to bytes as default (hardcoded for now...)
 
         _batch_size = (
-            int(2 ** 30 * max_memory) // self._memory_per_sample() # max_memory: GB to bytes
+            max((max_memory - const_memory) // self._memory_per_sample(), 1)
             if batch_size is None
             else batch_size
         )
         if torch.cuda.is_available():
             _batch_size *= torch.cuda.device_count()
 
-        n_atoms = model['z'].shape[0]
-        self.desc = Desc(n_atoms) # NOTE: max processes not set!!
+        self.desc = Desc(self.n_atoms)  # NOTE: max processes not set!!
 
         self.perm_idxs = perm_idxs
         self.n_perms = n_perms
@@ -158,10 +143,6 @@ class GDMLTorchPredict(nn.Module):
         dim_i = self.desc.dim_i
 
         R_d_desc_alpha = self.desc.d_desc_dot_vec(R_d_desc, alphas.reshape(-1, dim_i))
-
-        #r_dim = R_d_desc.shape[2]
-        #R_d_desc_alpha = np.einsum('jik,jk->ji', R_d_desc, alphas.reshape(-1, r_dim))
-
         xs = torch.from_numpy(R_d_desc_alpha).to(self._dev)
 
         self._Jx_alphas = nn.Parameter(
@@ -170,28 +151,42 @@ class GDMLTorchPredict(nn.Module):
         )
 
     def _memory_per_sample(self):
-        return 3 * self._xs_train.nelement() * self._xs_train.element_size()
+        # return 3 * self._xs_train.nelement() * self._xs_train.element_size() # size of 'diffs' (biggest object in 'forward')
+
+        # peak memory:
+        # N * a * a * 3
+        # N * d * 2
+        # N * n_perms*N_train * (d+4)
+
+        dim_d = self._xs_train.shape[1]
+
+        total = (dim_d * 2 + self.n_atoms) * 3
+        total += dim_d * 2
+        total += self._xs_train.shape[0] * (dim_d + 4)
+
+        return total * self._xs_train.element_size()
 
     def _batch_size(self):
         return _batch_size
 
     def _forward(self, Rs):
+
         sig = self._sig
         q = np.sqrt(5) / sig
 
-        diffs = Rs[:, :, None, :] - Rs[:, None, :, :]
+        diffs = Rs[:, :, None, :] - Rs[:, None, :, :]  # N, a, a, 3
         if self._lat_and_inv is not None:
             diffs_shape = diffs.shape
-            #diffs = self.desc.pbc_diff(diffs.reshape(-1, 3), self._lat_and_inv).reshape(
+            # diffs = self.desc.pbc_diff(diffs.reshape(-1, 3), self._lat_and_inv).reshape(
             #    diffs_shape
-            #)
+            # )
 
             lat, lat_inv = self._lat_and_inv
 
             if lat.device != Rs.device:
                 lat = lat.to(Rs.device)
                 lat_inv = lat_inv.to(Rs.device)
-            
+
             diffs = diffs.reshape(-1, 3)
 
             c = lat_inv.mm(diffs.t())
@@ -199,42 +194,80 @@ class GDMLTorchPredict(nn.Module):
 
             diffs = diffs.reshape(diffs_shape)
 
-        dists = diffs.norm(dim=-1)
-        i, j = np.diag_indices(self._n_atoms)
-        dists[:, i, j] = np.inf
+        dists = diffs.norm(dim=-1)  # N, a, a
+
+        # i, j = np.diag_indices(self._n_atoms)
+        # dists[:, i, j] = np.inf
 
         i, j = np.tril_indices(self._n_atoms, k=-1)
-        xs = 1 / dists[:, i, j]  # R_desc (1000, 36)
+        xs = 1 / dists[:, i, j]  # R_desc # N, d
 
-        x_diffs = (q * xs)[:, None, :] - q * self._xs_train
-        x_dists = x_diffs.norm(dim=-1)
-        exp_xs = 5.0 / (3 * sig ** 2) * torch.exp(-x_dists)
-        dot_x_diff_Jx_alphas = (x_diffs * self._Jx_alphas).sum(dim=-1)
-        exp_xs_1_x_dists = exp_xs * (1 + x_dists)
-        F1s_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
-        F2s_x = exp_xs_1_x_dists.mm(self._Jx_alphas)
-        #Fs_x = (F1s_x - F2s_x)  * self._std
+        # current:
+        # diffs: N, a, a, 3
+        # dists: N, a, a
+        # xs: # N, d
 
-        #Fs = ((expand_tril(Fs_x) / dists ** 3)[..., None] * diffs).sum(
-        #    dim=1
-        #)  # * R_d_desc
+        del dists
 
-        #Fs = (expand_tril(Fs_x * (xs ** 3))[..., None] * diffs).sum(
-        #    dim=1
-        #)  # * R_d_desc
+        # current:
+        # diffs: N, a, a, 3
+        # xs: # N, d
 
-        #Fs = expand_tril_multiply(Fs_x * (xs ** 3), diffs).sum(
-        #    dim=1
-        #)
+        x_diffs = (q * xs)[:, None, :] - q * self._xs_train  # N, n_perms*N_train, d
+        x_dists = x_diffs.norm(dim=-1)  # N, n_perms*N
 
-        Fs_x = (F1s_x - F2s_x) * (xs ** 3)
+        exp_xs = 5.0 / (3 * sig ** 2) * torch.exp(-x_dists)  # N, n_perms*N_train
+
+        # dot_x_diff_Jx_alphas = (x_diffs * self._Jx_alphas).sum(dim=-1)
+        dot_x_diff_Jx_alphas = torch.einsum(
+            'ijk,jk->ij', x_diffs, self._Jx_alphas
+        )  # N, n_perms*N_train
+        exp_xs_1_x_dists = exp_xs * (1 + x_dists)  # N, n_perms*N_train
+
+        # F1s_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
+        # F2s_x = exp_xs_1_x_dists.mm(self._Jx_alphas)
+
+        # Fs_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
+        Fs_x = torch.einsum(
+            'ij,ij,ijk->ik', exp_xs, dot_x_diff_Jx_alphas, x_diffs
+        )  # N, d
+
+        # current:
+        # diffs: N, a, a, 3
+        # xs: # N, d
+        # x_diffs: # N, n_perms*N_train, d
+        # x_dists: # N, n_perms*N_train
+        # exp_xs: # N, n_perms*N_train
+        # dot_x_diff_Jx_alphas: N, n_perms*N_train
+        # exp_xs_1_x_dists: N, n_perms*N_train
+        # Fs_x: N, d
+
+        del exp_xs
+        del x_diffs
+
+        Fs_x -= exp_xs_1_x_dists.mm(self._Jx_alphas)  # N, d
+
+        # current:
+        # diffs: N, a, a, 3
+        # xs: # N, d
+        # x_dists: # N, n_perms*N
+        # dot_x_diff_Jx_alphas: N, n_perms*N
+        # exp_xs_1_x_dists: N, n_perms*N
+        # Fs_x: N, d
+
+        # Fs_x = (F1s_x - F2s_x) * (xs ** 3)
+        Fs_x *= xs ** 3
         diffs[:, i, j, :] *= Fs_x[..., None]
         diffs[:, j, i, :] *= Fs_x[..., None]
 
         Fs = diffs.sum(dim=1) * self._std
 
-        Es = (exp_xs_1_x_dists * dot_x_diff_Jx_alphas).sum(dim=-1) / q
-        Es = Es * self._std + self._c
+        del diffs
+
+        # Es = (exp_xs_1_x_dists * dot_x_diff_Jx_alphas).sum(dim=-1) / q
+        Es = torch.einsum('ij,ij->i', exp_xs_1_x_dists, dot_x_diff_Jx_alphas) / q
+        Es *= self._std
+        Es += self._c
 
         return Es, Fs
 
@@ -263,16 +296,14 @@ class GDMLTorchPredict(nn.Module):
         dtype = Rs.dtype
         Rs = Rs.double()
 
-        retry = True
-        while retry:
-
+        while True:
             try:
-                Es, Fs = zip(*map(self._forward, DataLoader(Rs, batch_size=_batch_size)))
-                retry = False
-
+                Es, Fs = zip(
+                    *map(self._forward, DataLoader(Rs, batch_size=_batch_size))
+                )
             except RuntimeError as e:
                 if 'out of memory' in str(e):
-                    if _batch_size > 2:
+                    if _batch_size > (torch.cuda.device_count() + 1):
 
                         import gc
                         gc.collect()
@@ -280,7 +311,6 @@ class GDMLTorchPredict(nn.Module):
                         torch.cuda.empty_cache()
 
                         _batch_size -= 1
-                        retry = True
 
                     else:
                         self._log.critical(
@@ -290,5 +320,7 @@ class GDMLTorchPredict(nn.Module):
                         sys.exit()
                 else:
                     raise e
+            else:
+                break
 
         return torch.cat(Es).to(dtype), torch.cat(Fs).to(dtype)

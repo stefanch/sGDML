@@ -78,12 +78,16 @@ else:
 
 mols = read(dataset.name, index=':')
 
+# filter incomplete outputs from trajectory
+mols = [mol for mol in mols if mol.get_calculator() is not None]
+
 lattice, R, z, E, F = None, None, None, None, None
 
 calc = mols[0].get_calculator()
 
-
-print("\rNumber geometries found: {:,}\n".format(len(mols)))
+print("\rNumber geometries: {:,}".format(len(mols)))
+print("\rAvailable properties: " + ', '.join(calc.results))
+print()
 
 if 'forces' not in calc.results:
     sys.exit(
@@ -95,7 +99,7 @@ lattice = np.array(mols[0].get_cell())
 if not np.any(lattice):
     print(
         ui.color_str('[INFO]', bold=True)
-        + ' No lattice vectors specified in extended XYZ file.'
+        + ' No lattice vectors specified.'
     )
 
 Z = np.array([mol.get_atomic_numbers() for mol in mols])

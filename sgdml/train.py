@@ -30,6 +30,7 @@ import sys
 import logging
 
 import multiprocessing as mp
+
 Pool = mp.get_context('fork').Pool
 
 import timeit
@@ -121,11 +122,11 @@ def _assemble_kernel_mat_wkr(
     desc_func = glob['desc_func']
 
     n_train, dim_d = R_d_desc.shape[:2]
-    dim_i = 3 * int((1 + np.sqrt(8 * dim_d + 1)) / 2)
+    n_atoms = int((1 + np.sqrt(8 * dim_d + 1)) / 2)
+    dim_i = 3 * n_atoms
     n_perms = int(len(tril_perms_lin) / dim_d)
 
     if type(j) is tuple:  # selective/"fancy" indexing
-
         (
             K_j,
             j,
@@ -159,40 +160,46 @@ def _assemble_kernel_mat_wkr(
     sqrt5 = np.sqrt(5.0)
     sig_pow2 = sig ** 2
 
+    dim_i_keep = rj_d_desc.shape[1]
+    diff_ab_outer_perms = np.empty((dim_d, dim_i_keep))
+    diff_ab_perms = np.empty((n_perms, dim_d))
+    ri_d_desc = np.zeros((1, dim_d, dim_i)) # must be zeros!
+    k = np.empty((dim_i, dim_i_keep))
+
     for i in range(j if exploit_sym else 0, n_train):
 
         blk_i = slice(i * dim_i, (i + 1) * dim_i)
 
-        diff_ab_perms = R_desc[i, :] - rj_desc_perms
-        norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
+        #diff_ab_perms = R_desc[i, :] - rj_desc_perms
+        np.subtract(R_desc[i, :], rj_desc_perms, out=diff_ab_perms)
 
+        norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
         mat52_base_perms = np.exp(-norm_ab_perms / sig) / mat52_base_div * 5
 
-        diff_ab_outer_perms = 5 * np.einsum(
+        #diff_ab_outer_perms = 5 * np.einsum(
+        #    'ki,kj->ij',
+        #    diff_ab_perms * mat52_base_perms[:, None],
+        #    np.einsum('ik,jki -> ij', diff_ab_perms, rj_d_desc_perms)
+        #)
+        np.einsum(
             'ki,kj->ij',
-            diff_ab_perms * mat52_base_perms[:, None],
-            np.einsum('ik,jki -> ij', diff_ab_perms, rj_d_desc_perms),
+            diff_ab_perms * mat52_base_perms[:, None] * 5,
+            np.einsum('ki,jik -> kj', diff_ab_perms, rj_d_desc_perms),
+            out=diff_ab_outer_perms
         )
 
         diff_ab_outer_perms -= np.einsum(
-            'ijk,k->ji',
+            'ikj,j->ki',
             rj_d_desc_perms,
             (sig_pow2 + sig * norm_ab_perms) * mat52_base_perms,
         )
 
-        ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0]
-        K[blk_i, blk_j] = diff_ab_outer_perms.T.dot(ri_d_desc).T
+        #ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0]
+        desc_func.d_desc_from_comp(R_d_desc[i, :, :], out=ri_d_desc)
 
-        # K[blk_i, blk_j] = desc_func.vec_dot_d_desc(
-        #     R_d_desc[i, :, :], diff_ab_outer_perms.T
-        # ).T
-
-        # K[blk_i, blk_j] = desc_func.vec_dot_d_desc(
-        #     R_d_desc[i, :, :], diff_ab_outer_perms.T
-        # ).T
-        #desc_func.vec_dot_d_desc(
-        #    R_d_desc[i, :, :], diff_ab_outer_perms.T, out=K[blk_i, blk_j].T
-        #)
+        #K[blk_i, blk_j] = ri_d_desc[0].T.dot(diff_ab_outer_perms)
+        np.dot(ri_d_desc[0].T, diff_ab_outer_perms, out=k)
+        K[blk_i, blk_j] = k
 
         if exploit_sym and (
             cols_m_limit is None or i < cols_m_limit
@@ -473,17 +480,16 @@ class GDMLTrain(object):
         if use_E:
             task['E_train'] = train_dataset['E'][idxs_train]
 
-        # lat_and_inv = None
-        # if 'lattice' in train_dataset:
-        #     task['lattice'] = train_dataset['lattice']
+        lat_and_inv = None
+        if 'lattice' in train_dataset:
+            task['lattice'] = train_dataset['lattice']
 
-        #     #if 'lattice' in train_dataset:
-        #     try:
-        #         lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
-        #     except np.linalg.LinAlgError:
-        #         raise ValueError(  # TODO: Document me
-        #             'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
-        #         )
+            try:
+                lat_and_inv = (task['lattice'], np.linalg.inv(task['lattice']))
+            except np.linalg.LinAlgError:
+                raise ValueError(  # TODO: Document me
+                    'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
+                )
 
         if 'r_unit' in train_dataset and 'e_unit' in train_dataset:
             task['r_unit'] = train_dataset['r_unit']
@@ -682,6 +688,9 @@ class GDMLTrain(object):
 
         return model
 
+    #from memory_profiler import profile
+
+    #@profile
     def train(  # noqa: C901
         self,
         task,
@@ -828,6 +837,7 @@ class GDMLTrain(object):
                 train_rmse,
                 nystrom_col_idxs,
                 gpu_batch_size,
+                is_conv,
             ) = iterative.solve(
                 task,
                 R_desc,
@@ -845,6 +855,24 @@ class GDMLTrain(object):
                 + str(int(len(nystrom_col_idxs) / dim_i))
             )
             print('       | gpu_batch_size: ' + str(gpu_batch_size))
+
+            if not is_conv:
+                self.log.warning(
+                    'Iterative solver did not converge!\n'
+                    + 'The optimization problem underlying this force field reconstruction task seems to be highly ill-conditioned.\n\n'
+                    + ui.color_str('Troubleshooting tips:\n', bold=True)
+                    + ui.wrap_indent_str(
+                        '(1) ',
+                        'Are the provided geometries highly correlated (i.e. very similar to each other)?',
+                    )
+                    + '\n'
+                    + ui.wrap_indent_str(
+                        '(2) ', 'Try a larger length scale (sigma) parameter.'
+                    )
+                    + '\n\n'
+                    + ui.color_str('Note:', bold=True)
+                    + ' We will continue with this unconverged model, but its accuracy will likely be very bad.'
+                )
 
         else:
             raise ValueError(
@@ -889,7 +917,9 @@ class GDMLTrain(object):
 
         return model
 
-    def _recov_int_const(self, model, task, R_desc=None, R_d_desc=None):  # TODO: document e_err_inconsist return
+    def _recov_int_const(
+        self, model, task, R_desc=None, R_d_desc=None
+    ):  # TODO: document e_err_inconsist return
         """
         Estimate the integration constant for a force field model.
 
@@ -992,7 +1022,7 @@ class GDMLTrain(object):
                 + '\n'
                 + ui.wrap_indent_str('    - ', 'Same level of theory?')
                 + '\n'
-                + ui.wrap_indent_str('    - ', 'Accuracy of forces (if numerical)?')
+                + ui.wrap_indent_str('    - ', 'Accuracy of forces?')
                 + '\n'
                 + ui.wrap_indent_str(
                     '(3) ',
@@ -1180,7 +1210,7 @@ class GDMLTrain(object):
             # tupels: (block index in final K, block index global, indices of partials within block)
             J = list(zip(blk_start_idxs, m_idxs_uniq, m_n_idxs))
 
-        callback(0, 100) # 0%
+        callback(0, 100)  # 0%
 
         K = mp.RawArray('d', K_n_rows * K_n_cols)
         glob['K'], glob['K_shape'] = K, (K_n_rows, K_n_cols)
@@ -1333,4 +1363,5 @@ class GDMLTrain(object):
             idxs_train = np.append(
                 idxs_train, np.random.choice(idx_in_bin_all, bin_cnt, replace=False)
             )
+
         return idxs_train

@@ -65,7 +65,7 @@ class AssistantError(Exception):
     pass
 
 
-def _print_splash(max_processes=None):
+def _print_splash(max_processes=None, use_torch=False):
 
     logo_str = r"""         __________  __  _____
    _____/ ____/ __ \/  |/  / /
@@ -86,11 +86,11 @@ def _print_splash(max_processes=None):
     max_processes_str = (
         ''
         if max_processes is None or max_processes >= mp.cpu_count()
-        else ' [allowed to use {}]'.format(max_processes)
+        else ' [using {}]'.format(max_processes)
     )
     hardware_str = 'found {:d} CPU(s){}'.format(mp.cpu_count(), max_processes_str)
 
-    if _has_torch and torch.cuda.is_available():
+    if use_torch and _has_torch and torch.cuda.is_available():
         num_gpu = torch.cuda.device_count()
         if num_gpu > 0:
             hardware_str += ' / {:d} GPU(s)'.format(num_gpu)
@@ -1696,6 +1696,13 @@ def main():
 
     for subparser in [parser_all, parser_create]:  # NEW
         group = subparser.add_mutually_exclusive_group()
+        group.add_argument(
+            '--cg',
+            dest='use_cg',
+            action='store_true',
+            help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
+            # help=argparse.SUPPRESS
+        )
         subparser.add_argument(
             '--ip',
             dest='max_inducing_pts',
@@ -1758,7 +1765,7 @@ def main():
         if not args.model_file.endswith('.npz'):
             args.model_file += '.npz'
 
-    _print_splash(args.max_processes)
+    _print_splash(args.max_processes, args.use_torch)
 
     # Check PyTorch GPU support.
     if 'use_torch' in args and args.use_torch:

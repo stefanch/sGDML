@@ -53,14 +53,24 @@ def yes_or_no(question):
     else:
         return True
 
+
 last_callback_pct = 0
-def callback(current, total=1, disp_str='', sec_disp_str=None, done_with_warning=False, newline_when_done=True):
+
+
+def callback(
+    current,
+    total=1,
+    disp_str='',
+    sec_disp_str=None,
+    done_with_warning=False,
+    newline_when_done=True,
+):
     """
     Print progress or toggle bar.
 
     Example (progress):
     ``[ 45%] Task description (secondary string)``
-    
+
     Example (toggle, not done):
     ``[ .. ] Task description (secondary string)``
 
@@ -79,7 +89,7 @@ def callback(current, total=1, disp_str='', sec_disp_str=None, done_with_warning
         sec_disp_str : :obj:`str`, optional
             Additional string shown in gray.
         done_with_warning : bool, optional
-            Indicate that the process did not 
+            Indicate that the process did not
             finish successfully.
         newline_when_done : bool, optional
             Finish with a newline character once
@@ -106,7 +116,7 @@ def callback(current, total=1, disp_str='', sec_disp_str=None, done_with_warning
             return
         else:
             last_callback_pct = pct
-        
+
         flag_str = str_color('[{:3d}%]'.format(pct))
 
     sys.stdout.write('\r{} {}'.format(flag_str, disp_str))
@@ -123,7 +133,9 @@ def callback(current, total=1, disp_str='', sec_disp_str=None, done_with_warning
 
 # use this to integrate a callback for a subtask with an existing callback function
 # 'subtask_callback = partial(ui.sec_callback, main_callback=self.callback)'
-def sec_callback(current, total=1, disp_str=None, sec_disp_str=None, main_callback=None, **kwargs):
+def sec_callback(
+    current, total=1, disp_str=None, sec_disp_str=None, main_callback=None, **kwargs
+):
 
     assert main_callback is not None
 
@@ -138,7 +150,6 @@ def sec_callback(current, total=1, disp_str=None, sec_disp_str=None, main_callba
         sec_disp_str = '{} | {:3d}%'.format(disp_str, pct)
 
     main_callback(0, sec_disp_str=sec_disp_str, **kwargs)
-    
 
 
 # COLORS
@@ -193,6 +204,7 @@ def info_str(str):
 
 def pass_str(str):
     return color_str(str, fore_color=GREEN, bold=True)
+
 
 def warn_str(str):
     return color_str(str, fore_color=YELLOW, bold=True)
@@ -281,7 +293,7 @@ def indent_str(str, indent):
         str : :obj:`str`
             Multiline string.
         indent : int
-            Number of characters added in front of each line. 
+            Number of characters added in front of each line.
 
     Returns
     -------
@@ -369,7 +381,7 @@ def gen_mat_str(mat):
     """
 
     def _int_len(
-        x
+        x,
     ):  # length of string representation before decimal point (including sign)
         return len(str(int(abs(x)))) + (0 if x >= 0 else 1)
 

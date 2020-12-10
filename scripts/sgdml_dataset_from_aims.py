@@ -153,6 +153,13 @@ base_vars = {
     'name': name,
     'theory': 'unknown',
 }
+
+base_vars['F_min'], base_vars['F_max'] = np.min(F.ravel()), np.max(F.ravel())
+base_vars['F_mean'], base_vars['F_var'] = np.mean(F.ravel()), np.var(F.ravel())
+
+base_vars['E_min'], base_vars['E_max'] = np.min(E), np.max(E)
+base_vars['E_mean'], base_vars['E_var'] = np.mean(E), np.var(E)
+
 base_vars['md5'] = io.dataset_md5(base_vars)
 
 np.savez_compressed(dataset_file_name, **base_vars)
