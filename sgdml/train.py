@@ -47,7 +47,7 @@ else:
 
 from . import __version__, DONE, NOT_DONE
 from .solvers.analytic import Analytic
-from .solvers.iterative import Iterative
+#from .solvers.iterative import Iterative
 from .predict import GDMLPredict
 from .utils.desc import Desc
 from .utils import io, perm, ui
