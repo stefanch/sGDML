@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2020 Stefan Chmiela
+# Copyright (c) 2018-2021 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -448,13 +448,12 @@ def print_step_title(title_str, sec_title_str='', underscore=True):
     if sec_title_str != '':
         sec_title_str = ' ' + sec_title_str
 
-    underscore_str = '-' * MAX_PRINT_WIDTH if underscore else ''
+    underscore_str = '\n' + '-' * MAX_PRINT_WIDTH if underscore else ''
 
     print(
         '\n'
         + white_back_str(' ' + title_str + ' ')
         + sec_title_str
-        + '\n'
         + underscore_str
     )
 
@@ -468,7 +467,7 @@ def print_two_column_str(str, sec_str=''):
     )
 
 
-def print_lattice(lat=None):
+def print_lattice(lat=None, inset=False):
 
     from . import io
 
@@ -477,7 +476,10 @@ def print_lattice(lat=None):
         lat_str = gen_lattice_str(lat)
         lengths, angles = io.lattice_vec_to_par(lat)
 
-    print('  {:<18} {}'.format('Lattice:', lat_str))
+    if inset:
+        print('    {:<16} {}'.format('Lattice:', lat_str))
+    else:
+        print('  {:<18} {}'.format('Lattice:', lat_str))
     if lat is not None:
         print('    {:<16} a = {:g}, b = {:g}, c = {:g}'.format('Lengths:', *lengths))
         print(

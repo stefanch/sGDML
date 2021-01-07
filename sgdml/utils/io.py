@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2019 Stefan Chmiela
+# Copyright (c) 2018-2021 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -160,20 +160,18 @@ def z_to_z_str(z):
 
 
 def train_dir_name(
-    dataset, n_train, use_sym, use_cprsn, use_E, use_E_cstr, model0=None
+    dataset, n_train, use_sym, use_cprsn, use_E, use_E_cstr
 ):
 
     theory_level_str = re.sub(r'[^\w\-_\.]', '.', str(dataset['theory']))
     theory_level_str = re.sub(r'\.\.', '.', theory_level_str)
 
-    m0_str = 'm0-' if model0 is not None else ''
     sym_str = '-sym' if use_sym else ''
     cprsn_str = '-cprsn' if use_cprsn else ''
     noE_str = '-noE' if not use_E else ''
     Ecstr_str = '-Ecstr' if use_E_cstr else ''
 
-    return '%ssgdml_cv_%s-%s-train%d%s%s%s%s' % (
-        m0_str,
+    return 'sgdml_cv_%s-%s-train%d%s%s%s%s' % (
         dataset['name'].astype(str),
         theory_level_str,
         n_train,

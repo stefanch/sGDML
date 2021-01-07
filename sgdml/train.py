@@ -4,7 +4,7 @@ This module contains all routines for training GDML and sGDML models.
 
 # MIT License
 #
-# Copyright (c) 2018-2020 Stefan Chmiela
+# Copyright (c) 2018-2021 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -298,10 +298,9 @@ class GDMLTrain(object):
         use_E=True,
         use_E_cstr=False,
         use_cprsn=False,
-        model0=None,  # TODO: document me
         solver='analytic',  # TODO: document me
         solver_tol=1e-4,  # TODO: document me
-        max_inducing_pts=None,  # TODO: document me
+        n_inducing_pts_init=25,  # TODO: document me
         interact_cut_off=None,  # TODO: document me
         callback=None,  # TODO: document me
     ):
@@ -348,9 +347,6 @@ class GDMLTrain(object):
                 True: compress kernel matrix along symmetric degrees of
                 freedom,
                 False: train using full kernel matrix
-            model0 : :obj:`dict`, optional
-                Create a task based on an existing template model. Training and validation
-                splits are reused, so are the permutations and regression parameters.
 
         Returns
         -------
@@ -386,29 +382,6 @@ class GDMLTrain(object):
         if callback is not None:
             callback(DONE)
 
-        if model0 is not None and (
-            md5_train != model0['md5_train'] or md5_valid != model0['md5_valid']
-        ):
-            raise ValueError(
-                'Provided training and/or validation dataset(s) do(es) not match the ones in the initial model.'
-            )
-
-        m0_excl_idxs = np.array([], dtype=np.uint)
-        m0_n_train, m0_n_valid = 0, 0
-        if model0 is not None:
-
-            m0_idxs_train = model0['idxs_train']
-            m0_idxs_valid = model0['idxs_valid']
-
-            m0_n_train = m0_idxs_train.shape[0]
-            m0_n_valid = m0_idxs_valid.shape[0]
-
-            m0_excl_idxs = np.concatenate((m0_idxs_train, m0_idxs_valid)).astype(
-                np.uint
-            )
-
-        # TODO: handle smaller training/validation set
-
         if callback is not None:
             callback = partial(
                 callback, disp_str='Sampling training and validation subsets'
@@ -417,7 +390,7 @@ class GDMLTrain(object):
 
         if 'E' in train_dataset:
             idxs_train = self.draw_strat_sample(
-                train_dataset['E'], n_train - m0_n_train, m0_excl_idxs
+                train_dataset['E'], n_train
             )
         else:
             idxs_train = np.random.choice(
@@ -429,12 +402,11 @@ class GDMLTrain(object):
 
         excl_idxs = (
             idxs_train if md5_train == md5_valid else np.array([], dtype=np.uint)
-        )  # TODO: TEST CASE: differnt test and val sets and m0
-        excl_idxs = np.concatenate((m0_excl_idxs, excl_idxs)).astype(np.uint)
+        )
 
         if 'E' in valid_dataset:
             idxs_valid = self.draw_strat_sample(
-                valid_dataset['E'], n_valid - m0_n_valid, excl_idxs
+                valid_dataset['E'], n_valid
             )
         else:
             idxs_valid_all = np.setdiff1d(
@@ -447,10 +419,6 @@ class GDMLTrain(object):
 
         if callback is not None:
             callback(DONE)
-
-        if model0 is not None:
-            idxs_train = np.concatenate((m0_idxs_train, idxs_train)).astype(np.uint)
-            idxs_valid = np.concatenate((m0_idxs_valid, idxs_valid)).astype(np.uint)
 
         R_train = train_dataset['R'][idxs_train, :, :]
         task = {
@@ -473,7 +441,7 @@ class GDMLTrain(object):
             'use_cprsn': use_cprsn,
             'solver_name': solver,
             'solver_tol': solver_tol,
-            'max_inducing_pts': max_inducing_pts,
+            'n_inducing_pts_init': n_inducing_pts_init,
             'interact_cut_off': interact_cut_off,
         }
 
@@ -495,82 +463,57 @@ class GDMLTrain(object):
             task['r_unit'] = train_dataset['r_unit']
             task['e_unit'] = train_dataset['e_unit']
 
-        if model0 is None:
-            if use_sym:
-                n_train = R_train.shape[0]
-                R_train_sync_mat = R_train
-                if n_train > 1000:
-                    R_train_sync_mat = R_train[
-                        np.random.choice(n_train, 1000, replace=False), :, :
-                    ]
-                    self.log.info(
-                        'Symmetry search has been restricted to a random subset of 1000/{:d} training points for faster convergence.'.format(
-                            n_train
-                        )
+        if use_sym:
+            n_train = R_train.shape[0]
+            R_train_sync_mat = R_train
+            if n_train > 1000:
+                R_train_sync_mat = R_train[
+                    np.random.choice(n_train, 1000, replace=False), :, :
+                ]
+                self.log.info(
+                    'Symmetry search has been restricted to a random subset of 1000/{:d} training points for faster convergence.'.format(
+                        n_train
                     )
+                )
 
-                # TOOD: PBCs disabled when matching (for now).
-                # task['perms'] = perm.find_perms(
-                #    R_train_sync_mat, train_dataset['z'], lat_and_inv=lat_and_inv, max_processes=self._max_processes,
-                # )
-                task['perms'] = perm.find_perms(
+            # TOOD: PBCs disabled when matching (for now).
+            # task['perms'] = perm.find_perms(
+            #    R_train_sync_mat, train_dataset['z'], lat_and_inv=lat_and_inv, max_processes=self._max_processes,
+            # )
+            task['perms'] = perm.find_perms(
+                R_train_sync_mat,
+                train_dataset['z'],
+                lat_and_inv=None,
+                callback=callback,
+                max_processes=self._max_processes,
+            )
+
+            # NEW
+
+            USE_FRAG_PERMS = False
+
+            if USE_FRAG_PERMS:
+                frag_perms = perm.find_frag_perms(
                     R_train_sync_mat,
                     train_dataset['z'],
                     lat_and_inv=None,
-                    callback=callback,
                     max_processes=self._max_processes,
                 )
+                task['perms'] = np.vstack((task['perms'], frag_perms))
+                task['perms'] = np.unique(task['perms'], axis=0)
 
-                # NEW
+                print(
+                    '| Keeping '
+                    + str(task['perms'].shape[0])
+                    + ' unique permutations.'
+                )
 
-                USE_FRAG_PERMS = False
+            # NEW
 
-                if USE_FRAG_PERMS:
-                    frag_perms = perm.find_frag_perms(
-                        R_train_sync_mat,
-                        train_dataset['z'],
-                        lat_and_inv=None,
-                        max_processes=self._max_processes,
-                    )
-                    task['perms'] = np.vstack((task['perms'], frag_perms))
-                    task['perms'] = np.unique(task['perms'], axis=0)
-
-                    print(
-                        '| Keeping '
-                        + str(task['perms'].shape[0])
-                        + ' unique permutations.'
-                    )
-
-                # NEW
-
-            else:
-                task['perms'] = np.arange(train_dataset['R'].shape[1])[
-                    None, :
-                ]  # no symmetries
         else:
-            task['perms'] = model0['perms']
-            self.log.info('Reusing permutations from initial model.')
-
-        if model0 is not None:
-
-            n_train, n_atoms = task['R_train'].shape[:2]
-
-            if 'alphas_F' in model0:
-                self.log.info('Reusing alphas from initial model.')
-
-                # Pad existing alphas, if this training dataset is larger than the one in model0
-                alphas0_F_padding = np.ones(
-                    ((n_train - m0_n_train) * n_atoms * 3,)
-                ) * np.mean(model0['alphas_F'])
-                task['alphas0_F'] = np.append(model0['alphas_F'], alphas0_F_padding)
-
-            if 'alphas_E' in model0:
-
-                # Pad existing alphas, if this training dataset is larger than the one in model0
-                alphas0_E_padding = np.ones(
-                    ((n_train - m0_n_train) * n_atoms,)
-                ) * np.mean(model0['alphas_E'])
-                task['alphas0_E'] = np.append(model0['alphas_E'], alphas0_E_padding)
+            task['perms'] = np.arange(train_dataset['R'].shape[1])[
+                None, :
+            ]  # no symmetries
 
         # Which atoms can we keep, if we exclude all symmetric ones?
         n_perms = task['perms'].shape[0]
@@ -584,6 +527,66 @@ class GDMLTrain(object):
 
         return task
 
+    def create_task_from_model(self, model, dataset):
+
+        idxs_train = model['idxs_train']
+        R_train = dataset['R'][idxs_train, :, :]
+        F_train = dataset['F'][idxs_train, :, :]
+
+        use_E = 'e_err' in model
+        use_E_cstr = 'alphas_E' in model
+        use_sym = model['perms'].shape[0] > 1
+
+        task = {
+            'type': 't',
+            'code_version': __version__,
+            'dataset_name': model['dataset_name'],
+            'dataset_theory': model['dataset_theory'],
+            'z': model['z'],
+            'R_train': R_train,
+            'F_train': F_train,
+            'idxs_train': idxs_train,
+            'md5_train': model['md5_train'],
+            'idxs_valid': model['idxs_valid'],
+            'md5_valid': model['md5_valid'],
+            'sig': model['sig'],
+            'lam': model['lam'],
+            'use_E': model['use_E'],
+            'use_E_cstr': use_E_cstr,
+            'use_sym': use_sym,
+            'perms': model['perms'],
+            'use_cprsn': model['use_cprsn'],
+            'solver_name': model['solver_name'],
+            'solver_tol': model['solver_tol'], # check me
+            'n_inducing_pts_init': model['n_inducing_pts_init'],
+            'interact_cut_off': None, # check me
+        }
+
+        if use_E:
+            task['E_train'] = dataset['E'][idxs_train]
+
+        if 'lattice' in model:
+            task['lattice'] = model['lattice']
+
+        if 'r_unit' in model and 'e_unit' in model:
+            task['r_unit'] = model['r_unit']
+            task['e_unit'] = model['e_unit']
+
+        if 'alphas_F' in model:
+            task['alphas0_F'] = model['alphas_F']
+
+        if 'alphas_E' in model:
+            task['alphas0_E'] = model['alphas_E']
+
+        if 'solver_iters' in model:
+            task['solver_iters'] = model['solver_iters']
+
+        if 'inducing_pts_idxs' in model:
+            task['inducing_pts_idxs'] = model['inducing_pts_idxs']
+
+        return task
+
+
     def create_model(
         self,
         task,
@@ -596,7 +599,8 @@ class GDMLTrain(object):
         alphas_E=None,
         solver_resid=None,
         solver_iters=None,
-        nystrom_col_idxs=None,  # NEW : which columns were used to construct nystrom preconditioner
+        norm_y_train=None,
+        inducing_pts_idxs=None,  # NEW : which columns were used to construct nystrom preconditioner
     ):
 
         n_train, dim_d = R_d_desc.shape[:2]
@@ -627,10 +631,10 @@ class GDMLTrain(object):
             # TOOD: why not use 'd_desc_dot_vec'?
 
             i, j = np.tril_indices(n_atoms, k=-1)
-            alphas_F = alphas_F.reshape(-1, n_atoms, 3)
+            alphas_F_exp = alphas_F.reshape(-1, n_atoms, 3)
 
             r_d_desc_alpha = np.einsum(
-                'kji,kji->kj', R_d_desc, alphas_F[:, j, :] - alphas_F[:, i, :]
+                'kji,kji->kj', R_d_desc, alphas_F_exp[:, j, :] - alphas_F_exp[:, i, :]
             )
 
         model = {
@@ -639,7 +643,9 @@ class GDMLTrain(object):
             'dataset_name': task['dataset_name'],
             'dataset_theory': task['dataset_theory'],
             'solver_name': solver,
-            'max_inducing_pts': task['max_inducing_pts'],
+            'solver_tol': task['solver_tol'],
+            'norm_y_train': norm_y_train,
+            'n_inducing_pts_init': task['n_inducing_pts_init'],
             'z': task['z'],
             'idxs_train': task['idxs_train'],
             'md5_train': task['md5_train'],
@@ -670,8 +676,8 @@ class GDMLTrain(object):
                 'solver_iters'
             ] = solver_iters  # number of iterations performed to obtain solution (cg solver)
 
-        if nystrom_col_idxs is not None:
-            model['nystrom_col_idxs'] = nystrom_col_idxs
+        if inducing_pts_idxs is not None:
+            model['inducing_pts_idxs'] = inducing_pts_idxs
 
         if task['use_E']:
             model['e_err'] = {'mae': np.nan, 'rmse': np.nan}
@@ -814,7 +820,7 @@ class GDMLTrain(object):
         y /= y_std
 
         num_iters = None  # number of iterations performed (cg solver)
-        res = None  # residual of solution (cg solver)
+        resid = None  # residual of solution
         if solver == 'analytic':
 
             analytic = Analytic(self, desc, callback=callback)
@@ -834,9 +840,9 @@ class GDMLTrain(object):
             (
                 alphas,
                 num_iters,
+                resid,
                 train_rmse,
-                nystrom_col_idxs,
-                gpu_batch_size,
+                inducing_pts_idxs,
                 is_conv,
             ) = iterative.solve(
                 task,
@@ -847,14 +853,6 @@ class GDMLTrain(object):
                 y_std,
                 save_progr_callback=save_progr_callback,
             )
-
-            print('       | Training RMSE: ' + str(train_rmse))
-            print('       | Initial #inducing points: ' + str(task['max_inducing_pts']))
-            print(
-                '       | Final #inducing points: '
-                + str(int(len(nystrom_col_idxs) / dim_i))
-            )
-            print('       | gpu_batch_size: ' + str(gpu_batch_size))
 
             if not is_conv:
                 self.log.warning(
@@ -894,9 +892,10 @@ class GDMLTrain(object):
             y_std,
             alphas_F,
             alphas_E=alphas_E,
-            solver_resid=res,
+            solver_resid=resid,
             solver_iters=num_iters,
-            nystrom_col_idxs=nystrom_col_idxs if solver == 'cg' else None,
+            norm_y_train=np.linalg.norm(y),
+            inducing_pts_idxs=inducing_pts_idxs if solver == 'cg' else None,
         )
 
         # Recover integration constant.
@@ -1283,7 +1282,7 @@ class GDMLTrain(object):
                 Array of indices that form the sample.
         """
 
-        if len(excl_idxs) == 0:
+        if excl_idxs is None or len(excl_idxs) == 0:
             excl_idxs = None
 
         if n == 0:

@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2020 Stefan Chmiela
+# Copyright (c) 2018-2021 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -144,12 +144,10 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     print(ui.white_bold_str(title_str))
 
     n_mols, n_atoms, _ = dataset['R'].shape
-    print(
-        '  {:<18} {} ({:<d} atoms)'.format(
-            'Name:', ui.unicode_str(dataset['name']), n_atoms
-        )
-    )
-    print('  {:<18} {}'.format('Theory:', ui.unicode_str(dataset['theory'])))
+    print('  {:<18} \'{}\''.format('Name:', ui.unicode_str(dataset['name'])))
+    print('  {:<18} \'{}\''.format('Theory level:', ui.unicode_str(dataset['theory'])))
+    print('  {:<18} {:<d}'.format('Atoms:', n_atoms))
+
     print('  {:<18} {:,} data points'.format('Size:', n_mols))
 
     ui.print_lattice(dataset['lattice'] if 'lattice' in dataset else None)
@@ -160,13 +158,13 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
         if 'e_unit' in dataset:
             e_unit = ui.unicode_str(dataset['e_unit'])
 
-        print('  Energies [{}]:'.format(e_unit))
+        print('  Energies [{}]'.format(e_unit))
         if 'E_min' in dataset and 'E_max' in dataset:
             E_min, E_max = dataset['E_min'], dataset['E_max']
         else:
             E_min, E_max = np.min(dataset['E']), np.max(dataset['E'])
         E_range_str = ui.gen_range_str(E_min, E_max)
-        print('    {:<16} {}'.format('Range:', E_range_str))
+        ui.print_two_column_str('    {:<16} {}'.format('Range:', E_range_str), 'min |-- range --| max')
 
         E_mean = dataset['E_mean'] if 'E_mean' in dataset else np.mean(dataset['E'])
         print('    {:<16} {:<.3f}'.format('Mean:', E_mean))
@@ -182,14 +180,14 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
             ui.unicode_str(dataset['e_unit']) + '/' + ui.unicode_str(dataset['r_unit'])
         )
 
-    print('  Forces [{}]:'.format(f_unit))
+    print('  Forces [{}]'.format(f_unit))
 
     if 'F_min' in dataset and 'F_max' in dataset:
         F_min, F_max = dataset['F_min'], dataset['F_max']
     else:
         F_min, F_max = np.min(dataset['F'].ravel()), np.max(dataset['F'].ravel())
     F_range_str = ui.gen_range_str(F_min, F_max)
-    print('    {:<16} {}'.format('Range:', F_range_str))
+    ui.print_two_column_str('    {:<16} {}'.format('Range:', F_range_str), 'min |-- range --| max')
 
     F_mean = dataset['F_mean'] if 'F_mean' in dataset else np.mean(dataset['F'].ravel())
     print('    {:<16} {:<.3f}'.format('Mean:', F_mean))
@@ -266,12 +264,14 @@ def _print_model_properties(model, title_str='Model properties'):
 
     print(ui.white_bold_str(title_str))
 
-    print('  {:<18} {}'.format('Dataset:', ui.unicode_str(model['dataset_name'])))
+    print('  {:<18}'.format('Dataset'))
+    print('    {:<16} \'{}\''.format('Name:', ui.unicode_str(model['dataset_name'])))
+    print('    {:<16} \'{}\''.format('Theory level:', ui.unicode_str(model['dataset_theory'])))
 
     n_atoms = len(model['z'])
-    print('  {:<18} {:<d}'.format('Atoms:', n_atoms))
+    print('    {:<16} {:<d}'.format('Atoms:', n_atoms))
 
-    ui.print_lattice(model['lattice'] if 'lattice' in model else None)
+    ui.print_lattice(model['lattice'] if 'lattice' in model else None, inset=True)
 
     print('  {:<18} {:<d}'.format('Symmetries:', len(model['perms'])))
 
@@ -288,11 +288,35 @@ def _print_model_properties(model, title_str='Model properties'):
         )
     )
 
-    print('  {:<18}'.format('Hyper-parameters:', len(model['perms'])))
+    print('  {:<18}'.format('Hyper-parameters'))
     print('    {:<16} {:<d}'.format('Length scale:', model['sig']))
 
     if 'lam' in model:
         print('    {:<16} {:<.0e}'.format('Regularization:', model['lam']))
+
+    if 'solver_name' in model:
+        print('  {:<18}'.format('Solver'))
+        print('    {:<16} \'{}\''.format('Type:', model['solver_name']))
+
+        if model['solver_name'] == 'cg':
+
+            if 'solver_tol' in model:
+                ui.print_two_column_str('    {:<16} {:<.0e}'.format('Tolerance:', model['solver_tol']), 'iterate until: norm(K*alpha - y) <= tol*norm(y) = {:<.0e}'.format(model['solver_tol']*model['norm_y_train']))
+
+            if 'solver_resid' in model:
+                is_conv = model['solver_resid'] <= model['solver_tol']*model['norm_y_train']
+                print('    {:<16} {:<.0e}{}'.format('Converged to:', model['solver_resid'], '' if is_conv else ' (NOT CONVERGED)'))
+
+            if 'solver_iters' in model:
+                print('    {:<16} {:<d}'.format('Iterations:', model['solver_iters']))
+
+            if 'n_inducing_pts_init' in model and 'inducing_pts_idxs' in model:
+                n_inducing_pts_final = len(model['inducing_pts_idxs']) // (3*n_atoms)
+                increased_str = ' (increased to {:<d})'.format(n_inducing_pts_final) if model['n_inducing_pts_init'] < n_inducing_pts_final else ''
+                print('    {:<16} {:<d}{}'.format('Inducing points:', model['n_inducing_pts_init'], increased_str))
+    else:
+        print('  {:<18} {}'.format('Solver:', 'unknown'))
+
 
     n_train = len(model['idxs_train'])
     ui.print_two_column_str(
@@ -331,7 +355,7 @@ def _print_model_properties(model, title_str='Model properties'):
 
     if is_valid:
         action_str = 'Validation' if not is_valid else 'Expected test'
-        print('  {:<18}'.format('{} errors (MAE/RMSE):'.format(action_str)))
+        print('  {:<18}'.format('{} errors (MAE/RMSE)'.format(action_str)))
         if model['use_E']:
             print(
                 '    {:<16} {:>.4f}/{:>.4f} [{}]'.format(
@@ -342,6 +366,55 @@ def _print_model_properties(model, title_str='Model properties'):
             '    {:<16} {:>.4f}/{:>.4f} [{}]'.format(
                 'Forces:', f_err['mae'], f_err['rmse'], f_unit
             )
+        )
+
+def _print_next_step(prev_step, task_dir=None, model_dir=None, model_files=None, dataset_path=None):
+
+    if prev_step == 'create':
+
+        assert task_dir is not None
+
+        ui.print_step_title(
+            'NEXT STEP', '{} train {} <valid_dataset_file>'.format(PACKAGE_NAME, task_dir), underscore=False
+        )
+
+    elif prev_step == 'train' or prev_step == 'validate' or prev_step == 'resume':
+
+        assert model_dir is not None and model_files is not None
+
+        if dataset_path is None:
+            dataset_path = '<test_dataset_file>'
+
+        n_models = len(model_files)
+        if n_models == 1:
+            model_file_path = os.path.join(model_dir, model_files[0])
+            ui.print_step_title(
+                'NEXT STEP',
+                '{} test {} {} [<n_test>]'.format(
+                    PACKAGE_NAME, model_file_path, dataset_path
+                ),
+                underscore=False,
+            )
+        else:
+            ui.print_step_title(
+                'NEXT STEP',
+                '{} select {}'.format(PACKAGE_NAME, model_dir),
+                underscore=False,
+            )
+
+    elif prev_step == 'select':
+
+        assert model_files is not None 
+
+        ui.print_step_title(
+            'NEXT STEP',
+            '{} test {} <test_dataset_file> [<n_test>]'.format(PACKAGE_NAME, model_files[0]),
+            underscore=False,
+        )
+
+    else:
+        raise AssistantError(
+            'Unexpected previous step string.'
         )
 
 
@@ -361,11 +434,10 @@ def all(
     max_processes,
     use_torch,
     solver,
-    max_inducing_pts,
+    n_inducing_pts_init,
     interact_cut_off,
     task_dir=None,
     model_file=None,
-    model0=None,
     **kwargs
 ):
 
@@ -415,9 +487,8 @@ def all(
         overwrite,
         max_processes,
         task_dir,
-        model0,
         solver=solver,
-        max_inducing_pts=max_inducing_pts,
+        n_inducing_pts_init=n_inducing_pts_init,
         interact_cut_off=interact_cut_off,
         **kwargs
     )
@@ -472,9 +543,8 @@ def create(  # noqa: C901
     overwrite,
     max_processes,
     task_dir=None,
-    model0=None,
     solver='analytic',
-    max_inducing_pts=None,
+    n_inducing_pts_init=None,
     interact_cut_off=None,
     command=None,
     **kwargs
@@ -537,7 +607,6 @@ def create(  # noqa: C901
             use_cprsn=use_cprsn,
             use_E=use_E,
             use_E_cstr=use_E_cstr,
-            model0=model0,
         )
 
     task_file_names = []
@@ -612,11 +681,6 @@ def create(  # noqa: C901
                 'Lattice vectors found in dataset: applying periodic boundary conditions.'
             )
 
-        if model0 is not None:
-            model0_path, model0 = model0
-
-            shutil.copy(model0_path, os.path.join(task_dir, 'm0.npz'))
-
         gdml_train = GDMLTrain(max_processes=max_processes)
         try:
             tmpl_task = gdml_train.create_task(
@@ -629,9 +693,8 @@ def create(  # noqa: C901
                 use_E=use_E,
                 use_E_cstr=use_E_cstr,
                 use_cprsn=use_cprsn,
-                model0=model0,
                 solver=solver,
-                max_inducing_pts=max_inducing_pts,
+                n_inducing_pts_init=n_inducing_pts_init,
                 interact_cut_off=interact_cut_off,
                 callback=ui.callback,
             )  # template task
@@ -659,12 +722,9 @@ def create(  # noqa: C901
         )
 
     if func_called_directly:
-        ui.print_step_title(
-            'NEXT STEP', '{} train {}'.format(PACKAGE_NAME, task_dir), underscore=False
-        )
+        _print_next_step('create', task_dir=task_dir)
 
     return task_dir
-
 
 def train(
     task_dir, valid_dataset, overwrite, max_processes, use_torch, command=None, **kwargs
@@ -778,13 +838,10 @@ def train(
 
     model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir
     if func_called_directly:
-        ui.print_step_title(
-            'NEXT STEP',
-            '{} validate {} <dataset_file>'.format(
-                PACKAGE_NAME, model_dir_or_file_path
-            ),
-            underscore=False,
-        )
+
+        model_dir_arg = io.is_dir_with_file_type(model_dir_or_file_path, 'model', or_file=True)
+        model_dir, model_files = model_dir_arg
+        _print_next_step('train', model_dir=model_dir, model_files=model_files)
 
     return model_dir_or_file_path  # model directory or file
 
@@ -807,6 +864,102 @@ def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
 
     return mae, mae_n_sum, rmse, rmse_n_sum
 
+
+def resume(model, dataset, valid_dataset, overwrite, max_processes, use_torch, command=None, **kwargs):
+
+    model_path, model = model
+    dataset_path, dataset = dataset
+
+    valid_dataset_arg = valid_dataset
+    valid_dataset_path, valid_dataset = valid_dataset
+
+    ui.print_step_title('RESUME TRAINING')
+    _print_model_properties(model, title_str='Model properties (before)')
+    print()
+
+    if dataset['md5'] != model['md5_train']:
+        raise AssistantError(
+            'Fingerprint of provided training dataset does not match the one specified in model file.'
+        )
+    if valid_dataset['md5'] != model['md5_valid']:
+        raise AssistantError(
+            'Fingerprint of provided validation dataset does not match the one specified in model file.'
+        )
+
+    if model['solver_name'] == 'analytic':
+        raise AssistantError(
+            'This model was trained using the analytic solver and is thus converged to a higher accuracy than the iterative solver can provide!'
+        )
+    elif 'solver_resid' in model and 'solver_tol' in model:
+        if model['solver_resid'] <= model['solver_tol']*model['norm_y_train']:
+            log.warning('Model is already converged to the specified tolerance.')
+
+    gdml_train = GDMLTrain(max_processes=max_processes, use_torch=use_torch)
+    try:
+        task = gdml_train.create_task_from_model(
+            model,
+            dataset,
+        )
+    except:
+        print()
+        log.critical(traceback.format_exc())
+        sys.exit()
+    del gdml_train
+
+    n_train = len(model['idxs_train'])
+
+    use_sym = model['perms'].shape[0] > 1
+    use_E = 'e_err' in model
+    use_E_cstr = 'alphas_E' in model
+
+    task_dir = 'resume_' + io.train_dir_name(
+        dataset,
+        n_train,
+        use_sym=use_sym,
+        use_cprsn=False, # fix me
+        use_E=use_E,
+        use_E_cstr=use_E_cstr,
+    )
+
+    if os.path.exists(task_dir):
+        if overwrite:
+            log.info('Overwriting existing training directory.')
+            shutil.rmtree(task_dir, ignore_errors=True)
+            os.makedirs(task_dir)
+        else:
+            raise AssistantError(
+                'Task directory already exists: \'{}\'.\n'.format(
+                    task_dir
+                )
+                + 'Run \'%s %s %s %s %s -o\' to overwrite.'
+                % (
+                    PACKAGE_NAME,
+                    command,
+                    model_path,
+                    dataset_path,
+                    valid_dataset_path,
+                )
+            )
+    else:
+        os.makedirs(task_dir)
+
+    # try to safe task file
+    task_file_name = io.task_file_name(task)
+    task_path = os.path.join(task_dir, task_file_name)
+    if os.path.isfile(task_path):
+        raise AssistantError(
+            'Task file with same name already exists!'
+        )
+    else:
+        np.savez_compressed(task_path, **task)
+
+    task_dir_arg = io.is_dir_with_file_type(task_path, 'task', or_file=True)
+    model_dir_or_file_path = train(
+        task_dir_arg, valid_dataset_arg, overwrite, max_processes, use_torch, **kwargs
+    )
+
+    model_dir, model_files = io.is_dir_with_file_type(model_path, 'model', or_file=True)
+    _print_next_step('resume', model_dir=model_dir, model_files=model_files)
 
 def validate(
     model_dir,
@@ -839,24 +992,10 @@ def validate(
     )
 
     if func_called_directly:
-        model_dir, model_file_names = model_dir
-        n_models = len(model_file_names)
 
-        if n_models == 1:
-            model_file_path = os.path.join(model_dir, model_file_names[0])
-            ui.print_step_title(
-                'NEXT STEP',
-                '{} test {} {} [<n_test>]'.format(
-                    PACKAGE_NAME, model_file_path, dataset_path_extracted
-                ),
-                underscore=False,
-            )
-        else:
-            ui.print_step_title(
-                'NEXT STEP',
-                '{} select {}'.format(PACKAGE_NAME, model_dir),
-                underscore=False,
-            )
+        model_dir, model_files = model_dir
+        n_models = len(model_files)
+        _print_next_step('validate', model_dir=model_dir, model_files=model_files)
 
 
 def test(
@@ -970,7 +1109,7 @@ def test(
 
             if dataset['md5'] != model['md5_valid']:
                 raise AssistantError(
-                    'Fingerprint of provided validation dataset does not match the one in model file.'
+                    'Fingerprint of provided validation dataset does not match the one specified in model file.'
                 )
 
         test_idxs = model['idxs_valid']
@@ -1245,8 +1384,9 @@ def test(
             )
 
             print(format_str.format('  Magnitude:', mag_mae, mag_rmse, r_unit))
-            print(
-                format_str.format('  Angle:', cos_mae, cos_rmse, '0-1, lower is better')
+            ui.print_two_column_str(
+                format_str.format('  Angle:', cos_mae, cos_rmse, '0-1'),
+                'lower is better',
             )
             print()
 
@@ -1444,11 +1584,7 @@ def select(
         )
 
     if func_called_directly:
-        ui.print_step_title(
-            'NEXT STEP',
-            '{} test {} <dataset_file> [<n_test>]'.format(PACKAGE_NAME, model_file),
-            underscore=False,
-        )
+        _print_next_step('select', model_files=[model_file])
 
     return model_file
 
@@ -1498,16 +1634,16 @@ def reset(command=None, **kwargs):
 
 
 def main():
-    def _add_argument_dataset(parser, qualifier_str='', help='path to dataset file'):
-        parser.add_argument(
-            'dataset',
-            metavar='<'
-            + qualifier_str
-            + ('_' if qualifier_str != '' else '')
-            + 'dataset_file>',
-            type=lambda x: io.is_file_type(x, 'dataset'),
-            help=help,
-        )
+    #def _add_argument_dataset(parser, qualifier_str='', help='path to dataset file'):
+    #    parser.add_argument(
+    #        'dataset',
+    #        metavar='<'
+    #        + qualifier_str
+    #        + ('_' if qualifier_str != '' else '')
+    #        + 'dataset_file>',
+    #        type=lambda x: io.is_file_type(x, 'dataset'),
+    #        help=help,
+    #    )
 
     def _add_argument_sample_size(parser, subset_str):
         subparser.add_argument(
@@ -1564,13 +1700,16 @@ def main():
     subparsers = parser.add_subparsers(title='commands', dest='command')
     subparsers.required = True
     parser_all = subparsers.add_parser(
-        'all', help='create model from beginning to end', parents=[parent_parser]
+        'all', help='reconstruct force field from beginning to end', parents=[parent_parser]
     )
     parser_create = subparsers.add_parser(
         'create', help='create training task(s)', parents=[parent_parser]
     )
     parser_train = subparsers.add_parser(
         'train', help='train model(s) from task(s)', parents=[parent_parser]
+    )
+    parser_resume = subparsers.add_parser(
+        'resume', help='resume training a model', parents=[parent_parser]
     )
     parser_valid = subparsers.add_parser(
         'validate', help='validate model(s)', parents=[parent_parser]
@@ -1694,7 +1833,7 @@ def main():
             help='user-defined model output file name',
         )
 
-    for subparser in [parser_all, parser_create]:  # NEW
+    for subparser in [parser_all, parser_create]:
         group = subparser.add_mutually_exclusive_group()
         group.add_argument(
             '--cg',
@@ -1705,12 +1844,12 @@ def main():
         )
         subparser.add_argument(
             '--ip',
-            dest='max_inducing_pts',
-            metavar='<max_inducing_pts>',
+            dest='n_inducing_pts_init',
+            metavar='<n_inducing_pts_init>',
             type=io.is_strict_pos_int,
-            help='maximum number of inducing points (<= n_train) to use for preconditioner matrix (larger value: fewer iterations, but higher per-iteration memory and processing cost)',
+            help='initial number of inducing points (<= n_train) to use for preconditioner matrix (default: 25, larger value: fewer iterations, but higher per-iteration memory and processing cost)',
             nargs='?',
-            default=None,
+            default=25,
         )
         subparser.add_argument(
             '--coff',
@@ -1721,24 +1860,31 @@ def main():
             nargs='?',
             default=None,
         )
-        subparser.add_argument(
-            '-m0',
-            '--model0',
-            metavar='<initial_model_file>',
-            type=lambda x: io.is_file_type(x, 'model'),
-            help='initial model file used as a source for training task parameters, including training and validation subsets, permutations, initial set of coefficients (for numerical solvers)',
-            nargs='?',
-            default=None,
-        )
 
     # train
     _add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
-    parser_train.add_argument(
-        'valid_dataset',
-        metavar='<valid_dataset_file>',
-        type=lambda x: io.is_file_type(x, 'dataset'),
-        help='path to validation dataset file',
+
+    # resume
+    parser_resume.add_argument(
+        'model',
+        metavar='<model_file>',
+        type=lambda x: io.is_file_type(x, 'model'),
+        help='path to model file to complete training for',
     )
+    parser_resume.add_argument(
+        'dataset',
+        metavar='<train_dataset_file>',
+        type=lambda x: io.is_file_type(x, 'dataset'),
+        help='path to original training dataset file',
+    )
+
+    for subparser in [parser_train, parser_resume]:
+        subparser.add_argument(
+            'valid_dataset',
+            metavar='<valid_dataset_file>',
+            type=lambda x: io.is_file_type(x, 'dataset'),
+            help='path to validation dataset file',
+        )
 
     # select
     _add_argument_dir_with_file_type(parser_select, 'model')
@@ -1792,13 +1938,12 @@ def main():
     try:
         getattr(sys.modules[__name__], args['command'])(**args)
     except AssistantError as err:
-        print()
         log.error(str(err))
         sys.exit('')
     except:
-        print()
         log.critical(traceback.format_exc())
         sys.exit()
+    print()
 
 
 if __name__ == "__main__":
