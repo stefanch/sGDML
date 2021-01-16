@@ -57,7 +57,8 @@ def read_nonstd_ext_xyz(f):
 
         if line_i == 1:
             try:
-                e = float(line)
+                parts = line.split()
+                e = float(parts[0])
             except ValueError:
                 pass
             else:
