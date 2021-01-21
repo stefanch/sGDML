@@ -27,6 +27,7 @@ from __future__ import print_function
 import argparse
 import os
 import sys
+import re
 
 try:
     from ase.io import read
@@ -45,7 +46,8 @@ if sys.version[0] == '3':
 # Assumes that the atoms in each molecule are in the same order.
 def read_nonstd_ext_xyz(f):
     n_atoms = None
-
+    pattern = re.compile('[eE]nergy=([\+\-0-9\.]+) ')
+    
     R, z, E, F = [], [], [], []
     for i, line in enumerate(f):
         line = line.strip()
@@ -59,7 +61,12 @@ def read_nonstd_ext_xyz(f):
             try:
                 e = float(line)
             except ValueError:
-                pass
+                # Try to read energy from comment line as
+                #  Energy=(.*) ...
+                match = pattern.findall(line)
+                if len(match) > 0:
+                    e = float(match[0])
+                    E.append(e)
             else:
                 E.append(e)
 
