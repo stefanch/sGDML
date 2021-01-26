@@ -196,15 +196,11 @@ base_vars = {
 base_vars['F_min'], base_vars['F_max'] = np.min(F.ravel()), np.max(F.ravel())
 base_vars['F_mean'], base_vars['F_var'] = np.mean(F.ravel()), np.var(F.ravel())
 
-print('Please provide a name for this dataset. Otherwise the original filename will be reused.')
-custom_name = raw_input('> ').strip()
-if custom_name != '':
-    name = custom_name
-
 print('Please provide a descriptor for the level of theory used to create this dataset.')
 theory = raw_input('> ').strip()
 if theory == '':
     theory = 'unknown'
+base_vars['theory'] = theory
 
 print('Please provide a description of the length unit used in your input file, e.g. \'Ang\' or \'au\': ')
 print('Note: This string will be stored in the dataset file and passed on to models files for later reference.')
