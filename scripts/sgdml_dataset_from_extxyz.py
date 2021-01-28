@@ -27,6 +27,7 @@ from __future__ import print_function
 import argparse
 import os
 import sys
+import re
 
 try:
     from ase.io import read
@@ -45,7 +46,8 @@ if sys.version[0] == '3':
 # Assumes that the atoms in each molecule are in the same order.
 def read_nonstd_ext_xyz(f):
     n_atoms = None
-
+    pattern = re.compile('[eE]nergy=([\+\-0-9\.]+) ')
+    
     R, z, E, F = [], [], [], []
     for i, line in enumerate(f):
         line = line.strip()
@@ -59,7 +61,12 @@ def read_nonstd_ext_xyz(f):
             try:
                 e = float(line)
             except ValueError:
-                pass
+                # Try to read energy from comment line as
+                #  Energy=(.*) ...
+                match = pattern.findall(line)
+                if len(match) > 0:
+                    e = float(match[0])
+                    E.append(e)
             else:
                 E.append(e)
 
@@ -188,6 +195,12 @@ base_vars = {
 
 base_vars['F_min'], base_vars['F_max'] = np.min(F.ravel()), np.max(F.ravel())
 base_vars['F_mean'], base_vars['F_var'] = np.mean(F.ravel()), np.var(F.ravel())
+
+print('Please provide a descriptor for the level of theory used to create this dataset.')
+theory = raw_input('> ').strip()
+if theory == '':
+    theory = 'unknown'
+base_vars['theory'] = theory
 
 print('Please provide a description of the length unit used in your input file, e.g. \'Ang\' or \'au\': ')
 print('Note: This string will be stored in the dataset file and passed on to models files for later reference.')
