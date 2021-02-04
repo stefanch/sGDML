@@ -47,7 +47,13 @@ else:
 
 from . import __version__, DONE, NOT_DONE
 from .solvers.analytic import Analytic
-from .solvers.iterative import Iterative
+
+# TODO: remove exception handling once iterative solver ships
+try:
+    from .solvers.iterative import Iterative
+except ImportError:
+    pass
+
 from .predict import GDMLPredict
 from .utils.desc import Desc
 from .utils import io, perm, ui

@@ -1833,34 +1833,7 @@ def main():
             help='user-defined model output file name',
         )
 
-    for subparser in [parser_all, parser_create]:
-        group = subparser.add_mutually_exclusive_group()
-        group.add_argument(
-            '--cg',
-            dest='use_cg',
-            action='store_true',
-            help='use iterative solver (conjugate gradient) with Nystroem preconditioner',
-            # help=argparse.SUPPRESS
-        )
-        subparser.add_argument(
-            '--ip',
-            dest='n_inducing_pts_init',
-            metavar='<n_inducing_pts_init>',
-            type=io.is_strict_pos_int,
-            help='initial number of inducing points (<= n_train) to use for preconditioner matrix (default: 25, larger value: fewer iterations, but higher per-iteration memory and processing cost)',
-            nargs='?',
-            default=25,
-        )
-        subparser.add_argument(
-            '--coff',
-            dest='interact_cut_off',
-            metavar='<interact_cut_off>',
-            type=io.is_strict_pos_int,
-            help='decay pairwise interactions to zero from a given distance (localizes the model)',
-            nargs='?',
-            default=None,
-        )
-
+    
     # train
     _add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
 
@@ -1934,6 +1907,13 @@ def main():
     if 'use_cg' in args and args['use_cg']:
         args['solver'] = 'cg'
     args.pop('use_cg', None)
+
+
+    # TODO: remove dummy variables once iterative solver ships
+    missing_keys = ['n_inducing_pts_init', 'interact_cut_off', 'use_cg']
+    for missing_key in missing_keys:
+        if missing_key not in args: 
+            args[missing_key] = None
 
     try:
         getattr(sys.modules[__name__], args['command'])(**args)

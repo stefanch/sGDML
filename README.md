@@ -5,13 +5,13 @@ For more details visit: [http://sgdml.org/](http://sgdml.org/)
 Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 
 #### Requirements:
-- Python 2.7/3.7+
+- Python 3.7+
 - NumPy (>=1.19)
 - SciPy (>=1.1)
 
 #### Optional:
 - PyTorch (for GPU acceleration)
-- ASE (to run atomistic simulations)
+- ASE (>=3.16.2) (to run atomistic simulations)
 
 ## Getting started
 

@@ -40,7 +40,6 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: POSIX :: Linux',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3.7',
         'Topic :: Scientific/Engineering :: Chemistry',
         'Topic :: Scientific/Engineering :: Physics',
