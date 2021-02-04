@@ -406,14 +406,14 @@ class GDMLTrain(object):
 
         if 'E' in valid_dataset:
             idxs_valid = self.draw_strat_sample(
-                valid_dataset['E'], n_valid
+                valid_dataset['E'], n_valid, excl_idxs=excl_idxs,
             )
         else:
-            idxs_valid_all = np.setdiff1d(
+            idxs_valid_cands = np.setdiff1d(
                 np.arange(valid_dataset['F'].shape[0]), excl_idxs, assume_unique=True
             )
             idxs_valid = np.random.choice(
-                idxs_valid_all, n_valid - m0_n_valid, replace=False
+                idxs_valid_cands, n_valid, replace=False
             )
             # TODO: m0 handling, zero handling
 
@@ -807,6 +807,20 @@ class GDMLTrain(object):
             ),
         )
 
+
+        # dist2 = R_desc
+        # pwdist = np.linalg.norm(dist2[:, None, :] - dist2[None, :, :], axis=-1)
+
+        # r,c = np.triu_indices(n_train,1)
+        # pwdist = pwdist[r,c]
+        # print(pwdist)
+
+        # print(pwdist.shape)
+        # print(np.min(pwdist))
+        # print(np.max(pwdist))
+
+        # sys.exit()
+
         # Generate label vector.
         E_train_mean = None
         y = task['F_train'].ravel().copy()
@@ -835,7 +849,7 @@ class GDMLTrain(object):
             task['lam'] = 1e-10
 
             iterative = Iterative(
-                self, desc, callback=callback, use_torch=self._use_torch
+                self, desc, callback=callback, max_processes=self._max_processes, use_torch=self._use_torch
             )
             (
                 alphas,

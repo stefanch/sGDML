@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2020 Stefan Chmiela
+# Copyright (c) 2018-2021 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -83,7 +83,7 @@ def _bipartite_match_wkr(i, n_train, same_z_cost):
             match_cost[i, j] = score_before
         elif not np.isclose(score_before, score):  # otherwise perm is identity
             match_perms[i, j] = perm
-
+        
     return match_perms
 
 
@@ -97,6 +97,54 @@ def bipartite_match(R, z, lat_and_inv=None, max_processes=None, callback=None):
     same_z_cost = np.repeat(z[:, None], len(z), axis=1) - z
     same_z_cost[same_z_cost != 0] = 1
 
+
+
+
+    # NEW
+
+    # penalty matrix for mixing differently bonded atoms
+    # NOTE: needs ASE, expects R to be in angstrom, does not support bond breaking
+
+    # from ase import Atoms
+    # from ase.geometry.analysis import Analysis
+
+    # atoms = Atoms(
+    #     z, positions=R[0]
+    # )  # only use first molecule in dataset to find connected components (fix me later, maybe) # *0.529177249
+
+    # bonds = Analysis(atoms).all_bonds[0]
+    # #n_bonds = np.array([len(bonds_i) for bonds_i in bonds])
+
+    # same_bonding_cost = np.zeros((n_atoms, n_atoms))
+    # for i in range(n_atoms):
+    #     bi = bonds[i]
+    #     z_bi = z[bi]
+    #     for j in range(i+1,n_atoms):
+    #         bj = bonds[j]
+    #         z_bj = z[bj]
+
+    #         if set(z_bi) == set(z_bj):
+    #             same_bonding_cost[i,j] = 1
+
+
+    # same_bonding_cost += same_bonding_cost.T
+    
+    # same_bonding_cost[np.diag_indices(n_atoms)] = 1
+    # same_bonding_cost = 1-same_bonding_cost
+
+
+    #set(a) & set(b)
+
+    #same_bonding_cost = np.repeat(n_bonds[:, None], len(n_bonds), axis=1) - n_bonds
+    #same_bonding_cost[same_bonding_cost != 0] = 1
+
+
+
+    # NEW
+
+
+
+
     match_cost = np.zeros((n_train, n_train))
 
     desc = Desc(n_atoms, max_processes=max_processes)
@@ -108,6 +156,33 @@ def bipartite_match(R, z, lat_and_inv=None, max_processes=None, callback=None):
 
         if lat_and_inv is None:
             adj = scipy.spatial.distance.pdist(r, 'euclidean')
+
+
+            # from ase import Atoms
+            # from ase.geometry.analysis import Analysis
+
+            # atoms = Atoms(
+            #     z, positions=r
+            # )  # only use first molecule in dataset to find connected components (fix me later, maybe) # *0.529177249
+
+            # bonds = Analysis(atoms).all_bonds[0]
+            
+            #adj = scipy.spatial.distance.squareform(adj)
+
+            #bonded = np.zeros((z.size, z.size))
+
+            #for j, bonded_to in enumerate(bonds):
+                #inv_bonded_to = np.arange(n_atoms)
+                #inv_bonded_to[bonded_to] = 0
+
+                #adj[j, inv_bonded_to] = 0
+
+            #    bonded[j, bonded_to] = 1
+
+            # bonded = bonded + bonded.T
+
+            # print(bonded)
+
         else:
             adj = scipy.spatial.distance.pdist(
                 r, lambda u, v: np.linalg.norm(desc.pbc_diff(u - v, lat_and_inv))
@@ -181,11 +256,50 @@ def sync_perm_mat(match_perms_all, match_cost, n_atoms, callback=None):
 
     return perms
 
+# convert permutation to dijoined cycles
+def to_cycles(perm):
+    pi = {i: perm[i] for i in range(len(perm))}
+    cycles = []
 
-def complete_sym_group(perms, callback=None):
+    while pi:
+        elem0 = next(iter(pi)) # arbitrary starting element
+        this_elem = pi[elem0]
+        next_item = pi[this_elem]
+
+        cycle = []
+        while True:
+            cycle.append(this_elem)
+            del pi[this_elem]
+            this_elem = next_item
+            if next_item in pi:
+                next_item = pi[next_item]
+            else:
+                break
+
+        cycles.append(cycle)
+
+    return cycles
+
+# find permutation group with larges cardinality
+# note: this is used if transitive closure fails (to salvage at least some permutations)
+def salvage_subgroup(perms):
+
+    n_perms, n_atoms = perms.shape
+    lcms = []
+    for i in range(n_perms):
+        cy_lens = [len(cy) for cy in to_cycles(list(perms[i, :]))]
+        lcm = np.lcm.reduce(cy_lens)
+        lcms.append(lcm)
+    keep_idx = np.argmax(lcms)
+    perms = np.vstack((np.arange(n_atoms), perms[keep_idx,:]))
+
+    return perms
+
+
+def complete_sym_group(perms, n_perms_max=None, disp_str='Permutation group completion', callback=None):
 
     if callback is not None:
-        callback = partial(callback, disp_str='Symmetry group completion')
+        callback = partial(callback, disp_str=disp_str)
         callback(NOT_DONE)
 
     perm_added = True
@@ -200,6 +314,17 @@ def complete_sym_group(perms, callback=None):
                     perm_added = True
                     perms = np.vstack((perms, new_perm))
 
+                    # Transitive closure is not converging! Give up and return identity permutation.
+                    if n_perms_max is not None and perms.shape[0] == n_perms_max:
+
+                        if callback is not None:
+                            callback(
+                                DONE,
+                                sec_disp_str='transitive closure has failed',
+                                done_with_warning=True,
+                            )
+                        return None
+
     if callback is not None:
         callback(
             DONE,
@@ -211,18 +336,24 @@ def complete_sym_group(perms, callback=None):
 
 def find_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
 
-    n_atoms = len(z)
+    m, n_atoms = R.shape[:2]
 
-    # find matching for all pairs
+    # Find matching for all pairs.
     match_perms_all, match_cost = bipartite_match(
         R, z, lat_and_inv, max_processes, callback=callback
     )
 
-    # remove inconsistencies
+    # Remove inconsistencies.
     match_perms = sync_perm_mat(match_perms_all, match_cost, n_atoms, callback=callback)
 
-    # commplete symmetric group
-    sym_group_perms = complete_sym_group(match_perms, callback=callback)
+    # Commplete symmetric group.
+    # Give up, if transitive closure yields more than 100 unique permutations.
+    sym_group_perms = complete_sym_group(match_perms, n_perms_max=100, callback=callback)
+
+    # Limit closure to largest cardinality permutation in the set to get at least some symmetries.
+    if sym_group_perms is None:
+        match_perms_subset = salvage_subgroup(match_perms)
+        sym_group_perms = complete_sym_group(match_perms_subset, n_perms_max=100, disp_str='Closure disaster recovery', callback=callback)
 
     return sym_group_perms
 
@@ -230,7 +361,6 @@ def find_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
 def find_frag_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
 
     from ase import Atoms
-    from ase.build import molecule
     from ase.geometry.analysis import Analysis
     from scipy.sparse.csgraph import connected_components
 
@@ -304,6 +434,8 @@ def find_frag_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
 
     print('| Found ' + str(n_frags) + ' disconnected fragments.')
 
+    n_frags_unique = 0 # number of unique fragments
+
     # match fragments to find identical ones (allows permutations of fragments)
     swap_perms = [np.arange(n_atoms)]
     for f1 in range(n_frags):
@@ -313,16 +445,21 @@ def find_frag_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
             sort_idx_f2 = np.argsort(z[frags[f2]])
             inv_sort_idx_f2 = inv_perm(sort_idx_f2)
 
-            for ri in range(
-                min(10, R.shape[0])
-            ):  # only use first molecule in dataset for matching (fix me later)
+            z1 = z[frags[f1]][sort_idx_f1]
+            z2 = z[frags[f2]][sort_idx_f2]
 
-                R_match1 = R[ri, frags[f1], :]
-                R_match2 = R[ri, frags[f2], :]
-                z1 = z[frags[f1]][sort_idx_f1]
-                z2 = z[frags[f2]][sort_idx_f2]
+            if np.array_equal(z1, z2): # fragment have the same composition
+                n_frags_unique += 1
 
-                if np.array_equal(z1, z2):
+                for ri in range(
+                    min(10, R.shape[0])
+                ):  # only use first molecule in dataset for matching (fix me later)
+
+                    R_match1 = R[ri, frags[f1], :]
+                    R_match2 = R[ri, frags[f2], :]
+                    
+                    #if np.array_equal(z1, z2):
+
                     R_pair = np.concatenate(
                         (R_match1[None, sort_idx_f1, :], R_match2[None, sort_idx_f2, :])
                     )
@@ -330,6 +467,8 @@ def find_frag_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
                     perms = find_perms(
                         R_pair, z1, lat_and_inv=lat_and_inv, max_processes=max_processes
                     )
+
+                    # embed local permutation into global context
                     for p in perms:
 
                         match_perm = sort_idx_f1[p][inv_sort_idx_f2]
@@ -340,6 +479,9 @@ def find_frag_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
                         swap_perms.append(swap_perm)
 
     swap_perms = np.unique(np.array(swap_perms), axis=0)
+
+
+    print('| Found ' + str(n_frags_unique) + ' (likely to be) *unique* disconnected fragments.')
 
     # commplete symmetric group
     sym_group_perms = complete_sym_group(swap_perms)
@@ -359,6 +501,7 @@ def find_frag_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
 
             # print(R_frag.shape)
             # print(z_frag)
+            print(f)
 
             perms = find_perms(
                 R_frag, z_frag, lat_and_inv=lat_and_inv, max_processes=max_processes
@@ -367,7 +510,91 @@ def find_frag_perms(R, z, lat_and_inv=None, callback=None, max_processes=None):
             # print(f)
             print(perms)
 
+
+
+    f = 0
+    perms = find_perms_via_alignment(R[0, :, :], frags[f], [215, 214, 210, 211], [209, 208, 212, 213], z, lat_and_inv=lat_and_inv, max_processes=max_processes)
+    #perms = find_perms_via_alignment(R[0, :, :], frags[f], [214, 215, 210, 211], [209, 208, 212, 213], z, lat_and_inv=lat_and_inv, max_processes=max_processes)
+    sym_group_perms = np.vstack((perms[None,:], sym_group_perms))
+    sym_group_perms = complete_sym_group(sym_group_perms, callback=callback)
+
+    #print(sym_group_perms.shape)
+
+    #import sys
+    #sys.exit()
+
     return sym_group_perms
+
+
+def find_perms_via_alignment(pts_full, frag_idxs, align_a_idxs, align_b_idxs, z, lat_and_inv=None, max_processes=None):
+
+    # 1. find rotatino that aligns points (Nx3 matrix) in 'align_a_idxs' with points in 'align_b_idxs' 
+    # 2. rotate the whole thing
+    # find perms by matching those two structures
+
+    #align_a_ctr = np.mean(align_a_pts, axis=0)
+    #align_b_ctr = np.mean(align_b_pts, axis=0)
+
+    pts = pts_full[frag_idxs, :]
+
+    align_a_pts = pts[align_a_idxs,:]
+    align_b_pts = pts[align_b_idxs,:]
+
+    ctr = np.mean(pts, axis=0)
+    align_a_pts -= ctr
+    align_b_pts -= ctr
+
+    ab_cov = align_a_pts.T.dot(align_b_pts)
+    u, s, vh = np.linalg.svd(ab_cov)
+    R = u.dot(vh)
+
+    if np.linalg.det(R) < 0:
+        vh[2,:] *= -1 #multiply 3rd column of V by -1
+        R = u.dot(vh)
+
+    pts -= ctr
+    pts_R = pts.copy()
+    pts_R = R.dot(pts_R.T).T
+
+    pts += ctr
+    pts_R += ctr
+
+
+    pts_full_R = pts_full.copy()
+    pts_full_R[frag_idxs, :] = pts_R
+
+
+    R_pair = np.vstack((pts_full[None,:,:], pts_full_R[None,:,:]))
+
+
+    #from . import io
+
+    #xyz_str = io.generate_xyz_str(pts_full, z)
+    #print(xyz_str)
+
+    #xyz_str = io.generate_xyz_str(pts_full_R, z)
+    #print(xyz_str)
+
+
+    z_frag = z[frag_idxs]
+
+
+
+    adj = scipy.spatial.distance.cdist(R_pair[0], R_pair[1], 'euclidean')
+    _, perm = scipy.optimize.linear_sum_assignment(adj)
+
+    score_before = np.linalg.norm(adj)
+
+    adj_perm = scipy.spatial.distance.cdist(R_pair[0,:], R_pair[0, perm], 'euclidean')
+    score = np.linalg.norm(adj_perm)
+
+
+
+    #perms = find_perms(
+    #    R_pair, z, lat_and_inv=lat_and_inv, max_processes=max_processes
+    #)
+
+    return perm
 
 
 def inv_perm(perm):

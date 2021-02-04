@@ -1252,7 +1252,7 @@ def test(
             # normalized cosine error
             f_pred_norm = f_pred.reshape(-1, 3) / f_pred_mags[:, None]
             f_norm = f.reshape(-1, 3) / f_mags[:, None]
-            cos_err = np.arccos(np.einsum('ij,ij->i', f_pred_norm, f_norm)) / np.pi
+            cos_err = np.arccos(np.clip(np.einsum('ij,ij->i', f_pred_norm, f_norm), -1, 1)) / np.pi
             cos_mae, cos_mae_sum, cos_rmse, cos_rmse_sum = _online_err(
                 cos_err, n_atoms, n_done, cos_mae_sum, cos_rmse_sum
             )
