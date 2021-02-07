@@ -173,8 +173,8 @@ class GDMLPredict(nn.Module):
         jacobian = torch.zeros(dimB, dimD, dimN, 3,
                                dtype=diffs.dtype,
                                device=A.device)   #  (B, D, N, 3)
-        k,l = torch.tril_indices(dimN, dimN, offset=-1)
-        kl = torch.arange(dimD)
+        k,l = torch.tril_indices(dimN, dimN, offset=-1, device=A.device)
+        kl = torch.arange(dimD, device=A.device)
         jacobian[:,kl,k,:] = -xs3[:,:,None] * diffs[:,k,l,:]
         jacobian[:,kl,l,:] -= xs3[:,:,None] * diffs[:,l,k,:]
         jacobian = torch.reshape(jacobian, (dimB, dimD, 3*dimN))
