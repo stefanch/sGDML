@@ -153,7 +153,7 @@ class GDMLPredict(nn.Module):
         dists = diffs.norm(dim=-1)  # (B, N, N)
 
         # indices of lower tiangular matrix, i > j
-        i,j = np.tril_indices(dimN, k=-1, device=device)
+        i,j = torch.tril_indices(dimN, dimN, offset=-1, device=device)
         xs = 1.0 / dists[:, i, j]   # (B, D)
 
         del dists
