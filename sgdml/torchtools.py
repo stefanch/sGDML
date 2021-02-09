@@ -87,7 +87,7 @@ class GDMLTorchPredict(nn.Module):
 
         self._xs_train, self._Jx_alphas = (
             nn.Parameter(
-                xs.repeat(1, n_perms)[:, perm_idxs].reshape(-1, desc_siz),
+                xs.repeat(1, n_perms)[:, perm_idxs.type(torch.LongTensor)].reshape(-1, desc_siz),
                 requires_grad=False,
             )
             for xs in (
@@ -146,7 +146,7 @@ class GDMLTorchPredict(nn.Module):
         xs = torch.from_numpy(R_d_desc_alpha).to(self._dev)
 
         self._Jx_alphas = nn.Parameter(
-            xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, dim_d),
+            xs.repeat(1, self.n_perms)[:, self.perm_idxs.type(torch.LongTensor)].reshape(-1, dim_d),
             requires_grad=False,
         )
 
