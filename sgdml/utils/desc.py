@@ -24,6 +24,7 @@
 
 import numpy as np
 import scipy as sp
+import sys
 
 import multiprocessing as mp
 if sys.platform == 'win32':
