@@ -23,12 +23,52 @@ class AssistantError(Exception):
 
 
 class Dataset:
+    """
+        Dataset object
+
+        This object is a custom dataset holder for the sGDML. both object API and
+        directory API for compatibility with the CLI
+        """
     def __init__(self, dataset_path: str, to_file=False,
                  name=None,
                  theory='unknown',
                  overwrite=False,
                  r_unit='', e_unit='',
                  verbose=True):
+
+        """
+        Constructor for the Data object.
+        using ase.io.read as a general file format loader.
+
+        Parameters
+        ----------
+            dataset_path : str
+                Path to dataset file.
+            to_file : bool, optional
+                True: save Dataset object to file
+                False: only return the object
+            name : str, optional
+                A custom name to the dataset
+            theory : str, optional
+                The source method for the dataset
+            overwrite : bool, optional
+                True: rewrite existing dataset file if present
+                False: will abort if existing dataset file is present
+            r_unit : str, optional
+                Distance units of the Dataset
+            e_unit : str, optional
+                Energy units of the Dataset
+            verbose : bool, optional
+                True: will display the process information
+                False: will not display any informtion
+
+
+        Returns
+        -------
+            sgdml.core.Dataset
+                 type :obj:`sgdml.core.Task`.
+                        """
+
         self.type = 'd'
         self.code_version = sgdml.__version__
         self.name = alias_str(name if not name is None else os.path.splitext(os.path.basename(dataset_path))[0])
@@ -109,6 +149,8 @@ class Dataset:
         if to_file:
             self.dataset_file_name = dataset_file_name
             np.save(dataset_file_name, mols)
+            if verbose:
+                print(ui.color_str('[INFO]', bold=True) + f' save dataset to {dataset_file_name}')
 
     def __setitem__(self, key, item):
         self.__dict__[key] = item
@@ -246,16 +288,72 @@ class Dataset:
 
 
 class Model:
+    """
+        Model object
+
+        This object serve as recipes for model creation,
+        summarizing the configuration of one particular training run.
+        Training and test points are sampled from the provided dataset,
+        without replacement. If the same dataset if given for training
+        and testing, the subsets are drawn without overlap.
+
+        Each model also contains a choice for the hyper-parameters of the
+        training process and the MD5 fingerprints of the used datasets.
+        """
     def __init__(self, trainer=None, max_processes=None, use_torch=False,
                  dataset=None, n_train=0, save_dataset=False,
                  valid_dataset=None, n_valid=0, save_valid_dataset=False,
-                 callback=dummy_callback, model=None,
+                 model=None, callback=dummy_callback,
                  **kwargs):
+        """
+            Constructor for the Model object.
+            The resulting Task object is pre-trained and pre-tested.
+
+            Parameters
+            ----------
+                trainer : :obj:`sgdml.train.GDMLTrain`
+                    predefined GDMLTrain object. overwrite max_processes and use_torch Parameters
+                dataset : :obj:'sgdml.core.Dataset'
+                    Data structure of custom type :obj:`dataset` containing
+                    training dataset.
+                n_train : int
+                    number of trainig point to sample from the training dataset.
+                save_dataset: bool, optional
+                    True: save the dataset object into the model for quick
+                    change of the n_train via the update_hyperparameters method.
+                    False: not saving the training dataset into the Model object.
+                valid_dataset : :obj:'sgdml.core.Dataset', optional
+                    Data structure of custom type :obj:`dataset` containing
+                    training dataset.
+                n_valid : int, optional
+                    number of validation point to sample from the validation dataset.
+                save_valid_dataset: bool, optional
+                    True: save the dataset object into the model for quick
+                    change of the n_valid via the update_hyperparameters() method.
+                    False: not saving the validation dataset into the Model object.
+                model : :obj:'sgdml.core.Model', optional
+                    A precreate Model object to use as template for a new Model object.
+                    overwrite every other option.
+                callback : :obj:'sgdml.utils.ui.callback', optional
+                    A callback object for monitoring the training and testing processes.
+                kwargs :
+                    Parameters for the creation of :obj: 'sgdml.core.Task'
+                    object as a holder for the model hyperparameters
+            Returns
+            -------
+                sgdml.core.Model
+                    pre-trained and pre-tested type :obj:`sgdml.core.Model`.
+
+            Raises
+            ------
+                ValueError
+                    If a reconstruction of the potential energy surface is requested,
+                    but the energy labels are missing in the dataset.
+            """
 
         self.max_processes = max_processes
         self.use_torch = use_torch
         self.trainer = trainer
-
 
         if model is not None:
             for k, v in model.items():
@@ -282,15 +380,39 @@ class Model:
     def update_hyperparameters(self, train_dataset=None, n_train=None,
                                valid_dataset=None, n_valid=None,
                                **kwargs):
+        """
+        Update the Task hyperparameters.
+
+        Parameters
+        ----------
+            train_dataset :obj:`sgdml.core.Dataset`
+                Data structure of custom type :obj:`dataset` containing a new
+                train dataset
+            n_train: int
+                update value for number of training point for the model
+            valid_dataset :obj:`sgdml.core.Dataset`
+                Data structure of custom type :obj:`dataset` containing a new
+                validation dataset
+            n_valid: int
+                update value for number of validation point for the model
+
+                """
+
         if n_train is not None:
-            train_dataset = self.dataset if (train_dataset is None and self.dataset is not None) else train_dataset
+            if train_dataset is None and self.dataset is not None:
+                train_dataset = self.dataset
+            kwargs['n_train'] = n_train
         if n_valid is not None:
-            valid_dataset = self.valid_dataset if (valid_dataset is None and self.valid_dataset is not None) \
-                else valid_dataset
+            if valid_dataset is None and self.valid_dataset is not None:
+                valid_dataset = self.valid_dataset
+            kwargs['n_valid'] = n_valid
         self.task.update_hyperparameters(train_dataset=train_dataset, valid_dataset=valid_dataset,
                                          **kwargs)
+        for k, v in self.task.items():
+            self[k] = v
 
     def train(self, callback=None):
+        del_trainer = False
         callback = callback if callback is not None else self.callback
         if self.trainer is None:
             self.trainer = GDMLTrain(self.max_processes, self.use_torch)
@@ -301,51 +423,142 @@ class Model:
         if del_trainer:
             del self.trainer
             self.trainer = None
-        self.predictor = GDMLPredict(self,
-                                     max_processes=self.max_processes, use_torch=self.use_torch)
 
-    def prepare_parallel(self, b_size):
-        num_workers, batch_size = 0, 0
+        self.predictor = None
 
+
+    def prepare_parallel(self, n_bulk=1, n_reps=1):
+
+        """
+        run the prepare_parallel predictor :obj: 'sgdml.predict.GDMLpredict' method
+        to find and set the optimal parallelization parameters for the
+        currently loaded model, running on a particular system. The result
+        also depends on the number of geometries `n_bulk` that will be
+        passed at once when calling the `predict` function.
+
+        This function runs a benchmark in which the prediction routine is
+        repeatedly called `n_reps`-times (default: 1) with varying parameter
+        configurations, while the runtime is measured for each one. The
+        optimal parameters are then cached for fast retrival in future
+        calls of this function.
+
+        Parameters
+        ----------
+                n_bulk : int, optional
+                        Number of geometries that will be passed to the
+                        `predict` function in each call (performance
+                        will be optimized for that exact use case).
+                n_reps : int, optional
+                        Number of repetitions (bigger value: more
+                        accurate, but also slower).
+        """
+        if self.predictor is None:
+            self.predictor = GDMLPredict(self,
+                                         max_processes=self.max_processes, use_torch=self.use_torch)
         if not self.use_torch:
-            if num_workers == 0 or batch_size == 0:
-                self.callback(NOT_DONE, disp_str='Optimizing parallelism')
+            self.callback(NOT_DONE, disp_str='Optimizing parallelism')
 
-                gps, is_from_cache = self.predictor.prepare_parallel(n_bulk=b_size, return_is_from_cache=True)
-                num_workers, batch_size, bulk_mp = (self.predictor.num_workers,
-                                                    self.predictor.chunk_size,
-                                                    self.predictor.bulk_mp,
-                                                    )
+            gps, is_from_cache = self.predictor.prepare_parallel(n_bulk=n_bulk,n_reps=n_reps, return_is_from_cache=True)
+            num_workers, batch_size, bulk_mp = (self.predictor.num_workers,
+                                                self.predictor.chunk_size,
+                                                self.predictor.bulk_mp,
+                                                )
 
-                self.callback(DONE,
-                              disp_str='Optimizing parallelism'
-                                       + (' (from cache)' if is_from_cache else ''),
-                              sec_disp_str='%d workers %s/ chunks of %d'
-                                           % (num_workers, '[MP] ' if bulk_mp else '', batch_size),
-                              )
-            else:
-                self.predictor._set_num_workers(num_workers)
-                self.predictor._set_batch_size(batch_size)
-                self.predictor._set_bulk_mp(bulk_mp)
-
-    def predict(self, r):
-        return self.predictor.predict(r)
-
-    def test(self, dataset=None, n_test=None, use_torch=None, overwrite=False):
-        dataset = self.valid_dataset if (dataset is None and self.valid_dataset is not None) else dataset
-        # NOTE: this function runs a validation if n_test < 0 and test with all points if n_test == 0
-        if n_test is None:
-            try:
-                n_test = 0 if self.n_valid is None else self.n_valid
-            except AttributeError:
-                n_test = 0
-            is_validation = True
-            is_test = False
+            self.callback(DONE,
+                          disp_str='Optimizing parallelism'
+                                   + (' (from cache)' if is_from_cache else ''),
+                          sec_disp_str='%d workers %s/ chunks of %d'
+                                       % (num_workers, '[MP] ' if bulk_mp else '', batch_size),
+                          )
         else:
-            is_test = True
-            is_validation = False
+            print('Skipping multi-CPU benchmark, since torch is enabled.')# TODO: clarity!
+
+    def predict(self, R, R_desc=None, R_d_desc=None):
+        """
+        Predict energy and forces for multiple geometries. This function
+        can run on the GPU, if the optional PyTorch dependency is
+        installed and `use_torch=True` was speciefied during
+        initialization of this class.
+
+        Optionally, the descriptors and descriptor Jacobians for the
+        same geometries can be provided, if already available from some
+        previous calculations.
+
+        Note
+        ----
+                The order of the atoms in `R` is not arbitrary and must
+                be the same as used for training the model.
+
+        Parameters
+        ----------
+                R : :obj:`numpy.ndarray`
+                        An 2D array of size M x 3N containing the
+                        Cartesian coordinates of each atom of M
+                        molecules.
+                R_desc : :obj:`numpy.ndarray`, optional
+                        An 2D array of size M x D containing the
+                        descriptors of dimension D for M
+                        molecules.
+                R_d_desc : :obj:`numpy.ndarray`, optional
+                        A 2D array of size M x D x 3N containing of the
+                        descriptor Jacobians for M molecules. The descriptor
+                        has dimension D with 3N partial derivatives with
+                        respect to the 3N Cartesian coordinates of each atom.
+
+        Returns
+        -------
+                :obj:`numpy.ndarray`
+                        Energies stored in an 1D array of size M.
+                :obj:`numpy.ndarray`
+                        Forces stored in an 2D arry of size M x 3N.
+        """
+        if self.predictor is None:
+            self.predictor = GDMLPredict(self,
+                                         max_processes=self.max_processes, use_torch=self.use_torch)
+        return self.predictor.predict(R, R_desc=None, R_d_desc=None)
+
+    def test(self, dataset=None, n_test=None, is_test=False, overwrite=False):
+
+        """
+        test or validated the model on a dataset
+
+        Note
+        ----
+        this function runs a validation if: is_test is False
+
+        Parameters
+        ----------
+                dataset : :obj:`sgdml.core.Dataset`, optional
+                        dataset to test the model on. if non is given the model will test on the saved validation dataset if present
+                n_test : int, optional
+                        number of datapoint to test the model on.
+                        if None is given: validation: for validation n_valid will be used if present
+                                                        else will use the full validation dataset will be used
+                                            test: for test the full validation\test dataset will be used
+                is_test : bool, optional
+                        True: preform a test of the model.
+                        False: preform a validation of the model
+                overwrite : bool, optional
+                        if to overwrite previous test/validation
+        """
+
+        if dataset is None and self.valid_dataset is not None:
+            dataset = self.valid_dataset
+            if is_test:
+                print('Running test on validation dataset')
+        # NOTE: this function runs a validation if:
+        # is_test is False
+        is_validation = not is_test
+        if n_test is None:
+            if is_validation:
+                try:
+                    n_test = 0 if self.n_valid is None else self.n_valid
+                except AttributeError:
+                    n_test = 0
+            if is_test:
+                n_test = 0
+
         F_rmse = []
-        use_torch = self.use_torch if use_torch is None else use_torch
 
         if not np.array_equal(self.z, dataset.z):
             raise AssistantError('Atom composition or order in dataset does not match the one in model.')
@@ -377,8 +590,7 @@ class Model:
             n_data = dataset.F.shape[0]
             n_data_eff = n_data - len(excl_idxs)
 
-            if (
-                    n_test == 0 and n_data_eff != 0):  # test on all data points that have not been used for training or testing
+            if (n_test == 0 and n_data_eff != 0):  # test on all data points that have not been used for training or testing
                 n_test = n_data_eff
                 print('Test set size was automatically set to {:,} points.'.format(n_test))
 
@@ -409,7 +621,7 @@ class Model:
 
         b_size = min(1000, len(test_idxs))
 
-        if not use_torch:
+        if self.use_torch:
             self.prepare_parallel(b_size)
 
         n_atoms = z.shape[0]
@@ -588,8 +800,11 @@ class Model:
         text += '  {:<18} {}{:,} points'.format('Validated on:', '' if is_valid else '[pending] ', n_valid) + \
                 ' from \'' + ui.unicode_str(self.md5_valid) + '\'' + '\n'
         if 'n_test' in self.keys():
-            n_test = int(self.n_test)
-            is_test = True
+            if self.n_test != 0:
+                n_test = int(self.n_test)
+                is_test = True
+            else:
+                is_test = False
         else:
             is_test = False
         if is_test:
@@ -670,6 +885,19 @@ class Model:
 
 
 class Task:
+
+    """
+    Task object
+
+    This object serve as recipes for model creation,
+    summarizing the configuration of one particular training run.
+    Training and test points are sampled from the provided dataset,
+    without replacement. If the same dataset if given for training
+    and testing, the subsets are drawn without overlap.
+
+    Each task also contains a choice for the hyper-parameters of the
+    training process and the MD5 fingerprints of the used datasets.
+    """
     def __init__(self, train_dataset,
                  n_train,
                  valid_dataset=None,
@@ -688,6 +916,62 @@ class Task:
                  interact_cut_off=None,  # TODO: document me
                  callback=None, ):  # TODO: document me
 
+        """
+                Constructor for the Task object.
+                The resulting Task object is pre-trained and pre-tested.
+
+                Parameters
+                ----------
+                    train_dataset : :obj:`sgdml.core.Dataset`
+                        Data structure of custom type :obj:`dataset` containing
+                        train dataset.
+                    n_train : int
+                        Number of training points to sample.
+                    valid_dataset : :obj:`sgdml.core.Dataset`, optional
+                        Data structure of custom type :obj:`dataset` containing
+                        validation dataset.
+                    n_valid : int, optional
+                        Number of validation points to sample.
+                    sig : int
+                        Hyper-parameter (kernel length scale).
+                    lam : float, optional
+                        Hyper-parameter lambda (regularization strength).
+                    use_sym : bool, optional
+                        True: include symmetries (sGDML), False: GDML.
+                    use_E : bool, optional
+                        True: reconstruct force field with corresponding potential energy surface,
+                        False: ignore energy during training, even if energy labels are available
+                               in the dataset. The trained model will still be able to predict
+                               energies up to an unknown integration constant. Note, that the
+                               energy predictions accuracy will be untested.
+                    use_E_cstr : bool, optional
+                        True: include energy constraints in the kernel,
+                        False: default (s)GDML.
+                    use_cprsn : bool, optional
+                        True: compress kernel matrix along symmetric degrees of
+                        freedom,
+                        False: train using full kernel matrix
+
+                Returns
+                -------
+                    sgdml.core.Task
+                        pre-trained and pre-tested type :obj:`sgdml.core.Task`.
+
+                Raises
+                ------
+                    ValueError
+                        If a reconstruction of the potential energy surface is requested,
+                        but the energy labels are missing in the dataset.
+                """
+
+        if use_E and 'E' not in train_dataset:
+            raise ValueError(
+                'No energy labels found in dataset!\n'
+                + 'By default, force fields are always reconstructed including the\n'
+                + 'corresponding potential energy surface (this can be turned off).\n'
+                + 'However, the energy labels are missing in the provided dataset.\n'
+            )
+
         self.type = 't'
         self.code_version = sgdml.__version__
         self.dataset_name = train_dataset.name
@@ -701,7 +985,7 @@ class Task:
         self.max_processes = max_processes
         self.solver_name = solver
         self.solver_tol = solver_tol
-        self.n_inducing_pts_init = n_inducing_pts_init
+        self.n_inducing_pts_init = alias_int(n_inducing_pts_init)
         self.interact_cut_off = interact_cut_off
         self.model0 = model0
         self.callback = callback
@@ -760,6 +1044,21 @@ class Task:
             self.e_unit = train_dataset.e_unit
 
     def update_model_index(self, n_train, train_dataset):
+
+        """
+        Update the Task train indices while taking into account indices of the base model0
+        and permutations in the training dataset
+
+        Parameters
+        ----------
+            n_train : int
+                Number of training points to sample.
+            train_dataset : :obj:`sgdml.core.Dataset`
+                Data structure of custom type :obj:`dataset` containing
+                train dataset.
+
+        """
+
         md5_train = io.dataset_md5(train_dataset)
         m0_excl_idxs = np.array([], dtype=np.uint)
         m0_n_train, m0_n_valid = 0, 0
@@ -857,6 +1156,21 @@ class Task:
             self.cprsn_keep_atoms_idxs = cprsn_keep_idxs
 
     def update_model_valid_index(self, n_valid, valid_dataset):
+
+        """
+        Update the Task validation indices while taking into account indices of the base model0.
+        If using the same dataset for the training and validation will omit training indices.
+
+        Parameters
+        ----------
+            n_valid : int
+                Number of training points to sample.
+            valid_dataset : :obj:`sgdml.core.Dataset`
+                Data structure of custom type :obj:`dataset` containing
+                train dataset.
+
+        """
+
         md5_valid = io.dataset_md5(valid_dataset)
         if self.model0 is not None:
             m0_idxs_valid = self.model0['idxs_valid']  # TODO: Change the dict syntax
@@ -877,6 +1191,19 @@ class Task:
         self.md5_valid = md5_valid
 
     def update_hyperparameters(self, train_dataset=None, valid_dataset=None, **kwargs):
+        """
+        Update the Task hyperparameters.
+
+        Parameters
+        ----------
+            train_dataset :obj:`sgdml.core.Dataset`
+                Data structure of custom type :obj:`dataset` containing a new
+                train dataset
+            valid_dataset :obj:`sgdml.core.Dataset`
+                Data structure of custom type :obj:`dataset` containing a new
+                validation dataset
+
+        """
         for k, v in kwargs.items():
             self[k] = v
         if train_dataset is not None:
@@ -946,6 +1273,18 @@ class alias_str(str):
 
     def __str__(self):
         return self.str
+
+
+class alias_int(int):
+    def __init__(self, num):
+        super().__init__()
+        self.num = num
+
+    def astype(self, astype):
+        return astype(self.num)
+
+    def copy(self):
+        return self.num
 
 
 def draw_strat_sample(T, n, excl_idxs=None):
@@ -1151,11 +1490,3 @@ def select(validated_models, overwrite=False, max_processes=None, model_file=Non
     best_model = validated_models[best_idx]
 
     return best_model
-
-
-if __name__ == '__main__':
-    dataset_path = 'cspbbr3-300K-train-4676all.xyz'
-    dataset = Dataset(dataset_path, name='test_dataset', overwrite=True)
-    print(dataset['name'])
-    # for k in dataset.keys():
-    #     print(k)
