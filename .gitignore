@@ -11,3 +11,4 @@
 /*.egg-info
 /*.egg
 sgdml/_bmark_cache.npz
+/sgdml/solvers/iterative.py
