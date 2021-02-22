@@ -24,10 +24,13 @@
 
 import numpy as np
 import scipy as sp
+import sys
 
 import multiprocessing as mp
-
-Pool = mp.get_context('fork').Pool
+if sys.platform == 'win32':
+    from multiprocessing.pool import ThreadPool as Pool
+else:
+    Pool = mp.get_context('fork').Pool
 
 from functools import partial
 from scipy import spatial

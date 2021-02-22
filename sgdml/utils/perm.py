@@ -23,10 +23,13 @@
 # SOFTWARE.
 
 from __future__ import print_function
+import sys
 
 import multiprocessing as mp
-
-Pool = mp.get_context('fork').Pool
+if sys.platform == 'win32':
+    from multiprocessing.pool import ThreadPool as Pool
+else:
+    Pool = mp.get_context('fork').Pool
 
 import sys
 import timeit
