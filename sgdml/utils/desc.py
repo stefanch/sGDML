@@ -32,6 +32,8 @@ if sys.platform == 'win32':
 else:
     Pool = mp.get_context('fork').Pool
 
+from sgdml.dummy_pool import Pool as dPool
+
 from functools import partial
 from scipy import spatial
 import timeit
@@ -337,7 +339,14 @@ class Desc(object):
 
         # Generate descriptor and their Jacobians
         start = timeit.default_timer()
-        pool = Pool(self.max_processes)
+
+        print(f'starting a Pool of processes: {self.max_processes}')
+        if self.max_processes == 1:
+            pool = dPool(self.max_processes)
+        else:
+            pool = Pool(self.max_processes)
+        # pool = Pool(self.max_processes)
+
 
         coff = None if self.coff_dist is None else (self.coff_dist, self.coff_slope)
 

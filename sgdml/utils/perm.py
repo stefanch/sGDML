@@ -31,7 +31,8 @@ if sys.platform == 'win32':
 else:
     Pool = mp.get_context('fork').Pool
 
-import sys
+from sgdml.dummy_pool import Pool as dPool
+
 import timeit
 from functools import partial
 
@@ -43,7 +44,6 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 
 from .. import DONE, NOT_DONE
 from .desc import Desc
-from . import ui
 
 glob = {}
 
@@ -205,7 +205,12 @@ def bipartite_match(R, z, lat_and_inv=None, max_processes=None, callback=None):
         callback = partial(callback, disp_str='Bi-partite matching')
 
     start = timeit.default_timer()
-    pool = Pool(max_processes)
+    print(f'starting a Pool of processes: {max_processes}')
+    if max_processes == 1:
+        pool = dPool(max_processes)
+    else:
+        pool = Pool(max_processes)
+    # pool = Pool(max_processes)
 
     match_perms_all = {}
     for i, match_perms in enumerate(
