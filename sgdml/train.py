@@ -36,6 +36,8 @@ if sys.platform == 'win32':
 else:
     Pool = mp.get_context('fork').Pool
 
+from sgdml.dummy_pool import Pool as dPool
+
 import timeit
 from functools import partial
 
@@ -1242,7 +1244,11 @@ class GDMLTrain(object):
         glob['desc_func'] = desc
 
         start = timeit.default_timer()
-        pool = Pool(self._max_processes)
+        print(f'starting a Pool of processes: {self._max_processes}')
+        if self._max_processes == 1:
+            pool = dPool(self._max_processes)
+        else:
+            pool = Pool(self._max_processes)
 
         todo, done = K_n_cols, 0
         for done_wkr in pool.imap_unordered(
