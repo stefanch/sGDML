@@ -100,13 +100,12 @@ class GDMLTorchPredict(nn.Module):
         const_memory = 2 * self._xs_train.nelement() * self._xs_train.element_size()
 
         if max_memory is None:
+            memory_reduce_factor = 0.9
             if torch.cuda.is_available():
-                max_memory = min(
-                    [
-                        torch.cuda.get_device_properties(i).total_memory
-                        for i in range(torch.cuda.device_count())
-                    ]
-                )
+                max_memory = int(min(
+                    [torch.cuda.get_device_properties(i).total_memory*memory_reduce_factor
+                     for i in range(torch.cuda.device_count()) ]
+                ))
             else:
                 max_memory = int(
                     2 ** 30 * 32
