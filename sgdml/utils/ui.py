@@ -211,10 +211,12 @@ def warn_str(str):
 
 
 def unicode_str(s):
-
-    if sys.version[0] == '3':
-        return str(s, 'utf-8', 'ignore')
-    else:
+    try:
+        if sys.version[0] == '3':
+            return str(s, 'utf-8', 'ignore')
+        else:
+            return str(s)
+    except TypeError:
         return str(s)
 
 
