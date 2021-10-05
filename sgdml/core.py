@@ -6,15 +6,16 @@ import numpy as np
 import os
 import sgdml
 from functools import partial
-from . import MAX_PRINT_WIDTH, DONE, NOT_DONE
+from . import __version__, MAX_PRINT_WIDTH, DONE, NOT_DONE
 from .utils import ui, io, perm, desc
 from .cli import _batch, _online_err
 from .train import GDMLTrain
 from .predict import GDMLPredict
+import timeit
 import time
 
 
-def dummy_callback(done=None, **kwargs):
+def dummy_callback(done=None, dummy=None, **kwargs):
     pass
 
 
@@ -66,21 +67,23 @@ class Dataset:
         Returns
         -------
             sgdml.core.Dataset
-                 type :obj:`sgdml.core.Task`.
+                 type :obj:`sgdml.core.Dataset`.
                         """
 
         self.type = 'd'
         self.code_version = sgdml.__version__
         self.name = alias_str(name if not name is None else os.path.splitext(os.path.basename(dataset_path))[0])
         self.theory = alias_str(theory)
-
         mols = read(dataset_path, index=':')
+
         dataset_file_name = self.name + '.npz'
         dataset_exists = os.path.isfile(dataset_file_name)
-        if dataset_exists and overwrite and verbose:
+        if (dataset_exists and overwrite) and verbose:
             print(ui.color_str('[INFO]', bold=True) + ' Overwriting existing dataset file.')
-        if not dataset_exists or overwrite and verbose:
-            print('Writing dataset to \'{}\'...'.format(dataset_file_name))
+        if (not dataset_exists or overwrite):
+            if verbose:
+                # print('Writing dataset to \'{}\'...'.format(dataset_file_name))
+                pass
         else:
             if verbose:
                 print(ui.color_str('[FAIL]', fore_color=ui.RED, bold=True)
@@ -304,6 +307,7 @@ class Model:
                  dataset=None, n_train=0, save_dataset=False,
                  valid_dataset=None, n_valid=0, save_valid_dataset=False,
                  model=None, callback=dummy_callback,
+                 solver=None,
                  **kwargs):
         """
             Constructor for the Model object.
@@ -359,11 +363,16 @@ class Model:
             for k, v in model.items():
                 self[k] = v
             return
+        if isinstance(trainer, Model):
+            for k, v in trainer.items():
+                self[k] = v
+            return
 
         if 'task' not in kwargs.keys():
             self.task = Task(dataset, n_train,
                              valid_dataset=valid_dataset, n_valid=n_valid,
-                             callback=callback,
+                             callback=callback, max_processes = self.max_processes,
+                             solver=solver,
                              **kwargs)
         else:
             self.task = kwargs['task']
@@ -376,6 +385,7 @@ class Model:
             self.dataset = dataset
         if save_valid_dataset:
             self.valid_dataset = valid_dataset
+        self.solver = solver
 
     def update_hyperparameters(self, train_dataset=None, n_train=None,
                                valid_dataset=None, n_valid=None,
@@ -402,6 +412,9 @@ class Model:
             if train_dataset is None and self.dataset is not None:
                 train_dataset = self.dataset
             kwargs['n_train'] = n_train
+        if 'idxs_train' in kwargs.keys():
+            if train_dataset is None and self.dataset is not None:
+                train_dataset = self.dataset
         if n_valid is not None:
             if valid_dataset is None and self.valid_dataset is not None:
                 valid_dataset = self.valid_dataset
@@ -411,18 +424,27 @@ class Model:
         for k, v in self.task.items():
             self[k] = v
 
+        self['type'] = 'm'
+
     def train(self, callback=None):
         del_trainer = False
         callback = callback if callback is not None else self.callback
         if self.trainer is None:
             self.trainer = GDMLTrain(self.max_processes, self.use_torch)
             del_trainer = True
+        self.task.solver_name = self.solver if self.solver is not None else 'analytic'
+        for k, v in self.task.items():
+            self.task[k] = self[k]
         self.model_dict = self.trainer.train(self.task, callback=callback)
         for k, v in self.model_dict.items():
             self[k] = v
         if del_trainer:
             del self.trainer
             self.trainer = None
+            global glob
+
+            if 'glob' in globals():
+                del glob
 
         self.predictor = None
 
@@ -572,8 +594,7 @@ class Model:
         if self.use_E:
             e_err = self.e_err
         f_err = self.f_err
-
-        is_model_validated = not (np.isnan(f_err['mae']) or np.isnan(f_err['rmse']))
+        is_model_validated = not (np.isnan(np.array(f_err['mae'])) or np.isnan(np.array(f_err['rmse'])))
 
         if dataset.md5 != self.md5_valid:
             raise AssistantError('Fingerprint of provided validation dataset does not match the one in model file.')
@@ -750,6 +771,361 @@ class Model:
                   'NOT been used to update the model file.\n'.format(self.n_test, add_info_str)
                   )
             F_rmse.append(f_rmse)
+
+    def solve(self, **kwargs):
+
+        del_trainer = False
+        if self.trainer is None:
+            self.trainer = GDMLTrain(self.max_processes, self.use_torch)
+            del_trainer = True
+
+        # TODO: change to if self.solver == None
+        assert self.solver == 'analytic' or self.solver == 'cg' or not self.solver == None # or solver == 'fk'
+
+        n_train, n_atoms = self.R_train.shape[:2]
+
+        self.desc = desc.Desc(
+            n_atoms,
+            interact_cut_off=self.interact_cut_off,
+            max_processes=self.max_processes,
+        )
+
+        n_perms = self.perms.shape[0]
+        tril_perms = np.array([self.desc.perm(p) for p in self.perms])
+
+        dim_i = 3 * n_atoms
+        dim_d = self.desc.dim
+
+        perm_offsets = np.arange(n_perms)[:, None] * dim_d
+        self.tril_perms_lin = (tril_perms + perm_offsets).flatten('F')
+
+        # TODO: check if all atoms are in span of lattice vectors, otherwise suggest that
+        # rows and columns might have been switched.
+        lat_and_inv = None
+        if 'lattice' in self:
+            try:
+                lat_and_inv = (self.lattice, np.linalg.inv(self.lattice))
+            except np.linalg.LinAlgError:
+                raise ValueError(  # TODO: Document me
+                    'Provided dataset contains invalid lattice vectors (not invertible). Note: Only rank 3 lattice vector matrices are supported.'
+                )
+
+            # # TODO: check if all atoms are within unit cell
+            # for r in task['R_train']:
+            #     r_lat = lat_and_inv[1].dot(r.T)
+            #     if not (r_lat >= 0).all():
+            #         # raise ValueError( # TODO: Document me
+            #         #    'Some atoms appear outside of the unit cell! Please check lattice vectors in dataset file.'
+            #         # )
+            #         pass
+
+        R = self.R_train.reshape(n_train, -1)
+        self.R_desc, self.R_d_desc = self.desc.from_R(
+            R,
+            lat_and_inv=lat_and_inv,
+            callback=partial(self.callback, disp_str='Generating descriptors and their Jacobians'),
+        )
+
+        # Generate label vector.
+        E_train_mean = None
+        y = self.F_train.ravel().copy()
+        if self.use_E and self.use_E_cstr:
+            E_train = self.E_train.ravel().copy()
+            E_train_mean = np.mean(E_train)
+
+            y = np.hstack((y, -E_train + E_train_mean))
+            # y = np.hstack((n*Ft, (1-n)*Et))
+        y_std = np.std(y)
+        y /= y_std
+
+        n_train, dim_d = self.R_d_desc.shape[:2]
+        n_atoms = int((1 + np.sqrt(8 * dim_d + 1)) / 2)
+        dim_i = 3 * n_atoms
+
+        # Compress kernel based on symmetries
+        col_idxs = np.s_[:]
+        if 'cprsn_keep_atoms_idxs' in self:
+            cprsn_keep_idxs_lin = (np.arange(dim_i).reshape(n_atoms, -1)[self.cprsn_keep_atoms_idxs, :].ravel())
+
+            col_idxs = (cprsn_keep_idxs_lin[:, None] + np.arange(n_train) * dim_i).T.ravel()
+
+        if self.callback is not None:
+            self.callback = partial(
+                self.callback,
+                disp_str='Assembling kernel matrix',
+            )
+        self.K = self.trainer._assemble_kernel_mat(
+            self.R_desc,
+            self.R_d_desc,
+            self.tril_perms_lin,
+            self.sig,
+            self.desc,
+            use_E_cstr=self.use_E_cstr,
+            col_idxs=col_idxs,
+            callback=self.callback,
+        )
+        start = timeit.default_timer()
+
+        alphas = self.solver(np.copy(self.K), np.copy(y.copy()), callback=self.callback, **kwargs).copy()
+        self.y = y
+        self.std = y_std
+        stop = timeit.default_timer()
+        if self.callback is not None:
+            dur_s = (stop - start) / 2
+            sec_disp_str = 'took {:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
+            self.callback(DONE,
+                     disp_str='Training on {:,} points'.format(self.n_train),
+                     sec_disp_str=sec_disp_str,
+                     )
+        self.alphas_F = alphas
+        if self.use_E_cstr:
+            self.alphas_E = alphas[-n_train:]
+            self.alphas_F = alphas[:-n_train]
+
+            # Recover integration consta nt.
+            # Note: if energy constraints are included in the kernel (via 'use_E_cstr'), do not
+            # compute the integration constant, but simply set it to the mean of the training energies
+            # (which was subtracted from the labels before training).
+        # compatibility with original code:
+
+
+        if 'cprsn_keep_atoms_idxs' in self:
+            cprsn_keep_idxs = self.cprsn_keep_atoms_idxs
+
+            R_d_desc_full = self.desc.d_desc_from_comp(self.R_d_desc).reshape(
+                n_train, dim_d, n_atoms, 3
+            )
+            R_d_desc_full = R_d_desc_full[:, :, cprsn_keep_idxs, :].reshape(
+                n_train, dim_d, -1
+            )
+
+            r_d_desc_alpha = np.einsum(
+                'kji,ki->kj', R_d_desc_full, self.alphas_F.reshape(n_train, -1)
+            )
+
+        else:
+
+            # TOOD: why not use 'd_desc_dot_vec'?
+
+            i, j = np.tril_indices(n_atoms, k=-1)
+            alphas_F_exp = self.alphas_F.reshape(-1, n_atoms, 3)
+
+            r_d_desc_alpha = np.einsum(
+                'kji,kji->kj', self.R_d_desc, alphas_F_exp[:, j, :] - alphas_F_exp[:, i, :]
+            )
+
+        self.R_d_desc_alpha = r_d_desc_alpha
+        self.type = 'm'
+        self.c = 0.0
+        self.R_desc = self.R_desc.T
+        if self.use_E:
+            c = (self._recov_int_const()
+                if E_train_mean is None
+                else E_train_mean)
+            if c is None:
+                # Something does not seem right. Turn off energy predictions for this model, only output force predictions.
+                self.use_E = False
+            else:
+                self.c = c
+
+        if del_trainer:
+            del self.trainer
+            self.trainer = None
+
+
+    def _recov_int_const(self
+    ):  # TODO: document e_err_inconsist return
+        """
+        Estimate the integration constant for a force field model.
+
+        The offset between the energies predicted for the original training
+        data and the true energy labels is computed in the least square sense.
+        Furthermore, common issues with the user-provided datasets are self
+        diagnosed here.
+
+        Parameters
+        ----------
+            R_desc : :obj:`numpy.ndarray`, optional
+                    An 2D array of size M x D containing the
+                    descriptors of dimension D for M
+                    molecules.
+            R_d_desc : :obj:`numpy.ndarray`, optional
+                    A 2D array of size M x D x 3N containing of the
+                    descriptor Jacobians for M molecules. The descriptor
+                    has dimension D with 3N partial derivatives with
+                    respect to the 3N Cartesian coordinates of each atom.
+
+        Returns
+        -------
+            float
+                Estimate for the integration constant.
+
+        Raises
+        ------
+            ValueError
+                If the sign of the force labels in the dataset from
+                which the model emerged is switched (e.g. gradients
+                instead of forces).
+            ValueError
+                If inconsistent/corrupted energy labels are detected
+                in the provided dataset.
+            ValueError
+                If different scales in energy vs. force labels are
+                detected in the provided dataset.
+        """
+        gdml = GDMLPredict(self, max_processes=self.max_processes)  # , use_torch=self._use_torch
+
+        n_train = self.E_train.shape[0]
+        R = self.R_train.reshape(n_train, -1)
+        E_pred, _ = gdml.predict(R, R_desc=self.R_desc.T, R_d_desc=self.R_d_desc)
+        E_ref = np.squeeze(self.E_train)
+
+        e_fact = np.linalg.lstsq(
+            np.column_stack((E_pred, np.ones(E_ref.shape))), E_ref, rcond=-1
+        )[0][0]
+        corrcoef = np.corrcoef(E_ref, E_pred)[0, 1]
+
+        # import matplotlib.pyplot as plt
+        # sidx = np.argsort(E_ref)
+        # plt.plot(E_ref[sidx])
+        # c = np.sum(E_ref - E_pred) / E_ref.shape[0]
+        # plt.plot(E_pred[sidx]+c)
+        # plt.show()
+        # sys.exit()
+
+        # import matplotlib.pyplot as plt
+        # sidx = np.argsort(F_ref)
+        # plt.plot(F_ref[sidx])
+        # c = np.sum(F_ref - F_pred) / F_ref.shape[0]
+        # plt.plot(F_pred[sidx],'--')
+        # plt.show()
+        # sys.exit()
+
+        if np.sign(e_fact) == -1:
+            print('The provided dataset contains gradients instead of force labels (flipped sign). Please correct!\n'
+                + ui.color_str('Note:', bold=True)
+                + 'Note: The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
+            )
+            return None
+
+        if corrcoef < 0.95:
+            print('Inconsistent energy labels detected!\n'
+                + 'The predicted energies for the training data are only weakly correlated with the reference labels (correlation coefficient {:.2f}) which indicates that the issue is most likely NOT just a unit conversion error.\n\n'.format(
+                    corrcoef
+                )
+                + ui.color_str('Troubleshooting tips:\n', bold=True)
+                + ui.wrap_indent_str(
+                    '(1) ',
+                    'Verify the correct correspondence between geometries and labels in the provided dataset.',
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(2) ', 'Verify the consistency between energy and force labels.'
+                )
+                + '\n'
+                + ui.wrap_indent_str('    - ', 'Correspondence correct?')
+                + '\n'
+                + ui.wrap_indent_str('    - ', 'Same level of theory?')
+                + '\n'
+                + ui.wrap_indent_str('    - ', 'Accuracy of forces?')
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(3) ',
+                    'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?',
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(4) ', 'Are there duplicate geometries in the training data?'
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(5) ', 'Are there any corrupted data points (e.g. parsing errors)?'
+                )
+                + '\n\n'
+                + ui.color_str('Note:', bold=True)
+                + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
+            )
+            return None
+
+        if np.abs(e_fact - 1) > 1e-1:
+            print('Different scales in energy vs. force labels detected!\n'
+                + 'The integrated forces differ from the energy labels by factor ~{:.2f}, meaning that the trained model will likely fail to predict energies accurately.\n\n'.format(
+                    e_fact
+                )
+                + ui.color_str('Troubleshooting tips:\n', bold=True)
+                + ui.wrap_indent_str(
+                    '(1) ', 'Verify consistency of units in energy and force labels.'
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(2) ',
+                    'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?',
+                )
+                + '\n\n'
+                + ui.color_str('Note:', bold=True)
+                + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
+            )
+            return None
+
+        # Least squares estimate for integration constant.
+        return np.sum(E_ref - E_pred) / E_ref.shape[0]
+
+    def to_dict(self):
+        model = {
+            'type': 'm',
+            'code_version': __version__,
+            'dataset_name': self['dataset_name'],
+            'dataset_theory': self['dataset_theory'],
+            'solver_name': self.solver,
+            'solver_tol': self['solver_tol'],
+            'norm_y_train': self.norm_y_train,
+            'n_inducing_pts_init': self.n_inducing_pts_init if self.solver == 'cg' else None,
+            'z': self['z'],
+            'idxs_train': self['idxs_train'],
+            'md5_train': self['md5_train'],
+            'idxs_valid': self['idxs_valid'],
+            'md5_valid': self['md5_valid'],
+            'n_test': 0,
+            'md5_test': None,
+            'f_err': self.f_err,
+
+            'R_desc': self.R_desc,
+            'R_d_desc_alpha': self.R_d_desc_alpha,
+            'interact_cut_off': self['interact_cut_off'],
+            'c': self.c,
+            'std': self.std,
+            'sig': self['sig'],
+            'lam': self['lam'],
+            'alphas_F': self.alphas_F,
+            'perms': self['perms'],
+            'tril_perms_lin': self.tril_perms_lin,
+            'use_E': self['use_E'],
+            'use_cprsn': self['use_cprsn'],
+        }
+
+        if 'solver_resid' in self.keys():
+            model['solver_resid'] = self.solver_resid  # residual of solution (cg solver)
+
+        if 'solver_iters'  in self.keys():
+            model[
+                'solver_iters'
+            ] = self.solver_iters  # number of iterations performed to obtain solution (cg solver)
+
+        if 'inducing_pts_idxs' in self.keys():
+            model['inducing_pts_idxs'] = self.inducing_pts_idxs
+
+        if self['use_E']:
+            model['e_err'] = self.e_err,
+            if self['use_E_cstr']:
+                model['alphas_E'] = self.alphas_E
+
+        if 'lattice' in self.keys():
+            model['lattice'] = self['lattice']
+
+        if 'r_unit' in self.keys() and 'e_unit' in self.keys():
+            model['r_unit'] = self['r_unit']
+            model['e_unit'] = self['e_unit']
+        return  model
 
     def __str__(self):
         text = ui.white_bold_str('Model properties') + '\n'
@@ -983,9 +1359,9 @@ class Task:
         self.use_sym = use_sym
         self.use_cprsn = use_cprsn
         self.max_processes = max_processes
-        self.solver_name = solver
+        self.solver_name = solver if solver is not None else 'analytic'
         self.solver_tol = solver_tol
-        self.n_inducing_pts_init = alias_int(n_inducing_pts_init)
+        self.n_inducing_pts_init = alias_int(n_inducing_pts_init) if n_inducing_pts_init is not None else None
         self.interact_cut_off = interact_cut_off
         self.model0 = model0
         self.callback = callback
@@ -998,8 +1374,8 @@ class Task:
         self.idxs_valid = None
         self.md5_valid = None
         if self.use_E:
-            self.e_err = {'mae': None, 'rmse': None, }
-        self.f_err = {'mae': None, 'rmse': None}
+            self.e_err = {'mae': np.NaN, 'rmse': np.NaN, }
+        self.f_err = {'mae': np.NaN, 'rmse': np.NaN}
         self.R_train = None
         self.F_train = None
 
@@ -1022,7 +1398,7 @@ class Task:
             raise ValueError('Provided training and/or validation dataset(s) do(es) not match the ones in the initial '
                              'model.')
 
-        self.update_model_index(n_train, train_dataset)
+        self.update_model_index(train_dataset, n_train)
         if valid_dataset is not None:
             self.update_model_valid_index(n_valid, valid_dataset)
         if use_E:
@@ -1043,7 +1419,7 @@ class Task:
             self.r_unit = train_dataset.r_unit
             self.e_unit = train_dataset.e_unit
 
-    def update_model_index(self, n_train, train_dataset):
+    def update_model_index(self, train_dataset,n_train=None, idxs_train=None):
 
         """
         Update the Task train indices while taking into account indices of the base model0
@@ -1051,11 +1427,11 @@ class Task:
 
         Parameters
         ----------
-            n_train : int
-                Number of training points to sample.
             train_dataset : :obj:`sgdml.core.Dataset`
                 Data structure of custom type :obj:`dataset` containing
                 train dataset.
+            n_train : int
+                Number of training points to sample.
 
         """
 
@@ -1075,18 +1451,19 @@ class Task:
             callback = partial(self.callback, disp_str='Sampling training and validation subsets')
             callback(NOT_DONE)
 
-        if 'E' in train_dataset:
-            idxs_train = draw_strat_sample(train_dataset.E, n_train - m0_n_train, m0_excl_idxs)
-        else:
-            idxs = np.arange(train_dataset.F.shape[0])
-            not_use_idx = np.setdiff1d(idxs, self.m0_excl_idxs, assume_unique=True)  # DONE: m0 handling
-            idxs_train = np.random.choice(not_use_idx, n_train - m0_n_train, replace=False)
+        if idxs_train is None:
+            if 'E' in train_dataset:
+                idxs_train = draw_strat_sample(train_dataset.E, n_train - m0_n_train, m0_excl_idxs)
+            else:
+                idxs = np.arange(train_dataset.F.shape[0])
+                not_use_idx = np.setdiff1d(idxs, self.m0_excl_idxs, assume_unique=True)  # DONE: m0 handling
+                idxs_train = np.random.choice(not_use_idx, n_train - m0_n_train, replace=False)
+            if self.model0 is not None:
+                idxs_train = np.concatenate((m0_idxs_train, idxs_train)).astype(np.uint)
 
         if self.callback is not None:
             self.callback(DONE)
 
-        if self.model0 is not None:
-            idxs_train = np.concatenate((m0_idxs_train, idxs_train)).astype(np.uint)
         self.idxs_train = idxs_train
         self.md5_train = md5_train
         self.R_train = train_dataset.R[self.idxs_train, :, :]
@@ -1206,8 +1583,11 @@ class Task:
         """
         for k, v in kwargs.items():
             self[k] = v
+        if 'n_inducing_pts_init' in kwargs.keys():
+            self['n_inducing_pts_init'] = alias_int(kwargs['n_inducing_pts_init'])
         if train_dataset is not None:
-            self.update_model_index(self.n_train, train_dataset)
+            idxs_train = kwargs['idxs_train'] if 'idxs_train' in kwargs.keys() else None
+            self.update_model_index(train_dataset, self.n_train, idxs_train)
             if self.use_E:
                 self.E_train = train_dataset.E[self.idxs_train]
 
@@ -1314,9 +1694,9 @@ def draw_strat_sample(T, n, excl_idxs=None):
         :obj:`numpy.ndarray`
             Array of indices that form the sample.
     """
-
-    if len(excl_idxs) == 0:
-        excl_idxs = None
+    if excl_idxs is not None:
+        if len(excl_idxs) == 0:
+            excl_idxs = None
 
     if n == 0:
         return np.array([], dtype=np.uint)
