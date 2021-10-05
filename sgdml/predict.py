@@ -37,6 +37,8 @@ if sys.platform == 'win32':
 else:
     Pool = mp.get_context('fork').Pool
 
+from sgdml.dummy_pool import Pool as dPool
+
 import timeit
 from functools import partial
 
@@ -504,8 +506,12 @@ class GDMLPredict(object):
             self.pool.close()
             self.pool.join()
             self.pool = None
-
-        self.pool = Pool(processes=self.num_workers)
+        print(f'starting a Pool of processes: {self._max_processes}')
+        if self._max_processes == 1:
+            pool = dPool(processes=self.num_workers)
+        else:
+            pool = Pool(processes=self.num_workers)
+        self.pool = pool
         self.num_workers = self.pool._processes
 
     def _set_chunk_size(self, chunk_size=None):
