@@ -87,7 +87,7 @@ class GDMLTorchPredict(nn.Module):
 
         self._xs_train, self._Jx_alphas = (
             nn.Parameter(
-                xs.repeat(1, n_perms)[:, perm_idxs].reshape(-1, desc_siz),
+                xs.repeat(1, n_perms)[:, perm_idxs.type(torch.LongTensor)].reshape(-1, desc_siz),
                 requires_grad=False,
             )
             for xs in (
@@ -100,13 +100,12 @@ class GDMLTorchPredict(nn.Module):
         const_memory = 2 * self._xs_train.nelement() * self._xs_train.element_size()
 
         if max_memory is None:
+            memory_reduce_factor = 0.9
             if torch.cuda.is_available():
-                max_memory = min(
-                    [
-                        torch.cuda.get_device_properties(i).total_memory
-                        for i in range(torch.cuda.device_count())
-                    ]
-                )
+                max_memory = int(min(
+                    [torch.cuda.get_device_properties(i).total_memory*memory_reduce_factor
+                     for i in range(torch.cuda.device_count()) ]
+                ))
             else:
                 max_memory = int(
                     2 ** 30 * 32
@@ -146,7 +145,7 @@ class GDMLTorchPredict(nn.Module):
         xs = torch.from_numpy(R_d_desc_alpha).to(self._dev)
 
         self._Jx_alphas = nn.Parameter(
-            xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, dim_d),
+            xs.repeat(1, self.n_perms)[:, self.perm_idxs.type(torch.LongTensor)].reshape(-1, dim_d),
             requires_grad=False,
         )
 
