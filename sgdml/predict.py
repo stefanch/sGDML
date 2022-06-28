@@ -4,7 +4,7 @@ This module contains all routines for evaluating GDML and sGDML models.
 
 # MIT License
 #
-# Copyright (c) 2018-2020 Stefan Chmiela, Gregory Fonseca
+# Copyright (c) 2018-2022 Stefan Chmiela, Gregory Fonseca
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,6 +29,7 @@ from __future__ import print_function
 import sys
 import logging
 import os
+import psutil
 
 import multiprocessing as mp
 
@@ -139,7 +140,9 @@ def _predict_wkr(
             glob['alphas_E_lin_shape']
         )
 
-    r_desc, r_d_desc = r_desc_d_desc or desc_func.from_R(r, lat_and_inv)
+    r_desc, r_d_desc = r_desc_d_desc or desc_func.from_R(
+        r, lat_and_inv, max_processes=1
+    )  # no additional forking during parallelization
 
     n_train = int(R_desc_perms.shape[0] / n_perms)
 
@@ -222,6 +225,19 @@ def _predict_wkr(
         out = np.empty((dim_i + 1,))
         out[0] = E_F[0]
 
+    # NEW
+    # print(r_d_desc.shape)
+
+    # r_d_desc = desc_func.d_desc_from_comp(r_d_desc)[0]
+
+    # u, s, vh = np.linalg.svd(r_d_desc[0], full_matrices=False)
+    # s[s < 1e-15] = 1
+    # r_d_desc = np.dot(u * s, vh)
+    # out[1:] = r_d_desc.T.dot(F)
+    # return out
+
+    # NEW
+
     out[1:] = desc_func.vec_dot_d_desc(
         r_d_desc,
         F,
@@ -232,7 +248,14 @@ def _predict_wkr(
 
 class GDMLPredict(object):
     def __init__(
-        self, model, batch_size=None, num_workers=1, max_processes=None, use_torch=False
+        self,
+        model,
+        batch_size=None,
+        num_workers=None,
+        max_memory=None,
+        max_processes=None,
+        use_torch=False,
+        log_level=None,
     ):
         """
         Query trained sGDML force fields.
@@ -258,15 +281,21 @@ class GDMLPredict(object):
                         trained model. This object is the output of
                         `GDMLTrain.train`
                 batch_size : int, optional
-                        Chunk size for processing parallel tasks.
+                        Chunk size for processing parallel tasks
                 num_workers : int, optional
-                        Number of parallel workers.
+                        Number of parallel workers (in addition to the main
+                        process)
+                max_memory : int, optional
+                        Limit the max. memory usage [GB]. This is only a
+                        soft limit that can not always be enforced.
                 max_processes : int, optional
                         Limit the max. number of processes. Otherwise
                         all CPU cores are used. This parameters has no
                         effect if `use_torch=True`
                 use_torch : boolean, optional
                         Use PyTorch to calculate predictions
+                log_level : optional
+                        Set custom logging level (e.g. `logging.CRITICAL`)
         """
 
         global globs
@@ -282,6 +311,18 @@ class GDMLPredict(object):
         glob = globs[self.glob_id]
 
         self.log = logging.getLogger(__name__)
+        if log_level is not None:
+            self.log.setLevel(log_level)
+
+        total_memory = psutil.virtual_memory().total // 2 ** 30  # bytes to GB)
+        self.max_memory = (
+            min(max_memory, total_memory) if max_memory is not None else total_memory
+        )
+
+        total_cpus = mp.cpu_count()
+        self.max_processes = (
+            min(max_processes, total_cpus) if max_processes is not None else total_cpus
+        )
 
         if 'type' not in model or not (model['type'] == 'm' or model['type'] == b'm'):
             self.log.critical('The provided data structure is not a valid model.')
@@ -289,13 +330,12 @@ class GDMLPredict(object):
 
         self.n_atoms = model['z'].shape[0]
 
-        interact_cut_off = (
-            model['interact_cut_off'] if 'interact_cut_off' in model else None
-        )  # NEW
-        self.desc = Desc(
-            self.n_atoms, interact_cut_off=interact_cut_off, max_processes=max_processes
-        )
+        self.desc = Desc(self.n_atoms, max_processes=max_processes)
         glob['desc_func'] = self.desc
+
+        # Cache for iterative training mode.
+        self.R_desc = None
+        self.R_d_desc = None
 
         self.lat_and_inv = (
             (model['lattice'], np.linalg.inv(model['lattice']))
@@ -310,7 +350,6 @@ class GDMLPredict(object):
         self.c = model['c']
 
         n_perms = model['perms'].shape[0]
-        self.n_perms = n_perms
         glob['n_perms'] = n_perms
 
         self.tril_perms_lin = model['tril_perms_lin']
@@ -326,16 +365,54 @@ class GDMLPredict(object):
 
             from .torchtools import GDMLTorchPredict
 
-            self.torch_predict = GDMLTorchPredict(model, self.lat_and_inv)
+            self.torch_predict = GDMLTorchPredict(
+                model,
+                self.lat_and_inv,
+                max_memory=max_memory,
+                max_processes=max_processes,
+                log_level=self.log.level,
+            )
 
             # Enable data parallelism
             n_gpu = torch.cuda.device_count()
             if n_gpu > 1:
                 self.torch_predict = torch.nn.DataParallel(self.torch_predict)
 
+            # Send model to device
             self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            self.torch_predict.to(self.torch_device)
+            while True:
+                try:
+                    self.torch_predict.to(self.torch_device)
+                except RuntimeError as e:
+                    if 'out of memory' in str(e):
+                        torch.cuda.empty_cache()
 
+                        print('sending to device -> fail (trying again)')
+
+                        model = self.torch_predict
+                        if isinstance(self.torch_predict, torch.nn.DataParallel):
+                            model = model.module
+
+                        if (
+                            model.n_perm_batches == 1
+                        ):  # model caches the permutations, this could be why it is too large
+                            model.set_n_perm_batches(
+                                model.n_perm_batches + 1
+                            )  # uncache
+                            self.torch_predict.to(
+                                self.torch_device
+                            )  # try sending to device again
+                            pass
+                        else:
+                            self.log.critical(
+                                'Not enough memory on device (RAM or GPU memory). There is no hope!'
+                            )
+                            print()
+                            os._exit(1)
+                    else:
+                        raise e
+                else:
+                    break
         else:
 
             # Precompute permuted training descriptors and its first derivatives multiplied with the coefficients.
@@ -363,28 +440,34 @@ class GDMLPredict(object):
                     alphas_E_lin
                 )
 
-        # Parallel processing configuration
+            # Parallel processing configuration
 
-        self.bulk_mp = False  # Bulk predictions with multiple processes?
+            self.bulk_mp = False  # Bulk predictions with multiple processes?
 
-        # How many parallel processes?
-        self.max_processes = max_processes
-        if self.max_processes is None:
-            self.max_processes = mp.cpu_count()
-        self.pool = None
-        self.num_workers = 1
-        self._set_num_workers(num_workers)
+            # self.max_processes = max_processes
+            # if self.max_processes is None:
+            #    self.max_processes = mp.cpu_count()
 
-        # Size of chunks in which each parallel task will be processed (unit: number of training samples)
-        # This parameter should be as large as possible, but it depends on the size of available memory.
-        self._set_chunk_size(batch_size)
+            self.pool = None
+
+            # How many workers in addition to main process?
+            num_workers = num_workers or (
+                self.max_processes - 1
+            )  # exclude main process
+            self._set_num_workers(num_workers, force_reset=True)
+
+            # Size of chunks in which each parallel task will be processed (unit: number of training samples)
+            # This parameter should be as large as possible, but it depends on the size of available memory.
+            self._set_chunk_size(batch_size)
 
     def __del__(self):
 
         global globs
 
         try:
-            self.pool.close()
+            self.pool.terminate()
+            self.pool.join()
+            self.pool = None
         except:
             pass
 
@@ -393,16 +476,85 @@ class GDMLPredict(object):
 
     ## Public ##
 
-    def set_alphas(self, R_d_desc, alphas_F, alphas_E=None):
+    # def set_R(self, R):
+    #     """
+    #     Store a reference to the training geometries.
+    #     This function is used to avoid unnecessary copies of the
+    #     traininig geometries when evaluation the training error
+    #     (= gradient of the model's loss function).
+
+    #     This routine is used during iterative model training.
+
+    #     Parameters
+    #     ----------
+    #     R : :obj:`numpy.ndarray`
+    #         Array containing the geometry for each training point.
+    #     """
+
+    #     # Add singleton dimension if input is (,3N).
+    #     if R.ndim == 1:
+    #         R = R[None, :]
+
+    #     self.R = R
+
+    #     # if self.use_torch:
+    #     #     model = self.torch_predict
+    #     #     if isinstance(self.torch_predict, torch.nn.DataParallel):
+    #     #         model = model.module
+
+    #     #     R_torch = torch.from_numpy(R.reshape(-1, self.n_atoms, 3)).to(self.torch_device)
+    #     #     model.set_R(R_torch)
+
+    def set_R_desc(self, R_desc):
         """
-        Reconfigure the current model with a new set of regression parameters.
-        This is necessary when training the model iteratively.
+        Store a reference to the training geometry descriptors.
+
+        This can accelerate iterative model training.
 
         Parameters
         ----------
-                R_d_desc : :obj:`numpy.ndarray`
-                    Array containing the Jacobian of the descriptor for
-                    each training point.
+            R_desc : :obj:`numpy.ndarray`, optional
+                    An 2D array of size M x D containing the
+                    descriptors of dimension D for M
+                    molecules.
+        """
+
+        self.R_desc = R_desc
+
+    def set_R_d_desc(self, R_d_desc):
+        """
+        Store a reference to the training geometry descriptor Jacobians.
+        This function must be called before `set_alphas()` can be used.
+
+        This routine is used during iterative model training.
+
+        Parameters
+        ----------
+            R_d_desc : :obj:`numpy.ndarray`, optional
+                    A 2D array of size M x D x 3N containing of the
+                    descriptor Jacobians for M molecules. The descriptor
+                    has dimension D with 3N partial derivatives with
+                    respect to the 3N Cartesian coordinates of each atom.
+        """
+
+        self.R_d_desc = R_d_desc
+
+        if self.use_torch:
+            model = self.torch_predict
+            if isinstance(self.torch_predict, torch.nn.DataParallel):
+                model = model.module
+
+            model.set_R_d_desc(R_d_desc)
+
+    def set_alphas(self, alphas_F, alphas_E=None):
+        """
+        Reconfigure the current model with a new set of regression parameters.
+        `R_d_desc` needs to be set for this function to work.
+
+        This routine is used during iterative model training.
+
+        Parameters
+        ----------
                 alphas_F : :obj:`numpy.ndarray`
                     1D array containing the new model parameters.
                 alphas_F : :obj:`numpy.ndarray`, optional
@@ -411,6 +563,7 @@ class GDMLPredict(object):
         """
 
         if self.use_torch:
+
             model = self.torch_predict
             if isinstance(self.torch_predict, torch.nn.DataParallel):
                 model = model.module
@@ -418,34 +571,38 @@ class GDMLPredict(object):
             # TODO: E_cstr does not work on GPU!
             assert alphas_E is None
 
-            model.set_alphas(R_d_desc, alphas_F)
+            model.set_alphas(alphas_F)
 
         else:
+
+            assert self.R_d_desc is not None
 
             global globs
             glob = globs[self.glob_id]
 
             dim_i = self.desc.dim_i
             R_d_desc_alpha = self.desc.d_desc_dot_vec(
-                R_d_desc, alphas_F.reshape(-1, dim_i)
+                self.R_d_desc, alphas_F.reshape(-1, dim_i)
             )
 
-            R_d_desc_alpha_perms_new = np.tile(R_d_desc_alpha, self.n_perms)[
+            R_d_desc_alpha_perms_new = np.tile(R_d_desc_alpha, glob['n_perms'])[
                 :, self.tril_perms_lin
-            ].reshape(self.n_train, self.n_perms, -1, order='F')
+            ].reshape(self.n_train, glob['n_perms'], -1, order='F')
 
             R_d_desc_alpha_perms = np.frombuffer(glob['R_d_desc_alpha_perms'])
             np.copyto(R_d_desc_alpha_perms, R_d_desc_alpha_perms_new.ravel())
 
             if alphas_E is not None:
 
-                alphas_E_lin_new = np.tile(alphas_E[:, None], (1, self.n_perms)).ravel()
+                alphas_E_lin_new = np.tile(
+                    alphas_E[:, None], (1, glob['n_perms'])
+                ).ravel()
 
                 alphas_E_lin = np.frombuffer(glob['alphas_E_lin'])
                 np.copyto(alphas_E_lin, alphas_E_lin_new)
 
     def _set_num_workers(
-        self, num_workers=None
+        self, num_workers=None, force_reset=False
     ):  # TODO: complain if chunk or worker parameters do not fit training data (this causes issues with the caching)!!
         """
         Set number of processes to use during prediction.
@@ -464,25 +621,29 @@ class GDMLPredict(object):
         Parameters
         ----------
                 num_workers : int, optional
-                        Number of processes (maximum value is set if
-                        `None`).
+                    Number of processes (maximum value is set if `None`).
+                force_reset : bool, optional
+                    Force applying the new setting.
         """
 
-        if self.num_workers is not num_workers:
+        if force_reset or self.num_workers is not num_workers:
 
             if self.pool is not None:
-                self.pool.close()
+                self.pool.terminate()
                 self.pool.join()
                 self.pool = None
 
-            self.num_workers = 1
-            if num_workers is None or num_workers > 1:
-                self.pool = Pool(processes=num_workers)
-                self.num_workers = self.pool._processes
+            self.num_workers = 0
+            if num_workers is None or num_workers > 0:
+                self.pool = Pool(num_workers)
+                self.num_workers = (
+                    self.pool._processes
+                )  # number of actual workers (not max_processes)
 
         # Data ranges for processes
-        if self.bulk_mp:
-            wkr_starts = [self.n_train]
+        if self.bulk_mp or self.num_workers < 2:
+            # wkr_starts = [self.n_train]
+            wkr_starts = [0]
         else:
             wkr_starts = list(
                 range(
@@ -494,16 +655,6 @@ class GDMLPredict(object):
         wkr_stops = wkr_starts[1:] + [self.n_train]
 
         self.wkr_starts_stops = list(zip(wkr_starts, wkr_stops))
-
-    def _reset_mp(self):
-
-        if self.pool is not None:
-            self.pool.close()
-            self.pool.join()
-            self.pool = None
-
-        self.pool = Pool(processes=self.num_workers)
-        self.num_workers = self.pool._processes
 
     def _set_chunk_size(self, chunk_size=None):
 
@@ -685,6 +836,8 @@ class GDMLPredict(object):
 
             num_workers, chunk_size, bulk_mp, gps = bmark_result
 
+            # print(bmark_result)
+
             self._set_chunk_size(chunk_size)
             self._set_num_workers(num_workers)
             self._set_bulk_mp(bulk_mp)
@@ -694,6 +847,8 @@ class GDMLPredict(object):
                 return gps, is_from_cache
             else:
                 return gps
+
+        warm_up_done = False
 
         best_results = []
         last_i = None
@@ -715,17 +870,15 @@ class GDMLPredict(object):
             if bulk_mp is False:
                 last_i = 0
 
-            num_workers_rng = (
-                list(range(self.max_processes, 1, -1))
-                if bulk_mp
-                else list(range(1, self.max_processes + 1))
-            )
+            num_workers_rng = list(range(0, self.max_processes))
+            if bulk_mp:
+                num_workers_rng.reverse()  # benchmark converges faster this way
 
             # num_workers_rng_sizes = [batch_size for batch_size in batch_size_rng if min_batch_size % batch_size == 0]
 
             # for num_workers in range(min_num_workers,self.max_processes+1):
             for num_workers in num_workers_rng:
-                if not bulk_mp and self.n_train % num_workers != 0:
+                if not bulk_mp and num_workers != 0 and self.n_train % num_workers != 0:
                     continue
 
                 self._set_num_workers(num_workers)
@@ -735,7 +888,7 @@ class GDMLPredict(object):
 
                 min_chunk_size = (
                     min(self.n_train, n_bulk)
-                    if bulk_mp
+                    if bulk_mp or num_workers < 2
                     else int(np.ceil(self.n_train / num_workers))
                 )
                 chunk_size_rng = list(range(min_chunk_size, 0, -1))
@@ -763,12 +916,16 @@ class GDMLPredict(object):
 
                     i_done += 1
 
+                    if warm_up_done == False:
+                        timeit.timeit(_dummy_predict, number=10)
+                        warm_up_done = True
+
                     gps = n_bulk * n_reps / timeit.timeit(_dummy_predict, number=n_reps)
 
                     # print(
-                    #   '{:2d}@{:d} {:d} | {:7.2f} gps'.format(
-                    #       num_workers, chunk_size, bulk_mp, gps
-                    #   )
+                    #  '{:2d}@{:d} {:d} | {:7.2f} gps'.format(
+                    #      num_workers, chunk_size, bulk_mp, gps
+                    #  )
                     # )
 
                     gps_rng = (
@@ -990,7 +1147,7 @@ class GDMLPredict(object):
 
             return model._batch_size()
 
-    def predict(self, R, R_desc=None, R_d_desc=None):
+    def predict(self, R=None, return_E=True):
         """
         Predict energy and forces for multiple geometries. This function
         can run on the GPU, if the optional PyTorch dependency is
@@ -1008,51 +1165,75 @@ class GDMLPredict(object):
 
         Parameters
         ----------
-                R : :obj:`numpy.ndarray`
+                R : :obj:`numpy.ndarray`, optional
                         An 2D array of size M x 3N containing the
                         Cartesian coordinates of each atom of M
-                        molecules.
-                R_desc : :obj:`numpy.ndarray`, optional
-                        An 2D array of size M x D containing the
-                        descriptors of dimension D for M
-                        molecules.
-                R_d_desc : :obj:`numpy.ndarray`, optional
-                        A 2D array of size M x D x 3N containing of the
-                        descriptor Jacobians for M molecules. The descriptor
-                        has dimension D with 3N partial derivatives with
-                        respect to the 3N Cartesian coordinates of each atom.
+                        molecules. If this parameter is ommited, the training
+                        error is returned. Note that the training geometries
+                        need to be set right after initialization using
+                        `set_R()` for this to work.
+                return_E : boolean, optional
+                        If false (default: true), only the forces are returned.
 
         Returns
         -------
                 :obj:`numpy.ndarray`
-                        Energies stored in an 1D array of size M.
+                        Energies stored in an 1D array of size M (unless `return_E == False`)
                 :obj:`numpy.ndarray`
                         Forces stored in an 2D arry of size M x 3N.
         """
 
-        # Use precomputed descriptors in training mode.
-        train_mode = R_desc is not None and R_d_desc is not None
-
         # Add singleton dimension if input is (,3N).
-        if R.ndim == 1:
+        if R is not None and R.ndim == 1:
             R = R[None, :]
 
         if self.use_torch:  # multi-GPU (or CPU if no GPUs are available)
 
-            n_train = R.shape[0]
-            R_torch = torch.from_numpy(R.reshape(n_train, -1, 3)).to(self.torch_device)
+            R_torch = torch.arange(self.n_train)
+            if R is None:
+                if self.R_d_desc is None:
+                    self.log.critical(
+                        'A reference to the training geometry descriptors needs to be set (using \'set_R_d_desc()\') for this function to work without arguments (using PyTorch).'
+                    )
+                    print()
+                    os._exit(1)
+            else:
+                R_torch = torch.from_numpy(R.reshape(-1, self.n_atoms, 3)).to(
+                    self.torch_device
+                )
 
-            E_torch, F_torch = self.torch_predict.forward(R_torch)
+            E_torch_F_torch = self.torch_predict.forward(R_torch, return_E=return_E)
 
-            E = E_torch.cpu().numpy()
-            F = F_torch.cpu().numpy().reshape(n_train, -1)
+            if return_E:
+                E_torch, F_torch = E_torch_F_torch
+                E = E_torch.cpu().numpy()
+            else:
+                (F_torch,) = E_torch_F_torch
+
+            F = F_torch.cpu().numpy().reshape(-1, 3 * self.n_atoms)
 
         else:  # multi-CPU
 
-            n_pred, dim_i = R.shape
+            # Use precomputed descriptors in training mode.
+            is_desc_in_cache = self.R_desc is not None and self.R_d_desc is not None
+
+            if R is None and not is_desc_in_cache:
+                self.log.critical(
+                    'A reference to the training geometry descriptors and Jacobians needs to be set for this function to work without arguments.'
+                )
+                print()
+                os._exit(1)
+
+            assert is_desc_in_cache or R is not None
+
+            dim_i = 3 * self.n_atoms
+            n_pred = self.R_desc.shape[0] if R is None else R.shape[0]
+
             E_F = np.empty((n_pred, dim_i + 1))
 
-            if self.bulk_mp:  # One whole prediction per worker (and multiple workers).
+            if (
+                self.bulk_mp and self.num_workers > 0
+            ):  # One whole prediction per worker (and multiple workers).
 
                 _predict_wo_r_or_desc = partial(
                     _predict_wkr,
@@ -1065,21 +1246,21 @@ class GDMLPredict(object):
                 for i, e_f in enumerate(
                     self.pool.imap(
                         partial(_predict_wo_r_or_desc, None)
-                        if train_mode
+                        if is_desc_in_cache
                         else partial(_predict_wo_r_or_desc, r_desc_d_desc=None),
-                        zip(R_desc, R_d_desc) if train_mode else R,
+                        zip(self.R_desc, self.R_d_desc) if is_desc_in_cache else R,
                     )
                 ):
                     E_F[i, :] = e_f
 
             else:  # Multiple workers per prediction (or just one worker).
 
-                for i, r in enumerate(R):
+                for i in range(n_pred):
 
-                    if train_mode:
-                        r_desc, r_d_desc = R_desc[i], R_d_desc[i]
+                    if is_desc_in_cache:
+                        r_desc, r_d_desc = self.R_desc[i], self.R_d_desc[i]
                     else:
-                        r_desc, r_d_desc = self.desc.from_R(r, self.lat_and_inv)
+                        r_desc, r_d_desc = self.desc.from_R(R[i], self.lat_and_inv)
 
                     _predict_wo_wkr_starts_stops = partial(
                         _predict_wkr,
@@ -1090,7 +1271,7 @@ class GDMLPredict(object):
                         chunk_size=self.chunk_size,
                     )
 
-                    if self.num_workers == 1:
+                    if self.num_workers == 0:
                         E_F[i, :] = _predict_wo_wkr_starts_stops()
                     else:
                         E_F[i, :] = sum(
@@ -1103,4 +1284,8 @@ class GDMLPredict(object):
             F = E_F[:, 1:]
             E = E_F[:, 0] + self.c
 
-        return E, F
+        ret = (F,)
+        if return_E:
+            ret = (E,) + ret
+
+        return ret

@@ -23,6 +23,7 @@
 # SOFTWARE.
 
 from __future__ import print_function
+from functools import partial
 
 from .. import __version__, MAX_PRINT_WIDTH, LOG_LEVELNAME_WIDTH
 import textwrap
@@ -101,29 +102,40 @@ def callback(
     is_toggle = total == 1
     is_done = np.isclose(current - total, 0.0)
 
+    bold_color_str = partial(color_str, bold=True)
+
     if is_toggle:
 
         if is_done:
-            flag_str = warn_str('[WARN]') if done_with_warning else pass_str('[DONE]')
-        else:
-            flag_str = info_str('[') + info_str(blink_str(' .. ')) + info_str(']')
-    else:
-        str_color = pass_str if is_done else info_str
+            if done_with_warning:
+                flag_str = bold_color_str('[WARN]', fore_color=YELLOW)
+            else:
+                flag_str = bold_color_str('[DONE]', fore_color=GREEN)
 
-        # do not print, if there is no need to
+        else:
+            flag_str = bold_color_str('[' + blink_str(' .. ') + ']')
+    else:
+
+        # Only show progress in 10 percent steps when not printing to terminal.
         pct = int(float(current) * 100 / total)
+        pct = int(np.ceil(pct / 10.0)) * 10 if not sys.stdout.isatty() else pct
+
+        # Do not print, if there is no need to.
         if not is_done and pct == last_callback_pct:
             return
         else:
             last_callback_pct = pct
 
-        flag_str = str_color('[{:3d}%]'.format(pct))
+        flag_str = bold_color_str(
+            '[{:3d}%]'.format(pct), fore_color=GREEN if is_done else WHITE
+        )
 
     sys.stdout.write('\r{} {}'.format(flag_str, disp_str))
 
     if sec_disp_str is not None:
         w = MAX_PRINT_WIDTH - LOG_LEVELNAME_WIDTH - len(disp_str) - 1
-        sys.stdout.write(' \x1b[90m{0: >{width}}\x1b[0m'.format(sec_disp_str, width=w))
+        #sys.stdout.write(' \x1b[90m{0: >{width}}\x1b[0m'.format(sec_disp_str, width=w))
+        sys.stdout.write(color_str(' {:>{width}}'.format(sec_disp_str, width=w), fore_color=GRAY))
 
     if is_done and newline_when_done:
         sys.stdout.write('\n')
@@ -136,6 +148,7 @@ def callback(
 def sec_callback(
     current, total=1, disp_str=None, sec_disp_str=None, main_callback=None, **kwargs
 ):
+    global last_callback_pct
 
     assert main_callback is not None
 
@@ -146,7 +159,16 @@ def sec_callback(
     if is_toggle:
         sec_disp_str = '{} | {}'.format(disp_str, 'DONE' if is_done else ' .. ')
     else:
+        
+        # Only show progress in 10 percent steps when not printing to terminal.
         pct = int(float(current) * 100 / total)
+        pct = int(np.ceil(pct / 10.0)) * 10 if not sys.stdout.isatty() else pct
+
+        # Do not print, if there is no need to.
+        if pct == last_callback_pct:
+            return
+
+        last_callback_pct = pct
         sec_disp_str = '{} | {:3d}%'.format(disp_str, pct)
 
     main_callback(0, sec_disp_str=sec_disp_str, **kwargs)
@@ -154,68 +176,55 @@ def sec_callback(
 
 # COLORS
 
-BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = range(8)
+BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE, GRAY = list(range(8)) + [60]
 COLOR_SEQ, RESET_SEQ = '\033[{:d};{:d};{:d}m', '\033[0m'
+
+ENABLE_COLORED_OUTPUT = (
+    sys.stdout.isatty()
+)  # Running in a real terminal or piped/redirected?
 
 
 def color_str(str, fore_color=WHITE, back_color=BLACK, bold=False):
 
-    # foreground is set with 30 plus the number of the color, background with 40
-    return (
-        COLOR_SEQ.format(1 if bold else 0, 30 + fore_color, 40 + back_color)
-        + str
-        + RESET_SEQ
-    )
+    if ENABLE_COLORED_OUTPUT:
 
-
-def white_back_str(str):
-    return color_str(str, fore_color=BLACK, back_color=WHITE, bold=True)
-    # return '\x1b[1;7m' + str + '\x1b[0m'
-
-
-# def green_back_str(str):
-# return color_str(str, back_color=GREEN, bold=True)
-#    return '\x1b[1;30;42m' + str + '\x1b[0m'
-
-
-def yellow_back_str(str):
-    return '\x1b[1;30;43m' + str + '\x1b[0m'
-
-
-def white_bold_str(str):
-    return '\x1b[1;37m' + str + '\x1b[0m'
-
-
-def gray_str(str):
-    return '\x1b[90m' + str + '\x1b[0m'
-
-
-def underline_str(str):
-    return '\x1b[4m' + str + '\x1b[0m'
+        # foreground is set with 30 plus the number of the color, background with 40
+        return (
+            COLOR_SEQ.format(1 if bold else 0, 30 + fore_color, 40 + back_color)
+            + str
+            + RESET_SEQ
+        )
+    else:
+        return str
 
 
 def blink_str(str):
-    return '\x1b[5m' + str + '\x1b[0m'
 
-
-def info_str(str):
-    return '\x1b[1;37m' + str + '\x1b[0m'
-
-
-def pass_str(str):
-    return color_str(str, fore_color=GREEN, bold=True)
-
-
-def warn_str(str):
-    return color_str(str, fore_color=YELLOW, bold=True)
+    return '\x1b[5m' + str + '\x1b[0m' if ENABLE_COLORED_OUTPUT else str
 
 
 def unicode_str(s):
 
     if sys.version[0] == '3':
-        return str(s, 'utf-8', 'ignore')
+        s = str(s, 'utf-8', 'ignore')
     else:
-        return str(s)
+        s = str(s)
+
+    return s.rstrip('\x00')  # remove null-characters
+
+
+def gen_memory_str(bytes):
+
+    pwr = 1024
+    n = 0
+    pwr_strs = {0: '', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
+    while bytes > pwr and n < 4:
+        bytes /= pwr
+        n += 1
+
+    return '{:.{num_dec_pts}f} {}B'.format(
+        bytes, pwr_strs[n], num_dec_pts=max(0, n - 2)
+    )  # 1 decimal point for GB, 2 for TB
 
 
 def gen_lattice_str(lat):
@@ -440,7 +449,7 @@ def gen_range_str(min, max):
 
     """
 
-    return '{:<.3} |-- {:^8.3} --| {:<9.3}'.format(min, max - min, max)
+    return '{:<.3f} |-- {:^8.3f} --| {:<9.3f}'.format(min, max - min, max)
 
 
 def print_step_title(title_str, sec_title_str='', underscore=True):
@@ -452,7 +461,9 @@ def print_step_title(title_str, sec_title_str='', underscore=True):
 
     print(
         '\n'
-        + white_back_str(' ' + title_str + ' ')
+        + color_str(
+            ' ' + title_str + ' ', fore_color=BLACK, back_color=WHITE, bold=True
+        )
         + sec_title_str
         + underscore_str
     )
@@ -460,11 +471,17 @@ def print_step_title(title_str, sec_title_str='', underscore=True):
 
 def print_two_column_str(str, sec_str=''):
 
-    print(
-        '{} \x1b[90m{:>{width}}\x1b[0m'.format(
-            str, sec_str, width=MAX_PRINT_WIDTH - str_plen(str) - 1
-        )
+    sec_str = color_str(
+        '{:>{width}}'.format(sec_str, width=MAX_PRINT_WIDTH - str_plen(str) - 1),
+        fore_color=GRAY,
     )
+    print('{} {}'.format(str, sec_str))
+
+    # print(
+    #     '{} \x1b[90m{:>{width}}\x1b[0m'.format(
+    #         str, sec_str, width=MAX_PRINT_WIDTH - str_plen(str) - 1
+    #     )
+    # )
 
 
 def print_lattice(lat=None, inset=False):

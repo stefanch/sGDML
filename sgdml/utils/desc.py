@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2020 Stefan Chmiela, Luis Galvez
+# Copyright (c) 2018-2022 Stefan Chmiela, Luis Galvez
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -24,13 +24,13 @@
 
 import numpy as np
 import scipy as sp
+from scipy import spatial
 
 import multiprocessing as mp
 
 Pool = mp.get_context('fork').Pool
 
 from functools import partial
-from scipy import spatial
 import timeit
 
 try:
@@ -72,12 +72,17 @@ def _pbc_diff(diffs, lat_and_inv, use_torch=False):
         diffs -= lat.mm(c.round()).t()
     else:
         c = lat_inv.dot(diffs.T)
-        diffs -= lat.dot(np.rint(c)).T
+
+        #diffs -= lat.dot(np.rint(c)).T
+        diffs -= lat.dot(np.around(c)).T
+
+        #print('lat.dot', c)
+        #print('diffs', diffs)
 
     return diffs
 
 
-def _pdist(r, lat_and_inv=None):  # TODO: update return (no squareform anymore)
+def _pdist(r, lat_and_inv=None):
     """
     Compute pairwise Euclidean distance matrix between all atoms.
 
@@ -92,7 +97,8 @@ def _pdist(r, lat_and_inv=None):  # TODO: update return (no squareform anymore)
     Returns
     -------
         :obj:`numpy.ndarray`
-            Array of size N x N containing all pairwise distances between atoms.
+            Array of size N(N-1)/2 containing the upper triangle of the pairwise
+            distance matrix between atoms.
     """
 
     r = r.reshape(-1, 3)
@@ -105,11 +111,46 @@ def _pdist(r, lat_and_inv=None):  # TODO: update return (no squareform anymore)
             r, lambda u, v: np.linalg.norm(_pbc_diff(u - v, lat_and_inv))
         )
 
+        #lat, lat_inv = lat_and_inv
+        #diffs = r[:, None, :] - r[None, :, :]
+        #print("diffs.shape ", diffs.shape)
+        #c2 = lat_inv.dot(diffs.reshape(-1, 3).T)
+        #diffs -= lat.dot(c2.round()).T
+        #pdist = np.linalg.norm(diffs, axis=1)
+        #tril_idxs = np.tril_indices(n_atoms, k=-1)
+        #print("pdist ", 1 / sp.spatial.distance.squareform(pdist, checks=False)[tril_idxs])
+
     tril_idxs = np.tril_indices(n_atoms, k=-1)
     return sp.spatial.distance.squareform(pdist, checks=False)[tril_idxs]
 
 
-def _r_to_desc(r, pdist, coff=None):
+# def _squareform(vec_or_mat):
+
+#     # vector to matrix representation
+#     if vec_or_mat.ndim == 1:
+
+#         n_tril = vec_or_mat.size
+#         n = int((1 + np.sqrt(8 * n_tril + 1)) / 2)
+
+#         i, j = np.tril_indices(n, k=-1)
+
+#         mat = np.zeros((n, n))
+#         mat[i, j] = vec_or_mat
+#         mat[j, i] = vec_or_mat
+
+#         return mat
+
+#     else:  # matrix to vector
+
+#         assert vec_or_mat.shape[0] == vec_or_mat.shape[1]  # matrix is square
+
+#         n = vec_or_mat.shape[0]
+#         i, j = np.tril_indices(n, k=-1)
+
+#         return vec_or_mat[i, j]
+
+
+def _r_to_desc(r, pdist):
     """
     Generate descriptor for a set of atom positions in Cartesian
     coordinates.
@@ -133,24 +174,16 @@ def _r_to_desc(r, pdist, coff=None):
     if r.ndim == 1:
         r = r[None, :]
 
-    if coff is None:
-
-        return 1.0 / pdist
-    else:
-
-        coff_dist, coff_slope = coff
-        cutoff_factor = -1.0 / (1.0 + np.exp(-coff_slope * (pdist - coff_dist))) + 1
-
-        return cutoff_factor / pdist
+    return 1.0 / pdist
 
 
-def _r_to_d_desc(r, pdist, lat_and_inv=None, coff=None):  # TODO: fix documentation!
+def _r_to_d_desc(r, pdist, lat_and_inv=None):
     """
     Generate descriptor Jacobian for a set of atom positions in
     Cartesian coordinates.
+
     This method can apply the minimum-image convention as periodic
-    boundary condition for distances between atoms, given the edge
-    length of the (square) unit cell.
+    boundary condition for distances between atoms, given the lattice vectors.
 
     Parameters
     ----------
@@ -161,7 +194,7 @@ def _r_to_d_desc(r, pdist, lat_and_inv=None, coff=None):  # TODO: fix documentat
             Array of size N x N containing the Euclidean distance
             (2-norm) for each pair of atoms.
         lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
-            Tuple of 3x3 matrix containing lattice vectors as columns and its inverse.
+            Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
 
     Returns
     -------
@@ -181,26 +214,12 @@ def _r_to_d_desc(r, pdist, lat_and_inv=None, coff=None):  # TODO: fix documentat
     if lat_and_inv is not None:
         pdiff = _pbc_diff(pdiff, lat_and_inv)
 
-    if coff is None:
-        d_desc_elem = pdiff / (pdist ** 3)[:, None]
-    else:
-        coff_dist, coff_slope = coff
-
-        cutoff_factor = 1.0 - 1.0 / (
-            np.exp(-coff_slope * (pdist[:, None] - coff_dist)) + 1.0
-        )
-        cutoff_term = (
-            coff_slope
-            * np.exp(-coff_slope * (pdist[:, None] - coff_dist))
-            / (pdiff * (np.exp(-coff_slope * (pdist[:, None] - coff_dist)) + 1) ** 2)
-        )
-        cutoff_term[cutoff_term == np.inf] = 0
-        d_desc_elem = cutoff_factor * pdiff / (pdist ** 3)[:, None] + cutoff_term
+    d_desc_elem = pdiff / (pdist ** 3)[:, None]
 
     return d_desc_elem
 
 
-def _from_r(r, lat_and_inv=None, coff=None):
+def _from_r(r, lat_and_inv=None):
     """
     Generate descriptor and its Jacobian for one molecular geometry
     in Cartesian coordinates.
@@ -228,14 +247,17 @@ def _from_r(r, lat_and_inv=None, coff=None):
 
     pd = _pdist(r, lat_and_inv)
 
-    r_desc = _r_to_desc(r, pd, coff=coff)
-    r_d_desc = _r_to_d_desc(r, pd, lat_and_inv, coff=coff)
+    #r_desc = _r_to_desc(r, pd, coff=coff)
+    #r_d_desc = _r_to_d_desc(r, pd, lat_and_inv, coff=coff)
+    r_desc = _r_to_desc(r, pd)
+    r_d_desc = _r_to_d_desc(r, pd, lat_and_inv)
 
     return r_desc, r_d_desc
 
 
 class Desc(object):
-    def __init__(self, n_atoms, interact_cut_off=None, max_processes=None):
+    #def __init__(self, n_atoms, interact_cut_off=None, max_processes=None):
+    def __init__(self, n_atoms, max_processes=None):
         """
         Generate descriptors and their Jacobians for molecular geometries,
         including support for periodic boundary conditions.
@@ -246,8 +268,7 @@ class Desc(object):
                         Number of atoms in the represented system.
                 max_processes : int, optional
                         Limit the max. number of processes. Otherwise
-                        all CPU cores are used. This parameters has no
-                        effect if `use_torch=True`.
+                        all CPU cores are used.
         """
 
         self.n_atoms = n_atoms
@@ -256,10 +277,12 @@ class Desc(object):
         # Size of the resulting descriptor vector.
         self.dim = (n_atoms * (n_atoms - 1)) // 2
 
+        self.tril_indices = np.tril_indices(n_atoms, k=-1)
+
         # Precompute indices for nonzero entries in desriptor derivatives.
         self.d_desc_mask = np.zeros((n_atoms, n_atoms - 1), dtype=np.int)
         for a in range(n_atoms):  # for each partial derivative
-            rows, cols = np.tril_indices(n_atoms, -1)
+            rows, cols = self.tril_indices
             self.d_desc_mask[a, :] = np.concatenate(
                 [np.where(rows == a)[0], np.where(cols == a)[0]]
             )
@@ -279,17 +302,15 @@ class Desc(object):
         self.max_processes = max_processes
 
         # NEW: cutoff
-        self.coff_dist = (
-            interact_cut_off
-            if not hasattr(interact_cut_off, '__iter__')
-            else interact_cut_off.item()
-        )  # TODO: that's a hack :(
-        self.coff_slope = 10
+        #self.coff_dist = (
+        #    interact_cut_off
+        #    if not hasattr(interact_cut_off, '__iter__')
+        #    else interact_cut_off.item()
+        #)  # TODO: that's a hack :(
+        #self.coff_slope = 10
         # NEW
 
-        self.tril_indices = np.tril_indices(n_atoms, k=-1)
-
-    def from_R(self, R, lat_and_inv=None, callback=None):
+    def from_R(self, R, lat_and_inv=None, max_processes=None, callback=None):
         """
         Generate descriptor and its Jacobian for multiple molecular geometries
         in Cartesian coordinates.
@@ -301,6 +322,10 @@ class Desc(object):
                 each atom.
             lat_and_inv : tuple of :obj:`numpy.ndarray`, optional
                 Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
+            max_processes : int, optional
+                Limit the max. number of processes. Otherwise
+                all CPU cores are used. This parameter overwrites the global setting as
+                set during initialization.
             callback : callable, optional
                 Descriptor and descriptor Jacobian generation status.
                     current : int
@@ -334,64 +359,43 @@ class Desc(object):
 
         # Generate descriptor and their Jacobians
         start = timeit.default_timer()
-        pool = Pool(self.max_processes)
 
-        coff = None if self.coff_dist is None else (self.coff_dist, self.coff_slope)
+        #coff = None if self.coff_dist is None else (self.coff_dist, self.coff_slope)
 
+        pool = None
+        map_func = map
+        max_processes = max_processes or self.max_processes
+        if max_processes != 1 and mp.cpu_count() > 1:
+            pool = Pool((max_processes or mp.cpu_count()) - 1)  # exclude main process
+            map_func = pool.imap
+
+        #for i, r_desc_r_d_desc in enumerate(
+        #    map_func(partial(_from_r, lat_and_inv=lat_and_inv, coff=coff), R)
+        #):
         for i, r_desc_r_d_desc in enumerate(
-            pool.imap(partial(_from_r, lat_and_inv=lat_and_inv, coff=coff), R)
+            map_func(partial(_from_r, lat_and_inv=lat_and_inv), R)
         ):
             R_desc[i, :], R_d_desc[i, :, :] = r_desc_r_d_desc
 
             if callback is not None and i < M - 1:
                 callback(i, M - 1)
 
-        pool.close()
-        pool.join()  # Wait for the worker processes to terminate (to measure total runtime correctly).
+        if pool is not None:
+            pool.close()
+            pool.join()  # Wait for the worker processes to terminate (to measure total runtime correctly).
+            pool = None
+
         stop = timeit.default_timer()
 
         if callback is not None:
-            dur_s = (stop - start) / 2
+            dur_s = stop - start
             sec_disp_str = 'took {:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
             callback(M, M, sec_disp_str=sec_disp_str)
 
         return R_desc, R_d_desc
 
-    def perm(self, perm):
-        """
-        Convert atom permutation to descriptor permutation.
-
-        A permutation of N atoms is converted to a permutation that acts on
-        the corresponding descriptor representation. Applying the converted
-        permutation to a descriptor is equivalent to permuting the atoms
-        first and then generating the descriptor.
-
-        Parameters
-        ----------
-            perm : :obj:`numpy.ndarray`
-                Array of size N containing the atom permutation.
-
-        Returns
-        -------
-            :obj:`numpy.ndarray`
-                Array of size N(N-1)/2 containing the corresponding
-                descriptor permutation.
-        """
-
-        n = len(perm)
-
-        rest = np.zeros((n, n))
-        rest[np.tril_indices(n, -1)] = list(range((n ** 2 - n) // 2))
-        rest = rest + rest.T
-        rest = rest[perm, :]
-        rest = rest[:, perm]
-
-        return rest[np.tril_indices(n, -1)].astype(int)
-
-    # Private
-
     # multiplies descriptor(s) jacobian with 3N-vector(s) from the right side
-    def d_desc_dot_vec(self, R_d_desc, vecs):
+    def d_desc_dot_vec(self, R_d_desc, vecs, overwrite_vecs=False):
 
         if R_d_desc.ndim == 2:
             R_d_desc = R_d_desc[None, ...]
@@ -402,7 +406,13 @@ class Desc(object):
         i, j = self.tril_indices
 
         vecs = vecs.reshape(vecs.shape[0], -1, 3)
-        return np.einsum('kji,kji->kj', R_d_desc, vecs[:, j, :] - vecs[:, i, :])
+
+        einsum = np.einsum
+        if _has_torch and torch.is_tensor(R_d_desc):
+            assert torch.is_tensor(vecs)
+            einsum = torch.einsum
+
+        return einsum('...ij,...ij->...i', R_d_desc, vecs[:, j, :] - vecs[:, i, :])
 
     # multiplies descriptor(s) jacobian with N(N-1)/2-vector(s) from the left side
     def vec_dot_d_desc(self, R_d_desc, vecs, out=None):
@@ -439,11 +449,33 @@ class Desc(object):
 
         # return out
 
-    # inflate desc
-    # add_to_vec - instead of creating a new array for the expanded descriptor Jacobian, add it onto an existing representation
     def d_desc_from_comp(self, R_d_desc, out=None):
+        """
+        Convert a compressed representation of a descriptor Jacobian back
+        to its full representation.
 
-        # NOTE: out must be filled with zeros!
+        The compressed representation omits all zeros and scales with N
+        instead of N(N-1)/2.
+
+        Parameters
+        ----------
+            R_d_desc : :obj:`numpy.ndarray` or :obj:`torch.tensor`
+                Array of size M x N x N x 3 containing the compressed
+                descriptor Jacobian.
+            out : :obj:`numpy.ndarray` or :obj:`torch.tensor`, optional
+                Output argument. This must have the exact kind that would
+                be returned if it was not used.
+
+        Note
+        ----
+                If used, the output argument must be initialized with zeros!
+
+        Returns
+        -------
+            :obj:`numpy.ndarray` or :obj:`torch.tensor`
+                Array of size M x N(N-1)/2 x 3N containing the full
+                representation.
+        """
 
         if R_d_desc.ndim == 2:
             R_d_desc = R_d_desc[None, ...]
@@ -452,7 +484,14 @@ class Desc(object):
         i, j = self.tril_indices
 
         if out is None:
-            out = np.zeros((n, self.dim, self.n_atoms, 3))
+            if _has_torch and torch.is_tensor(R_d_desc):
+                device = R_d_desc.device
+                dtype = R_d_desc.dtype
+                out = torch.zeros((n, self.dim, self.n_atoms, 3), device=device).to(
+                    dtype
+                )
+            else:
+                out = np.zeros((n, self.dim, self.n_atoms, 3))
         else:
             out = out.reshape(n, self.dim, self.n_atoms, 3)
 
@@ -461,8 +500,25 @@ class Desc(object):
 
         return out.reshape(-1, self.dim, self.dim_i)
 
-    # deflate desc
     def d_desc_to_comp(self, R_d_desc):
+        """
+        Convert a descriptor Jacobian to a compressed representation.
+
+        The compressed representation omits all zeros and scales with N
+        instead of N(N-1)/2.
+
+        Parameters
+        ----------
+            R_d_desc : :obj:`numpy.ndarray`
+                Array of size M x N(N-1)/2 x 3N containing the descriptor
+                Jacobian.
+
+        Returns
+        -------
+            :obj:`numpy.ndarray`
+                Array of size M x N x N x 3 containing the compressed
+                representation.
+        """
 
         # Add singleton dimension for single inputs.
         if R_d_desc.ndim == 2:
@@ -476,8 +532,38 @@ class Desc(object):
         ret = np.zeros((n, n_atoms, n_atoms, 3))
         ret[:, self.M, self.A, :] = R_d_desc[:, self.d_desc_mask.ravel(), self.A, :]
 
-        # only take upper triangle
+        # Take the upper triangle.
         i, j = self.tril_indices
-        ret = ret[:, i, j, :]
+        return ret[:, i, j, :]
 
-        return ret
+    @staticmethod
+    def perm(perm):
+        """
+        Convert atom permutation to descriptor permutation.
+
+        A permutation of N atoms is converted to a permutation that acts on
+        the corresponding descriptor representation. Applying the converted
+        permutation to a descriptor is equivalent to permuting the atoms
+        first and then generating the descriptor.
+
+        Parameters
+        ----------
+            perm : :obj:`numpy.ndarray`
+                Array of size N containing the atom permutation.
+
+        Returns
+        -------
+            :obj:`numpy.ndarray`
+                Array of size N(N-1)/2 containing the corresponding
+                descriptor permutation.
+        """
+
+        n = len(perm)
+
+        rest = np.zeros((n, n))
+        rest[np.tril_indices(n, -1)] = list(range((n ** 2 - n) // 2))
+        rest = rest + rest.T
+        rest = rest[perm, :]
+        rest = rest[:, perm]
+
+        return rest[np.tril_indices(n, -1)].astype(int)

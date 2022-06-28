@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 Stefan Chmiela
+# Copyright (c) 2018-2022 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -85,7 +85,7 @@ def read_reference_data(f):  # noqa C901
     sys.stdout.flush()
     print(
         '\n'
-        + ui.info_str('[INFO]')
+        + ui.color_str('[INFO]', bold=True)
         + ' Energies and forces have been converted from eV to kcal/mol(/Ang)'
     )
 
@@ -120,12 +120,12 @@ dataset_file_name = name + '.npz'
 
 dataset_exists = os.path.isfile(dataset_file_name)
 if dataset_exists and args.overwrite:
-    print(ui.info_str('[INFO]') + ' Overwriting existing dataset file.')
+    print(ui.color_str('[INFO]', bold=True) + ' Overwriting existing dataset file.')
 if not dataset_exists or args.overwrite:
     print('Writing dataset to \'%s\'...' % dataset_file_name)
 else:
     sys.exit(
-        ui.fail_str('[FAIL]') + ' Dataset \'%s\' already exists.' % dataset_file_name
+        ui.color_str('[FAIL]', fore_color=ui.RED, bold=True) + ' Dataset \'%s\' already exists.' % dataset_file_name
     )
 
 R, z, E, F = read_reference_data(dataset)
@@ -134,7 +134,7 @@ R, z, E, F = read_reference_data(dataset)
 n_mols = min(min(R.shape[0], F.shape[0]), E.shape[0])
 if n_mols != R.shape[0] or n_mols != F.shape[0] or n_mols != E.shape[0]:
     print(
-        ui.warn_str('[WARN]')
+        ui.color_str('[WARN]', fore_color=ui.YELLOW, bold=True)
         + ' Incomplete output detected: Final dataset was pruned to %d points.' % n_mols
     )
 R = R[:n_mols, :, :]
@@ -163,4 +163,4 @@ base_vars['E_mean'], base_vars['E_var'] = np.mean(E), np.var(E)
 base_vars['md5'] = io.dataset_md5(base_vars)
 
 np.savez_compressed(dataset_file_name, **base_vars)
-print(ui.pass_str('DONE'))
+print(ui.color_str('DONE', fore_color=ui.GREEN, bold=True))

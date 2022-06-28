@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2019-2020 Jan Hermann, Stefan Chmiela
+# Copyright (c) 2019-2022 Stefan Chmiela, Jan Hermann
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,14 +22,305 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import os
 import sys
 import logging
+from functools import partial
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from .utils.desc import Desc
+from .utils import ui
+
+
+def _next_batch_size(n_total, batch_size):
+
+    batch_size += 1
+    while n_total % batch_size != 0:
+        batch_size += 1
+
+    return batch_size
+
+
+class GDMLTorchAssemble(nn.Module):
+    """
+    PyTorch version of the kernel assembly routines in :class:`~predict.GDMLTrain`.
+    Derives from :class:`torch.nn.Module`. Contains no trainable parameters.
+    """
+
+    def __init__(
+        self, J, tril_perms_lin, sig, R_desc_torch, R_d_desc_torch, out, callback=None
+    ):
+
+        super(GDMLTorchAssemble, self).__init__()
+
+        self._log = logging.getLogger(__name__)
+
+        self.callback = callback
+
+        self.n_train, self.dim_d = R_d_desc_torch.shape[:2]
+        self.n_atoms = int((1 + np.sqrt(8 * self.dim_d + 1)) / 2)
+        self.dim_i = 3 * self.n_atoms
+
+        self.sig = sig
+        self.tril_perms_lin = tril_perms_lin
+        self.n_perms = int(len(self.tril_perms_lin) / self.dim_d)
+
+        self.R_desc_torch = nn.Parameter(R_desc_torch, requires_grad=False)
+        self.R_d_desc_torch = nn.Parameter(R_d_desc_torch, requires_grad=False)
+
+        self._desc = Desc(self.n_atoms)
+
+        self.J = J
+        self.n_batches = 1
+        self.n_perm_batches = 1
+
+        self.out = out
+
+    def _forward(
+        self,
+        j,
+    ):
+
+        if type(j) is tuple:  # selective/"fancy" indexing
+            (
+                K_j,
+                j,
+                keep_idxs_3n,
+            ) = j  # (block index in final K, block index global, indices of partials within block)
+            blk_j_len = len(keep_idxs_3n)
+            blk_j = slice(K_j, K_j + blk_j_len)
+
+        else:  # sequential indexing
+            blk_j_len = self.dim_i
+            blk_j = slice(j * self.dim_i, (j + 1) * self.dim_i)
+            keep_idxs_3n = slice(None)  # same as [:]
+
+        # print()
+        # import gc
+        # for obj in gc.get_objects():
+        #     try:
+        #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+        #             print(type(obj), obj.size())
+        #     except:
+        #         pass
+
+        mat52_base_div = 3 * self.sig ** 4
+        sqrt5 = np.sqrt(5.0)
+        sig_pow2 = self.sig ** 2
+
+        # Create decompressed a 'rj_d_desc'.
+        rj_d_desc_decomp_torch = self._desc.d_desc_from_comp(
+            self.R_d_desc_torch[j, :, :]
+        )[0][:, keep_idxs_3n]
+
+        n_perms_done = 0
+        for perm_batch in np.array_split(
+            np.arange(self.n_perms), min(self.n_perm_batches, self.n_perms)
+        ):
+
+            tril_perms_lin_batch = (
+                self.tril_perms_lin.reshape(-1, self.n_perms)[:, perm_batch]
+                - n_perms_done * self.dim_d
+            ).ravel()  # index shift
+
+            n_perms_batch = len(perm_batch)
+            n_perms_done += n_perms_batch
+
+            # Create a permutated 'rj_desc'.
+            rj_desc_perms_torch = torch.reshape(
+                torch.tile(self.R_desc_torch[j, :], (n_perms_batch,))[
+                    tril_perms_lin_batch
+                ].T,
+                (n_perms_batch, -1)[::-1],
+            ).T  # reshape using Fortran order
+
+            # Create a permutated 'rj_d_desc'.
+            rj_d_desc_perms_torch = torch.reshape(
+                torch.tile(rj_d_desc_decomp_torch.T, (n_perms_batch,))[
+                    :, tril_perms_lin_batch
+                ],
+                (-1, self.dim_d, n_perms_batch),
+            )
+
+            for i_batch in np.array_split(np.arange(self.n_train), self.n_batches):
+
+                diff_ab_perms_torch = (
+                    self.R_desc_torch[i_batch, None, :]
+                    - rj_desc_perms_torch[None, :, :]
+                )  # N, n_perms, d
+
+                norm_ab_perms_torch = sqrt5 * diff_ab_perms_torch.norm(
+                    dim=-1
+                )  # N, n_perms
+                mat52_base_perms_torch = (
+                    torch.exp(-norm_ab_perms_torch / float(self.sig))
+                    / mat52_base_div
+                    * 5
+                )  # N, n_perms
+
+                # print((mat52_base_perms_torch).shape)
+                # print((diff_ab_perms_torch).shape)
+                # print((torch.einsum(
+                #        '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
+                #    )).shape)
+
+                # print('---')
+
+                # start = torch.cuda.Event(enable_timing=True)
+                # end = torch.cuda.Event(enable_timing=True)
+
+                # start.record()
+
+                # print('diff_ab_perms_torch: ' + str(diff_ab_perms_torch.shape))
+                # print('rj_d_desc_perms_torch: ' + str(rj_d_desc_perms_torch.shape))
+                # print('mat52_base_perms_torch: ' + str(mat52_base_perms_torch.shape))
+
+                # diff_ab_outer_perms_torch = torch.einsum(
+                #    'aki,ak,aki,jik->aij',
+                #    diff_ab_perms_torch,
+                #    mat52_base_perms_torch* 5,
+                #    diff_ab_perms_torch,
+                #    rj_d_desc_perms_torch
+                # )  # N, n_perms, a*3
+
+                # import opt_einsum as oe
+
+                # diff_ab_outer_perms_torch = oe.contract('...ki,...k,...kj->...ij',
+                #     diff_ab_perms_torch,
+                #     mat52_base_perms_torch * 5,
+                #     torch.einsum(
+                #         '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
+                #     ),  # N, n_perms, a*3
+                #     backend='torch'
+                # )
+
+                # diff_ab_outer_perms_torch = oe.contract(
+                #     '...ki,...k,...kl,jlk->...ij',
+                #     diff_ab_perms_torch,
+                #     mat52_base_perms_torch * 5,
+                #     diff_ab_perms_torch,
+                #     rj_d_desc_perms_torch,
+                #     backend='torch'
+                # )  # N, n_perms, a*3
+
+                # my_expr = oe.contract_expression('...ki,...k,...ki,jik->...ij', list(diff_ab_perms_torch.size()), list(mat52_base_perms_torch.size()), list(diff_ab_perms_torch.size()), list(rj_d_desc_perms_torch.size()))
+
+                # print(my_expr)
+
+                # diff_ab_outer_perms_torch = torch.einsum(
+                #     '...ki,...k,...kj->...ij',
+                #     diff_ab_perms_torch,
+                #     mat52_base_perms_torch * 5,  # N, n_perms, d
+                #     torch.einsum(
+                #         '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
+                #     ),  # N, n_perms, a*3
+                # )  # N, n_perms, a*3
+
+                diff_ab_outer_perms_torch = torch.einsum(
+                    '...ki,...kj->...ij',  # (slow)
+                    #'...ij,...ik->...jk', #(fast)
+                    diff_ab_perms_torch
+                    * mat52_base_perms_torch[:, :, None]
+                    * 5,  # N, n_perms, d
+                    torch.einsum(
+                        '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
+                    ),  # N, n_perms, a*3
+                )  # N, n_perms, a*3
+                del diff_ab_perms_torch
+
+                # end.record()
+                # Waits for everything to finish running
+                # torch.cuda.synchronize()
+
+                # print('pytroch time: ' + str(start.elapsed_time(end)))
+
+                diff_ab_outer_perms_torch -= torch.einsum(
+                    'ikj,...j->...ki',
+                    rj_d_desc_perms_torch,
+                    (sig_pow2 + float(self.sig) * norm_ab_perms_torch)
+                    * mat52_base_perms_torch,
+                )
+                del norm_ab_perms_torch
+                del mat52_base_perms_torch
+
+                R_d_desc_decomp_torch = self._desc.d_desc_from_comp(
+                    self.R_d_desc_torch[i_batch, :, :]
+                )
+
+                k = torch.einsum(
+                    '...ij,...ik->...kj',
+                    diff_ab_outer_perms_torch,  # N, d, 3*a
+                    R_d_desc_decomp_torch,
+                )
+                del diff_ab_outer_perms_torch
+                del R_d_desc_decomp_torch
+
+                blk_i = slice(i_batch[0] * self.dim_i, (i_batch[-1] + 1) * self.dim_i)
+
+                k_np = k.cpu().numpy().reshape(-1, blk_j_len)
+                if n_perms_done == n_perms_batch:  # first permutation batch iteration
+                    self.out[blk_i, blk_j] = k_np
+                else:
+                    self.out[blk_i, blk_j] = self.out[blk_i, blk_j] + k_np
+                del k
+
+            del rj_desc_perms_torch
+            del rj_d_desc_perms_torch
+
+        return blk_j.stop - blk_j.start
+
+    def forward(self, J_indx):
+
+        for i in J_indx:
+            while True:
+                try:
+                    done = self._forward(self.J[i])
+                except RuntimeError as e:
+                    if 'out of memory' in str(e):
+                        torch.cuda.empty_cache()
+
+                        if self.n_batches < self.n_train:
+                            self.n_batches = _next_batch_size(
+                                self.n_train, self.n_batches
+                            )
+
+                            self._log.debug(
+                                'Assembling each kernel column in {} batches, i.e. {} points/batch ({} points in total).'.format(
+                                    self.n_batches,
+                                    self.n_train // self.n_batches,
+                                    self.n_train,
+                                )
+                            )
+
+                        elif self.n_perm_batches < self.n_perms:
+                            self.n_perm_batches = _next_batch_size(
+                                self.n_perms, self.n_perm_batches
+                            )
+
+                            self._log.debug(
+                                'Generating permutations in {} batches, i.e. {} permutations/batch ({} permutations in total).'.format(
+                                    self.n_perm_batches,
+                                    self.n_perms // self.n_perm_batches,
+                                    self.n_perms,
+                                )
+                            )
+
+                        else:
+                            self._log.critical(
+                                'Could not allocate enough memory to assemble kernel matrix, even block-by-block and/or handling perms in batches.'
+                            )
+                            print()
+                            os._exit(1)
+                    else:
+                        raise e
+                else:
+                    if self.callback is not None:
+                        self.callback(done)
+
+                    break
 
 
 class GDMLTorchPredict(nn.Module):
@@ -38,7 +329,16 @@ class GDMLTorchPredict(nn.Module):
     :class:`torch.nn.Module`. Contains no trainable parameters.
     """
 
-    def __init__(self, model, lat_and_inv=None, batch_size=None, max_memory=None):
+    def __init__(
+        self,
+        model,
+        lat_and_inv=None,
+        batch_size=None,
+        n_perm_batches=1,
+        max_memory=None,
+        max_processes=None,
+        log_level=None,
+    ):
         """
         Parameters
         ----------
@@ -48,9 +348,12 @@ class GDMLTorchPredict(nn.Module):
             Tuple of 3 x 3 matrix containing lattice vectors as columns and its inverse.
         batch_size : int, optional
             Maximum batch size of geometries for prediction. Calculated from
-            :paramref:`max_memory` if not given.
+            :paramref:`max_mem` if not given.
+        n_perm_batches : int, optional
+            Divide the processing of all symmetries for each point into smaller
+            batches or precompute all in the beginning (needs  more memmory, but faster)?
         max_memory : float, optional
-            (unit GB) Maximum allocated memory for prediction.
+            (unit GB) Maximum allowed CPU memory for prediction (GPU memory always unlimited)
         """
 
         global _batch_size
@@ -58,194 +361,531 @@ class GDMLTorchPredict(nn.Module):
         super(GDMLTorchPredict, self).__init__()
 
         self._log = logging.getLogger(__name__)
+        if log_level is not None:
+            self._log.setLevel(log_level)
 
         model = dict(model)
 
-        self._dev = 'cuda' if torch.cuda.is_available() else 'cpu'
         self._lat_and_inv = (
             None
             if lat_and_inv is None
             else (
-                torch.tensor(lat_and_inv[0], device=self._dev),
-                torch.tensor(lat_and_inv[1], device=self._dev),
+                torch.tensor(lat_and_inv[0]),
+                torch.tensor(lat_and_inv[1]),
             )
         )
+
+        self.dim_d, self.n_train = model['R_desc'].shape[:2]
+        self.dim_i = 3 * int((1 + np.sqrt(8 * self.dim_d + 1)) / 2)
+        self.n_perms, self.n_atoms = model['perms'].shape
+
+        # Check dublicates in permutation list.
+        if model['perms'].shape[0] != np.unique(model['perms'], axis=0).shape[0]:
+            self._log.warning(
+                'Model contains dublicate permutations'
+            )
+
+        # Find index of identify permutation.
+        self.idx_id_perm = np.where((model['perms'] == np.arange(self.n_atoms)).all(axis=1))[0]
+
+        # No identity permutation found.
+        if len(self.idx_id_perm) == 0:
+            self._log.critical(
+                'Identity permutation is missing!'
+            )
+            print()
+            os._exit(1)
+
+        # Identity permutation not at index zero.
+        if len(self.idx_id_perm) > 0 and self.idx_id_perm[0] != 0:
+            self._log.debug(
+                'Identity is not at first position in permutation list (found at index {})'.format(self.idx_id_perm[0])
+            )
+
+        self.idx_id_perm = self.idx_id_perm[0]
 
         self._sig = int(model['sig'])
         self._c = float(model['c'])
         self._std = float(model.get('std', 1))
 
-        self.n_atoms = model['z'].shape[0]
+        self.tril_indices = np.tril_indices(self.n_atoms, k=-1)
 
-        desc_siz = model['R_desc'].shape[0]
-        n_perms, self._n_atoms = model['perms'].shape
-        perm_idxs = (
-            torch.tensor(model['tril_perms_lin'], device=self._dev)
-            .view(-1, n_perms)
-            .t()
-        )
+        self.R_d_desc = None
+        #self._xs_Jxs_train = None
 
-        self._xs_train, self._Jx_alphas = (
-            nn.Parameter(
-                xs.repeat(1, n_perms)[:, perm_idxs].reshape(-1, desc_siz),
-                requires_grad=False,
-            )
-            for xs in (
-                torch.tensor(model['R_desc'], device=self._dev).t(),
-                torch.tensor(np.array(model['R_d_desc_alpha']), device=self._dev),
-            )
-        )
-
-        # constant memory requirement (bytes): _xs_train and _Jx_alphas
-        const_memory = 2 * self._xs_train.nelement() * self._xs_train.element_size()
-
-        if max_memory is None:
-            if torch.cuda.is_available():
-                max_memory = min(
+        if torch.cuda.is_available():  # Ignore limits and take whatever the GPU has.
+            max_memory = (
+                min(
                     [
                         torch.cuda.get_device_properties(i).total_memory
                         for i in range(torch.cuda.device_count())
                     ]
                 )
-            else:
-                max_memory = int(
-                    2 ** 30 * 32
-                )  # 32 GB to bytes as default (hardcoded for now...)
+                // 2 ** 30
+            )  # bytes to GB
+        else:
+            default_cpu_max_mem = 32
+            if max_memory is None:
+                self._log.warning(
+                    'PyTorch CPU memory budget is limited to {} by default, which may impact performance.\n'.format(
+                        ui.gen_memory_str(2 ** 30 * default_cpu_max_mem)
+                    )
+                    + 'If necessary, adjust memory limit with option \'-m\'.'
+                )
+            max_memory = (
+                max_memory or default_cpu_max_mem
+            )  # 32 GB as default (hardcoded for now...)
+        max_memory = int(2 ** 30 * max_memory)  # GB to bytes
 
+        min_const_mem, min_per_sample_mem = self.est_mem_requirement(return_min=True)
+
+        log_type = (
+            self._log.warning
+            if min_const_mem + min_per_sample_mem >= max_memory
+            else self._log.info
+        )
+        log_type(
+            '{} memory report: max./avail. {}, min. req. (const./per-sample) ~{}/~{}'.format(
+                'GPU' if torch.cuda.is_available() else 'CPU',
+                ui.gen_memory_str(max_memory),
+                ui.gen_memory_str(min_const_mem),
+                ui.gen_memory_str(min_per_sample_mem),
+            )
+        )
+
+        self.max_processes = max_processes
+
+        self.perm_idxs = (
+            torch.tensor(model['tril_perms_lin']).view(-1, self.n_perms).t()
+        )
+
+        self._xs_train = nn.Parameter(
+            self.apply_perms_to_obj(torch.tensor(model['R_desc']).t(), perm_idxs=None),
+            requires_grad=False,
+        )
+        self._Jx_alphas = nn.Parameter(
+            self.apply_perms_to_obj(
+                torch.tensor(np.array(model['R_d_desc_alpha'])), perm_idxs=None
+            ),
+            requires_grad=False,
+        )
+
+        # Try to cache all permutated variants of 'self._xs_train' and 'self._Jx_alphas'
+        try:
+            self.set_n_perm_batches(n_perm_batches)
+        except RuntimeError as e:
+            if 'out of memory' in str(e):
+                torch.cuda.empty_cache()
+
+                if n_perm_batches == 1:
+                    self._log.debug(
+                        'Trying to cache permutations FAILED during init (continuing without)'
+                    )
+                    self.set_n_perm_batches(2)
+                    pass
+                else:
+                    self._log.critical(
+                        'Could not allocate enough memory to store model parameters on GPU. There is no hope!'
+                    )
+                    print()
+                    os._exit(1)
+            else:
+                raise e
+
+        const_mem, per_sample_mem = self.est_mem_requirement(return_min=False)
         _batch_size = (
-            max((max_memory - const_memory) // self._memory_per_sample(), 1)
+            max((max_memory - const_mem) // per_sample_mem, 1)
             if batch_size is None
             else batch_size
         )
-        if torch.cuda.is_available():
-            _batch_size *= torch.cuda.device_count()
+        max_batch_size = (
+            self.n_train // torch.cuda.device_count()
+            if torch.cuda.is_available()
+            else self.n_train
+        )
+        _batch_size = min(_batch_size, max_batch_size)
+        self._log.debug(
+            'Starting with a batch size of {} ({} points in total).'.format(
+                _batch_size, self.n_train
+            )
+        )
 
-        self.desc = Desc(self.n_atoms)  # NOTE: max processes not set!!
+        self.desc = Desc(self.n_atoms, max_processes=max_processes)
 
-        self.perm_idxs = perm_idxs
-        self.n_perms = n_perms
+    def set_n_perm_batches(self, n_perm_batches):
 
-    def set_alphas(self, R_d_desc, alphas):
+        self._log.debug(
+            'Permutations will be generated in {} batches.'.format(n_perm_batches)
+        )
+
+        self.n_perm_batches = n_perm_batches
+        if n_perm_batches == 1 and self.n_perms > 1:
+            self.cache_perms()
+        else:
+            self.uncache_perms()
+
+    def apply_perms_to_obj(self, xs, perm_idxs=None):
+
+        n_perms = 1 if perm_idxs is None else perm_idxs.numel() // self.dim_d
+        perm_idxs = (
+            slice(None) if perm_idxs is None else perm_idxs
+        )  # slice(None) same as [:]
+
+        return xs.repeat(1, n_perms)[:, perm_idxs].reshape(-1, self.dim_d)
+
+    def remove_perms_from_obj(self, xs):
+
+        return xs.reshape(self.n_train, -1, self.dim_d)[:, self.idx_id_perm, :].reshape(-1, self.dim_d)
+
+    def uncache_perms(self):
+
+        xs_train_n_perms = self._xs_train.numel() // (self.n_train * self.dim_d)
+        if xs_train_n_perms != 1:  # Uncached already?
+            self._log.debug('Uncaching permutations for \'self._xs_train\'')
+            self._xs_train = nn.Parameter(
+                self.remove_perms_from_obj(self._xs_train), requires_grad=False
+            )
+
+        Jx_alphas_n_perms = self._Jx_alphas.numel() // (self.n_train * self.dim_d)
+        if Jx_alphas_n_perms != 1:  # Uncached already?
+            self._log.debug('Uncaching permutations for \'self._Jx_alphas\'')
+            self._Jx_alphas = nn.Parameter(
+                self.remove_perms_from_obj(self._Jx_alphas), requires_grad=False
+            )
+
+    def cache_perms(self):
+
+        xs_train_n_perms = self._xs_train.numel() // (self.n_train * self.dim_d)
+        if xs_train_n_perms == 1:  # Cached already?
+            self._log.debug('Caching permutations for \'self._xs_train\'')
+            xs_train = self.apply_perms_to_obj(self._xs_train, perm_idxs=self.perm_idxs)
+
+        Jx_alphas_n_perms = self._Jx_alphas.numel() // (self.n_train * self.dim_d)
+        if Jx_alphas_n_perms == 1:  # Cached already?
+            self._log.debug('Caching permutations for \'self._Jx_alphas\'')
+            Jx_alphas = self.apply_perms_to_obj(
+                self._Jx_alphas, perm_idxs=self.perm_idxs
+            )
+
+        # Do not overwrite before the operation above is successful.
+        self._xs_train = nn.Parameter(xs_train, requires_grad=False)
+        self._Jx_alphas = nn.Parameter(Jx_alphas, requires_grad=False)
+
+    def est_mem_requirement(self, return_min=False):
         """
-        Reconfigure the current model with a new set of regression parameters.
-        This is necessary when training the model iteratively.
+        Calculate an estimate for the maximum/minimum memory needed to generate
+        a prediction for a single geometry.
 
         Parameters
         ----------
-                R_d_desc : :obj:`numpy.ndarray`
-                    Array containing the Jacobian of the descriptor for
-                    each training point.
+        return_min : boolean, optional
+            Return a minimum estimate instead.
+
+        Returns
+        -------
+        const_mem : int
+            Constant memory overhead (bytes) (allocated upon instantiation of the class)
+        per_sample_mem : int
+            Memory requirement for a single prediction (bytes)
+        """
+
+        n_perms_mem = 1 if return_min else self.n_perms
+
+        # Constant memory requirement (bytes)
+        const_mem = self.n_train * self.n_atoms * 3  # Rs (all)
+        const_mem += n_perms_mem * self.dim_d  # perm_idxs
+        const_mem += (
+            n_perms_mem * self.n_train * self.dim_d * 2
+        )  # _xs_train and _Jx_alphas
+        const_mem *= 8
+        const_mem = int(const_mem)
+
+        # Peak memory requirement (bytes)
+        per_sample_mem = 2 * self.n_atoms * 3  # Rs (batch), # Fs (batch)
+        per_sample_mem += self.n_atoms  # Es (batch)
+        per_sample_mem += self.n_atoms ** 2 * 3  # diffs
+        per_sample_mem += self.dim_d  # xs
+        per_sample_mem += self.dim_d * n_perms_mem * self.n_train  # x_diffs
+        per_sample_mem += (
+            4 * n_perms_mem * self.n_train
+        )  # x_dists, exp_xs, dot_x_diff_Jx_alphas, exp_xs_1_x_dists
+        per_sample_mem *= 8
+        per_sample_mem = int(
+            2 * per_sample_mem
+        )  # HACK!!! Assume double that is needed. Seems to work better, maybe because of fragmentation issues?
+
+        # <class 'torch.Tensor'> torch.Size([21, 118, 3]) # Fs
+        # <class 'torch.Tensor'> torch.Size([21]) # Es
+        # <class 'torch.Tensor'> torch.Size([21, 118, 3]) # Rs (batch)
+        # <class 'torch.Tensor'> torch.Size([21, 118, 118, 3]) # diffs
+        # <class 'torch.Tensor'> torch.Size([21, 6903]) # xs
+        # <class 'torch.Tensor'> torch.Size([21, 5760, 6903])
+        # <class 'torch.Tensor'> torch.Size([21, 5760]) # x_dists
+        # <class 'torch.Tensor'> torch.Size([21, 5760]) # exp_xs
+        # <class 'torch.Tensor'> torch.Size([21, 5760]) # dot_x_diff_Jx_alphas
+        # <class 'torch.Tensor'> torch.Size([21, 5760]) # exp_xs_1_x_dists
+        # <class 'torch.Tensor'> torch.Size([96, 6903]) # perm_idxs
+        # <class 'torch.nn.parameter.Parameter'> torch.Size([5760, 6903]) # _xs_train
+        # <class 'torch.nn.parameter.Parameter'> torch.Size([5760, 6903]) # _Jx_alphas
+        # <class 'torch.Tensor'> torch.Size([60, 118, 3]) # Rs (all)
+
+        return const_mem, per_sample_mem
+
+    def set_R_d_desc(self, R_d_desc):
+        """
+        Set reference to training descriptor Jacobians. They are needed when the
+        alpha coefficients are updated during iterative model training.
+
+        This routine will try to move them to the GPU memory, if enough is available.
+
+        Parameters
+        ----------
+        R_d_desc : :obj:`numpy.ndarray`
+            Array containing the Jacobian of the descriptor for
+            each training point.
+        """
+
+        self.R_d_desc = torch.from_numpy(R_d_desc)
+
+        # Try moving to GPU memory.
+        if torch.cuda.is_available():
+            try:
+                R_d_desc = self.R_d_desc.to(self._xs_train.device)
+            except RuntimeError as e:
+                if 'out of memory' in str(e):
+                    torch.cuda.empty_cache()
+
+                    self._log.debug('Not enough memory to cache \'R_d_desc\' on GPU')
+                else:
+                    raise e
+            else:
+                self._log.debug('\'R_d_desc\' lives on the GPU now')
+                self.R_d_desc = R_d_desc
+
+        self.R_d_desc = nn.Parameter(self.R_d_desc, requires_grad=False)
+
+    def set_alphas(self, alphas):
+        """
+        Reconfigure the current model with a new set of regression parameters.
+
+        This routine is used during iterative model training.
+
+        Parameters
+        ----------
                 alphas : :obj:`numpy.ndarray`
                     1D array containing the new model parameters.
         """
 
-        dim_d = self.desc.dim
-        dim_i = self.desc.dim_i
+        if self.R_d_desc is None:
+            self._log.critical(
+                'The function \'set_alphas()\' requires \'R_d_desc\' to be set beforehand!'
+            )
+            print()
+            os._exit(1)
 
-        R_d_desc_alpha = self.desc.d_desc_dot_vec(R_d_desc, alphas.reshape(-1, dim_i))
-        xs = torch.from_numpy(R_d_desc_alpha).to(self._dev)
+        del self._Jx_alphas
+        while True:
+            try:
 
-        self._Jx_alphas = nn.Parameter(
-            xs.repeat(1, self.n_perms)[:, self.perm_idxs].reshape(-1, dim_d),
-            requires_grad=False,
-        )
+                alphas_torch = torch.from_numpy(alphas).to(self.R_d_desc.device)
+                xs = self.desc.d_desc_dot_vec(
+                    self.R_d_desc, alphas_torch.reshape(-1, self.dim_i)
+                )
+                del alphas_torch
 
-    def _memory_per_sample(self):
-        # return 3 * self._xs_train.nelement() * self._xs_train.element_size() # size of 'diffs' (biggest object in 'forward')
+            except RuntimeError as e:
+                if 'out of memory' in str(e):
+                    if not torch.cuda.is_available():
+                        self._log.critical(
+                            'Not enough CPU memory to cache \'R_d_desc\'! There nothing we can do...'
+                        )
+                        print()
+                        os._exit(1)
+                    else:
+                        self.R_d_desc = self.R_d_desc.cpu()
+                        torch.cuda.empty_cache()
 
-        # peak memory:
-        # N * a * a * 3
-        # N * d * 2
-        # N * n_perms*N_train * (d+4)
+                        self._log.debug(
+                            'Failed to \'set_alphas()\' on the GPU (\'R_d_desc\' was moved back from GPU to CPU)'
+                        )
 
-        dim_d = self._xs_train.shape[1]
+                    pass
+                else:
+                    raise e
+            else:
+                break
 
-        total = (dim_d * 2 + self.n_atoms) * 3
-        total += dim_d * 2
-        total += self._xs_train.shape[0] * (dim_d + 4)
+        try:
+            perm_idxs = self.perm_idxs if self.n_perm_batches == 1 else None
+            self._Jx_alphas = nn.Parameter(
+                self.apply_perms_to_obj(xs, perm_idxs=perm_idxs), requires_grad=False
+            )
 
-        return total * self._xs_train.element_size()
+        except RuntimeError as e:
+            if 'out of memory' in str(e):
+                torch.cuda.empty_cache()
+
+                if self.n_perm_batches < self.n_perms:
+
+                    self._log.debug('Uncaching permutations (within \'set_alphas()\')')
+
+                    self.n_perm_batches += 1
+                    self._xs_train = nn.Parameter(
+                        self.remove_perms_from_obj(self._xs_train), requires_grad=False
+                    )
+                    self._Jx_alphas = nn.Parameter(
+                        self.apply_perms_to_obj(xs, perm_idxs=None), requires_grad=False
+                    )
+
+                    self._log.debug(
+                        'Trying {} permutation batches (within \'set_alphas()\')'.format(
+                            self.n_perm_batches
+                        )
+                    )
+
+                else:
+                    self._log.critical(
+                        'Could not allocate enough memory to set new alphas in model.'
+                    )
+                    print()
+                    os._exit(1)
+            else:
+                raise e
 
     def _batch_size(self):
         return _batch_size
 
-    def _forward(self, Rs):
+    def _forward(self, Rs_or_train_idxs, return_E=True):
 
-        sig = self._sig
-        q = np.sqrt(5) / sig
+        #import scipy as sp
 
-        diffs = Rs[:, :, None, :] - Rs[:, None, :, :]  # N, a, a, 3
-        if self._lat_and_inv is not None:
-            diffs_shape = diffs.shape
-            # diffs = self.desc.pbc_diff(diffs.reshape(-1, 3), self._lat_and_inv).reshape(
-            #    diffs_shape
-            # )
+        q = np.sqrt(5) / self._sig
+        i, j = self.tril_indices
 
-            lat, lat_inv = self._lat_and_inv
+        is_train_pred = Rs_or_train_idxs.dim() == 1
+        if not is_train_pred:  # Rs
 
-            if lat.device != Rs.device:
-                lat = lat.to(Rs.device)
-                lat_inv = lat_inv.to(Rs.device)
+            Rs = Rs_or_train_idxs
+            diffs = Rs[:, :, None, :] - Rs[:, None, :, :]  # N, a, a, 3
 
-            diffs = diffs.reshape(-1, 3)
+            if self._lat_and_inv is not None:
 
-            c = lat_inv.mm(diffs.t())
-            diffs -= lat.mm(c.round()).t()
+                diffs_shape = diffs.shape
+                # diffs = self.desc.pbc_diff(diffs.reshape(-1, 3), self._lat_and_inv).reshape(
+                #    diffs_shape
+                # )
 
-            diffs = diffs.reshape(diffs_shape)
+                lat, lat_inv = self._lat_and_inv
+                if lat.device != Rs.device:
+                    lat = lat.to(Rs.device)
+                    lat_inv = lat_inv.to(Rs.device)
 
-        dists = diffs.norm(dim=-1)  # N, a, a
+                diffs = diffs.reshape(-1, 3)
 
-        # i, j = np.diag_indices(self._n_atoms)
-        # dists[:, i, j] = np.inf
+                c = lat_inv.mm(diffs.t())
+                diffs -= lat.mm(c.round()).t()
 
-        i, j = np.tril_indices(self._n_atoms, k=-1)
-        xs = 1 / dists[:, i, j]  # R_desc # N, d
+                diffs = diffs.reshape(diffs_shape)
 
-        # current:
-        # diffs: N, a, a, 3
-        # dists: N, a, a
-        # xs: # N, d
+            xs = 1 / diffs.norm(dim=-1)[:, i, j]  # R_desc # N, d
 
-        del dists
+        else:  # xs_train
 
-        # current:
-        # diffs: N, a, a, 3
-        # xs: # N, d
+            train_idxs = Rs_or_train_idxs
 
-        x_diffs = (q * xs)[:, None, :] - q * self._xs_train  # N, n_perms*N_train, d
-        x_dists = x_diffs.norm(dim=-1)  # N, n_perms*N
-
-        exp_xs = 5.0 / (3 * sig ** 2) * torch.exp(-x_dists)  # N, n_perms*N_train
-
-        # dot_x_diff_Jx_alphas = (x_diffs * self._Jx_alphas).sum(dim=-1)
-        dot_x_diff_Jx_alphas = torch.einsum(
-            'ijk,jk->ij', x_diffs, self._Jx_alphas
-        )  # N, n_perms*N_train
-        exp_xs_1_x_dists = exp_xs * (1 + x_dists)  # N, n_perms*N_train
-
-        # F1s_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
-        # F2s_x = exp_xs_1_x_dists.mm(self._Jx_alphas)
-
-        # Fs_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
-        Fs_x = torch.einsum(
-            'ij,ij,ijk->ik', exp_xs, dot_x_diff_Jx_alphas, x_diffs
-        )  # N, d
+            xs = self._xs_train.reshape(self.n_train, -1, self.dim_d)[
+                train_idxs, self.idx_id_perm, :
+            ]  # ignore permutations
+            
+            Jxs = self.R_d_desc[train_idxs, :, :]
 
         # current:
         # diffs: N, a, a, 3
         # xs: # N, d
-        # x_diffs: # N, n_perms*N_train, d
-        # x_dists: # N, n_perms*N_train
-        # exp_xs: # N, n_perms*N_train
-        # dot_x_diff_Jx_alphas: N, n_perms*N_train
-        # exp_xs_1_x_dists: N, n_perms*N_train
-        # Fs_x: N, d
 
-        del exp_xs
-        del x_diffs
+        Fs_x = torch.zeros(xs.shape, device=xs.device)
+        Es = torch.zeros((xs.shape[0],), device=xs.device) if return_E else None
 
-        Fs_x -= exp_xs_1_x_dists.mm(self._Jx_alphas)  # N, d
+        n_perms_done = 0
+        for perm_batch in np.array_split(np.arange(self.n_perms), self.n_perm_batches):
+
+            if self.n_perm_batches == 1:
+                xs_train_perm_split = self._xs_train
+                Jx_alphas_perm_split = self._Jx_alphas
+            else:
+                perm_idxs_batch = (
+                    self.perm_idxs[perm_batch, :] - n_perms_done * self.dim_d
+                )  # index shift
+                xs_train_perm_split = self.apply_perms_to_obj(
+                    self._xs_train, perm_idxs=perm_idxs_batch
+                )
+                Jx_alphas_perm_split = self.apply_perms_to_obj(
+                    self._Jx_alphas, perm_idxs=perm_idxs_batch
+                )
+
+            n_perms_done += len(perm_batch)
+
+            # x_diffs = (q * xs)[:, None, :] - q * self._xs_train  # N, n_perms*N_train, d
+            # x_diffs = q * (xs[:, None, :] - self._xs_train)  # N, n_perms*N_train, d
+            x_diffs = q * (
+                xs[:, None, :] - xs_train_perm_split
+            )  # N, n_perms*N_train, d
+            x_dists = x_diffs.norm(dim=-1)  # N, n_perms*N
+
+            exp_xs = (
+                5.0 / (3 * self._sig ** 2) * torch.exp(-x_dists)
+            )  # N, n_perms*N_train
+            exp_xs_1_x_dists = exp_xs * (1 + x_dists)  # N, n_perms*N_train
+
+            # dot_x_diff_Jx_alphas = (x_diffs * self._Jx_alphas).sum(dim=-1)
+            # dot_x_diff_Jx_alphas = torch.einsum(
+            #    'ijk,jk->ij', x_diffs, self._Jx_alphas
+            # )  # N, n_perms*N_train
+            dot_x_diff_Jx_alphas = torch.einsum(
+                'ij...,j...->ij', x_diffs, Jx_alphas_perm_split
+            )  # N, n_perms*N_train
+
+            # F1s_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
+            # F2s_x = exp_xs_1_x_dists.mm(self._Jx_alphas)
+
+            # Fs_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
+            Fs_x = Fs_x + torch.einsum(
+                '...j,...j,...jk', exp_xs, dot_x_diff_Jx_alphas, x_diffs
+            )  # N, d
+
+            # Fs_x = Fs_x + torch.einsum(
+            #    'ij,ijl,jl,ijk->ik', exp_xs, x_diffs, Jx_alphas_perm_split, x_diffs
+            # )  # N, d
+
+            # import opt_einsum as oe
+            # my_expr = oe.contract_expression("ij,ijl,jl,ijk->ik", (5, 140), (5, 140, 68265), (140, 68265), (5, 140, 68265))
+            # Fs_x = Fs_x + my_expr(exp_xs, x_diffs, Jx_alphas_perm_split, x_diffs, backend='torch')
+            # print(my_expr)
+
+
+            # import opt_einsum as oe
+
+            # current:
+            # diffs: N, a, a, 3
+            # xs: # N, d
+            # x_diffs: # N, n_perms*N_train, d
+            # x_dists: # N, n_perms*N_train
+            # exp_xs: # N, n_perms*N_train
+            # dot_x_diff_Jx_alphas: N, n_perms*N_train
+            # exp_xs_1_x_dists: N, n_perms*N_train
+            # Fs_x: N, d
+
+            del exp_xs
+            del x_diffs
+
+            # Fs_x -= exp_xs_1_x_dists.mm(self._Jx_alphas)  # N, d
+            Fs_x -= exp_xs_1_x_dists.mm(Jx_alphas_perm_split)  # N, d
+
+            if return_E:
+                Es += (
+                    torch.einsum('...j,...j', exp_xs_1_x_dists, dot_x_diff_Jx_alphas)
+                    / q
+                )
 
         # current:
         # diffs: N, a, a, 3
@@ -255,72 +895,126 @@ class GDMLTorchPredict(nn.Module):
         # exp_xs_1_x_dists: N, n_perms*N
         # Fs_x: N, d
 
-        # Fs_x = (F1s_x - F2s_x) * (xs ** 3)
-        Fs_x *= xs ** 3
-        diffs[:, i, j, :] *= Fs_x[..., None]
-        diffs[:, j, i, :] *= Fs_x[..., None]
+        if not is_train_pred:  # Rs
+
+            Fs_x *= xs ** 3
+            diffs[:, i, j, :] *= Fs_x[..., None]
+            diffs[:, j, i, :] *= Fs_x[..., None]
+
+        else:  # xs_train
+
+            n = Jxs.shape[0]
+            diffs = torch.zeros(
+                (n, self.n_atoms, self.n_atoms, 3), device=xs.device, dtype=xs.dtype
+            )
+            diffs[:, i, j, :] = Jxs * Fs_x[..., None]
+            diffs[:, j, i, :] = -diffs[:, i, j, :]
 
         Fs = diffs.sum(dim=1) * self._std
-
         del diffs
 
         # Es = (exp_xs_1_x_dists * dot_x_diff_Jx_alphas).sum(dim=-1) / q
-        Es = torch.einsum('ij,ij->i', exp_xs_1_x_dists, dot_x_diff_Jx_alphas) / q
-        Es *= self._std
-        Es += self._c
+        # Es = torch.einsum('ij,ij->i', exp_xs_1_x_dists, dot_x_diff_Jx_alphas) / q
+
+        if return_E:
+            Es *= self._std
+            Es += self._c
 
         return Es, Fs
 
-    def forward(self, Rs):
+    def forward(self, Rs_or_train_idxs=None, return_E=True):
         """
         Predict energy and forces for a batch of geometries.
 
         Parameters
         ----------
-        Rs : :obj:`torch.Tensor`
-            (dims M x N x 3) Cartesian coordinates of M molecules composed of N atoms
+        Rs : :obj:`torch.Tensor`, optional
+            (dims M x N x 3) Cartesian coordinates of M molecules composed of N atoms.
+            If this parameter is ommited, the training error is returned. Note that the training
+            geometries need to be set right after initialization using `set_R()` for this to work.
+        return_E : boolean, optional
+            If false (default: true), only the forces are returned.
 
         Returns
         -------
         E : :obj:`torch.Tensor`
-            (dims M) Molecular energies
+            (dims M) Molecular energies (unless `return_E == False`)
         F : :obj:`torch.Tensor`
             (dims M x N x 3) Nuclear gradients of the energy
         """
 
         global _batch_size
 
-        assert Rs.dim() == 3
-        assert Rs.shape[1:] == (self._n_atoms, 3)
+        if Rs_or_train_idxs.dim() == 1:
+            # contains index list. return predicitons for these training points
+            dtype = self.R_d_desc.dtype
+        elif Rs_or_train_idxs.dim() == 3:
+            # this is real data
 
-        dtype = Rs.dtype
-        Rs = Rs.double()
+            assert Rs_or_train_idxs.shape[1:] == (self.n_atoms, 3)
+            Rs_or_train_idxs = Rs_or_train_idxs.double()
+            dtype = Rs_or_train_idxs.dtype
+
+        else:
+            # unknown input
+            self._log.critical(
+                'Invalid input for \'Rs_or_train_idxs\'.'
+            )
+            print()
+            os._exit(1)
+
+
+        # if Rs is not None:
+        #     assert Rs.dim() == 3
+        #     assert Rs.shape[1:] == (self.n_atoms, 3)
+
+        #     Rs = Rs.double()
+        #     dtype = Rs.dtype
+        # else:
+        #     dtype = self.R_d_desc.dtype
+
+        #xs_Jxs_train = self._xs_Jxs_train if Rs is None else Rs
 
         while True:
             try:
                 Es, Fs = zip(
-                    *map(self._forward, DataLoader(Rs, batch_size=_batch_size))
+                    *map(
+                        partial(self._forward, return_E=return_E),
+                        DataLoader(Rs_or_train_idxs, batch_size=_batch_size),
+                    )
                 )
             except RuntimeError as e:
                 if 'out of memory' in str(e):
-                    if _batch_size > (torch.cuda.device_count() + 1):
+                    torch.cuda.empty_cache()
 
-                        import gc
-                        gc.collect()
-
-                        torch.cuda.empty_cache()
-
+                    if _batch_size > 1:
                         _batch_size -= 1
+
+                        self._log.debug('Trying batch size of {}.'.format(_batch_size))
+
+                    elif self.n_perm_batches < self.n_perms:
+                        n_perm_batches = _next_batch_size(
+                            self.n_perms, self.n_perm_batches
+                        )
+                        self.set_n_perm_batches(n_perm_batches)
+
+                        self._log.debug(
+                            'Trying {} permutation batches.'.format(n_perm_batches)
+                        )
 
                     else:
                         self._log.critical(
                             'Could not allocate enough memory to evaluate model, despite reducing batch size.'
                         )
                         print()
-                        sys.exit()
+                        os._exit(1)
                 else:
                     raise e
             else:
                 break
 
-        return torch.cat(Es).to(dtype), torch.cat(Fs).to(dtype)
+        ret = (torch.cat(Fs).to(dtype),)
+        if return_E:
+            ret = (torch.cat(Es).to(dtype),) + ret
+
+        return ret

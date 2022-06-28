@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2020 Stefan Chmiela
+# Copyright (c) 2018-2022 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -86,7 +86,7 @@ lattice, R, z, E, F = None, None, None, None, None
 calc = mols[0].get_calculator()
 
 print("\rNumber geometries: {:,}".format(len(mols)))
-print("\rAvailable properties: " + ', '.join(calc.results))
+#print("\rAvailable properties: " + ', '.join(calc.results))
 print()
 
 if 'forces' not in calc.results:
@@ -95,12 +95,13 @@ if 'forces' not in calc.results:
         + ' Forces are missing in the input file!'
     )
 
-lattice = np.array(mols[0].get_cell())
+lattice = np.array(mols[0].get_cell().T)
 if not np.any(lattice):
     print(
         ui.color_str('[INFO]', bold=True)
         + ' No lattice vectors specified.'
     )
+    lattice = None
 
 Z = np.array([mol.get_atomic_numbers() for mol in mols])
 all_z_the_same = (Z == Z[0]).all()
@@ -110,14 +111,13 @@ if not all_z_the_same:
         + ' Order of atoms changes accross dataset.'
     )
 
-lattice = np.array(mols[0].get_cell())
-if not np.any(lattice): # all zeros
-    lattice = None
-
 R = np.array([mol.get_positions() for mol in mols])
 z = Z[0]
 
-E = np.array([mol.get_potential_energy() for mol in mols])
+if 'Energy' in mols[0].info:
+    E = np.array([float(mol.info['Energy']) for mol in mols])
+else:
+    E = np.array([mol.get_potential_energy() for mol in mols])
 F = np.array([mol.get_forces() for mol in mols])
 
 print('Please provide a name for this dataset. Otherwise the original filename will be reused.')
@@ -144,24 +144,41 @@ base_vars = {
 base_vars['F_min'], base_vars['F_max'] = np.min(F.ravel()), np.max(F.ravel())
 base_vars['F_mean'], base_vars['F_var'] = np.mean(F.ravel()), np.var(F.ravel())
 
-print('Please provide a description of the length unit used in your input file, e.g. \'Ang\' or \'au\': ')
+print('If you want to convert your original length unit, please provide a conversion factor (default: 1.0): ')
+R_to_new_unit = raw_input('> ').strip()
+if R_to_new_unit != '':
+    R_to_new_unit = float(R_to_new_unit)
+else:
+    R_to_new_unit = 1.0
+
+print('If you want to convert your original energy unit, please provide a conversion factor (default: 1.0): ')
+E_to_new_unit = raw_input('> ').strip()
+if E_to_new_unit != '':
+    E_to_new_unit = float(E_to_new_unit)
+else:
+    E_to_new_unit = 1.0
+
+print('Please provide a description of the length unit, e.g. \'Ang\' or \'au\': ')
 print('Note: This string will be stored in the dataset file and passed on to models files for later reference.')
 r_unit = raw_input('> ').strip()
 if r_unit != '':
     base_vars['r_unit'] = r_unit
 
-print('Please provide a description of the energy unit used in your input file, e.g. \'kcal/mol\' or \'eV\': ')
+print('Please provide a description of the energy unit, e.g. \'kcal/mol\' or \'eV\': ')
 print('Note: This string will be stored in the dataset file and passed on to models files for later reference.')
 e_unit = raw_input('> ').strip()
 if e_unit != '':
     base_vars['e_unit'] = e_unit
 
 if E is not None:
-    base_vars['E'] = E
+    base_vars['E'] = E * E_to_new_unit
     base_vars['E_min'], base_vars['E_max'] = np.min(E), np.max(E)
     base_vars['E_mean'], base_vars['E_var'] = np.mean(E), np.var(E)
 else:
     print(ui.color_str('[INFO]', bold=True) + ' No energy labels found in dataset.')
+
+base_vars['R'] *= R_to_new_unit
+base_vars['F'] *= E_to_new_unit / R_to_new_unit
 
 if lattice is not None:
     base_vars['lattice'] = lattice

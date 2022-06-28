@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018 Stefan Chmiela
+# Copyright (c) 2018-2021 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -34,7 +34,6 @@ from .utils import ui
 
 if sys.version[0] == '3':
     raw_input = input
-
 
 try:
     from urllib.request import urlopen
@@ -105,6 +104,8 @@ def main():
 
     args = parser.parse_args()
 
+    print("Contacting server (%s)..." % base_url)
+
     if args.name is not None:
 
         url = '%sget.php?version=%s&%s=%s' % (
@@ -113,67 +114,64 @@ def main():
             args.command,
             args.name,
         )
-        print("Contacting server (%s)..." % base_url)
         response = urlopen(url)
         match, score = response.read().decode().split(',')
         response.close()
 
         if int(score) == 0 or ui.yes_or_no('Do you mean \'%s\'?' % match):
             download(args.command, match + '.npz')
+            return
 
+    response = urlopen(
+        '%sget.php?version=%s&%s' % (base_url, __version__, args.command)
+    )
+    line = response.readlines()
+    response.close()
+
+    print()
+    print('Available %ss:' % args.command)
+
+    print('{:<2} {:<25}    {:>4}'.format('ID', 'Name', 'Size'))
+    print('-' * 36)
+
+    items = line[0].split(b';')
+    for i, item in enumerate(items):
+        name, size = item.split(b',')
+        size = int(size) / 1024 ** 2  # Bytes to MBytes
+
+        print('{:>2d} {:<24} {:>5.1f} MB'.format(i, name.decode("utf-8"), size))
+    print()
+
+    down_list = raw_input(
+        'Please list which %ss to download (e.g. 0 1 2 6) or type \'all\': '
+        % args.command
+    )
+    down_idxs = []
+    if 'all' in down_list.lower():
+        down_idxs = list(range(len(items)))
+    elif re.match(
+        "^ *[0-9][0-9 ]*$", down_list
+    ):  # only digits and spaces, at least one digit
+        down_idxs = [int(idx) for idx in re.split(r'\s+', down_list.strip())]
+        down_idxs = list(set(down_idxs))
     else:
+        print(ui.warn_str('ABORTED'))
 
-        print('Contacting server (%s)...' % base_url)
-        response = urlopen(
-            '%sget.php?version=%s&%s' % (base_url, __version__, args.command)
-        )
-        line = response.readlines()
-        response.close()
-
-        print('')
-        print('Available %ss:' % args.command)
-
-        print('{:<2} {:<25}    {:>4}'.format('ID', 'Name', 'Size'))
-        print('-' * 36)
-
-        items = line[0].split(b';')
-        for i, item in enumerate(items):
-            name, size = item.split(b',')
-            size = int(size) / 1024 ** 2  # Bytes to MBytes
-
-            print('{:>2d} {:<25} {:>4d} MB'.format(i, name.decode("utf-8"), int(size)))
-        print('')
-
-        down_list = raw_input(
-            'Please list which datasets to download (e.g. 0 1 2 6) or type \'all\': '
-        )
-        down_idxs = []
-        if 'all' in down_list.lower():
-            down_idxs = list(range(len(items)))
-        elif re.match(
-            "^ *[0-9][0-9 ]*$", down_list
-        ):  # only digits and spaces, at least one digit
-            down_idxs = [int(idx) for idx in re.split(r'\s+', down_list.strip())]
-            down_idxs = list(set(down_idxs))
+    for idx in down_idxs:
+        if idx not in range(len(items)):
+            print(
+                ui.warn_str('[WARN]')
+                + ' Index '
+                + str(idx)
+                + ' out of range, skipping.'
+            )
         else:
-            print(' ABORTED.')
+            name = items[idx].split(b',')[0].decode("utf-8")
+            if os.path.exists(name):
+                print("'%s' exists, skipping." % (name))
+                continue
 
-        for idx in down_idxs:
-            if idx not in range(len(items)):
-                print(
-                    ui.warn_str('[WARN]')
-                    + ' Index '
-                    + str(idx)
-                    + ' out of range, skipping.'
-                )
-            else:
-                name = items[idx].split(b',')[0].decode("utf-8")
-                if os.path.exists(name):
-                    print("'%s' exists, skipping." % (name))
-                    continue
-
-                download(args.command, name + '.npz')
-    print('')
+            download(args.command, name + '.npz')
 
 
 if __name__ == "__main__":

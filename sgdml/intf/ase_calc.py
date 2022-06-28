@@ -75,7 +75,7 @@ class SGDMLCalculator(Calculator):
 
         model = np.load(model_path, allow_pickle=True)
         self.gdml_predict = GDMLPredict(model, use_torch=use_torch)
-        self.gdml_predict.prepare_parallel()
+        self.gdml_predict.prepare_parallel(n_bulk=1)
 
         self.log.warning(
             'Please remember to specify the proper conversion factors, if your model does not use \'kcal/mol\' and \'Ang\' as units.'

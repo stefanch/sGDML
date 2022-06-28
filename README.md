@@ -10,7 +10,7 @@ Documentation can be found here: [http://sgdml.org/doc/](http://sgdml.org/doc/)
 - SciPy (>=1.1)
 
 #### Optional:
-- PyTorch (for GPU acceleration)
+- PyTorch (>=1.8) (for GPU acceleration)
 - ASE (>=3.16.2) (to run atomistic simulations)
 
 ## Getting started

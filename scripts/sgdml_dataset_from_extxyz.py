@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2019 Stefan Chmiela
+# Copyright (c) 2018-2022 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -141,12 +141,13 @@ if is_extxyz:
             + ' Forces are missing in the input file!'
         )
 
-    lattice = np.array(mols[0].get_cell())
-    if not np.any(lattice):
+    lattice = np.array(mols[0].get_cell().T)
+    if not np.any(lattice): # all zeros
         print(
             ui.color_str('[INFO]', bold=True)
             + ' No lattice vectors specified in extended XYZ file.'
         )
+        lattice = None
 
     Z = np.array([mol.get_atomic_numbers() for mol in mols])
     all_z_the_same = (Z == Z[0]).all()
@@ -155,10 +156,6 @@ if is_extxyz:
             ui.color_str('[FAIL]', fore_color=ui.RED, bold=True)
             + ' Order of atoms changes accross dataset.'
         )
-
-    lattice = np.array(mols[0].get_cell())
-    if not np.any(lattice): # all zeros
-        lattice = None
 
     R = np.array([mol.get_positions() for mol in mols])
     z = Z[0]

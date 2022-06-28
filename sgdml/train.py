@@ -4,7 +4,7 @@ This module contains all routines for training GDML and sGDML models.
 
 # MIT License
 #
-# Copyright (c) 2018-2021 Stefan Chmiela
+# Copyright (c) 2018-2022 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,9 @@ This module contains all routines for training GDML and sGDML models.
 from __future__ import print_function
 
 import sys
+import os
 import logging
+import psutil
 
 import multiprocessing as mp
 
@@ -158,6 +160,7 @@ def _assemble_kernel_mat_wkr(
     rj_d_desc = desc_func.d_desc_from_comp(R_d_desc[j, :, :])[0][
         :, keep_idxs_3n
     ]  # convert descriptor back to full representation
+
     rj_d_desc_perms = np.reshape(
         np.tile(rj_d_desc.T, n_perms)[:, tril_perms_lin], (-1, dim_d, n_perms)
     )
@@ -169,29 +172,29 @@ def _assemble_kernel_mat_wkr(
     dim_i_keep = rj_d_desc.shape[1]
     diff_ab_outer_perms = np.empty((dim_d, dim_i_keep))
     diff_ab_perms = np.empty((n_perms, dim_d))
-    ri_d_desc = np.zeros((1, dim_d, dim_i)) # must be zeros!
+    ri_d_desc = np.zeros((1, dim_d, dim_i))  # must be zeros!
     k = np.empty((dim_i, dim_i_keep))
 
     for i in range(j if exploit_sym else 0, n_train):
 
         blk_i = slice(i * dim_i, (i + 1) * dim_i)
 
-        #diff_ab_perms = R_desc[i, :] - rj_desc_perms
+        # diff_ab_perms = R_desc[i, :] - rj_desc_perms
         np.subtract(R_desc[i, :], rj_desc_perms, out=diff_ab_perms)
 
         norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
         mat52_base_perms = np.exp(-norm_ab_perms / sig) / mat52_base_div * 5
 
-        #diff_ab_outer_perms = 5 * np.einsum(
+        # diff_ab_outer_perms = 5 * np.einsum(
         #    'ki,kj->ij',
         #    diff_ab_perms * mat52_base_perms[:, None],
         #    np.einsum('ik,jki -> ij', diff_ab_perms, rj_d_desc_perms)
-        #)
+        # )
         np.einsum(
             'ki,kj->ij',
             diff_ab_perms * mat52_base_perms[:, None] * 5,
             np.einsum('ki,jik -> kj', diff_ab_perms, rj_d_desc_perms),
-            out=diff_ab_outer_perms
+            out=diff_ab_outer_perms,
         )
 
         diff_ab_outer_perms -= np.einsum(
@@ -200,12 +203,14 @@ def _assemble_kernel_mat_wkr(
             (sig_pow2 + sig * norm_ab_perms) * mat52_base_perms,
         )
 
-        #ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0]
+        # ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0]
         desc_func.d_desc_from_comp(R_d_desc[i, :, :], out=ri_d_desc)
 
-        #K[blk_i, blk_j] = ri_d_desc[0].T.dot(diff_ab_outer_perms)
+        # K[blk_i, blk_j] = ri_d_desc[0].T.dot(diff_ab_outer_perms)
         np.dot(ri_d_desc[0].T, diff_ab_outer_perms, out=k)
         K[blk_i, blk_j] = k
+
+        # print(k - k2)
 
         if exploit_sym and (
             cols_m_limit is None or i < cols_m_limit
@@ -240,7 +245,7 @@ def _assemble_kernel_mat_wkr(
 
 
 class GDMLTrain(object):
-    def __init__(self, max_processes=None, use_torch=False):
+    def __init__(self, max_memory=None, max_processes=None, use_torch=False):
         """
         Train sGDML force fields.
 
@@ -251,6 +256,9 @@ class GDMLTrain(object):
 
         Parameters
         ----------
+                max_memory : int, optional
+                        Limit the max. memory usage [GB]. This is only a
+                        soft limit that can not always be enforced.
                 max_processes : int, optional
                         Limit the max. number of processes. Otherwise
                         all CPU cores are used. This parameters has no
@@ -277,7 +285,16 @@ class GDMLTrain(object):
 
         self.log = logging.getLogger(__name__)
 
-        self._max_processes = max_processes
+        total_memory = psutil.virtual_memory().total // 2 ** 30  # bytes to GB)
+        self._max_memory = (
+            min(max_memory, total_memory) if max_memory is not None else total_memory
+        )
+
+        total_cpus = mp.cpu_count()
+        self._max_processes = (
+            min(max_processes, total_cpus) if max_processes is not None else total_cpus
+        )
+
         self._use_torch = use_torch
 
         if use_torch and not _has_torch:
@@ -299,15 +316,12 @@ class GDMLTrain(object):
         valid_dataset,
         n_valid,
         sig,
-        lam=1e-15,
+        lam=1e-10,
+        perms=None,  # TODO: document me, these take priority over the ones in train_dataset and running the matching algorithm
         use_sym=True,
         use_E=True,
         use_E_cstr=False,
-        use_cprsn=False,
-        solver='analytic',  # TODO: document me
-        solver_tol=1e-4,  # TODO: document me
-        n_inducing_pts_init=25,  # TODO: document me
-        interact_cut_off=None,  # TODO: document me
+        #use_cprsn=False,
         callback=None,  # TODO: document me
     ):
         """
@@ -349,10 +363,6 @@ class GDMLTrain(object):
             use_E_cstr : bool, optional
                 True: include energy constraints in the kernel,
                 False: default (s)GDML.
-            use_cprsn : bool, optional
-                True: compress kernel matrix along symmetric degrees of
-                freedom,
-                False: train using full kernel matrix
 
         Returns
         -------
@@ -395,16 +405,13 @@ class GDMLTrain(object):
             callback(NOT_DONE)
 
         if 'E' in train_dataset:
-            idxs_train = self.draw_strat_sample(
-                train_dataset['E'], n_train
-            )
+            idxs_train = self.draw_strat_sample(train_dataset['E'], n_train)
         else:
             idxs_train = np.random.choice(
                 np.arange(train_dataset['F'].shape[0]),
-                n_train - m0_n_train,
+                n_train,
                 replace=False,
             )
-            # TODO: m0 handling
 
         excl_idxs = (
             idxs_train if md5_train == md5_valid else np.array([], dtype=np.uint)
@@ -412,16 +419,15 @@ class GDMLTrain(object):
 
         if 'E' in valid_dataset:
             idxs_valid = self.draw_strat_sample(
-                valid_dataset['E'], n_valid, excl_idxs=excl_idxs,
+                valid_dataset['E'],
+                n_valid,
+                excl_idxs=excl_idxs,
             )
         else:
             idxs_valid_cands = np.setdiff1d(
                 np.arange(valid_dataset['F'].shape[0]), excl_idxs, assume_unique=True
             )
-            idxs_valid = np.random.choice(
-                idxs_valid_cands, n_valid, replace=False
-            )
-            # TODO: m0 handling, zero handling
+            idxs_valid = np.random.choice(idxs_valid_cands, n_valid, replace=False)
 
         if callback is not None:
             callback(DONE)
@@ -444,11 +450,7 @@ class GDMLTrain(object):
             'use_E': use_E,
             'use_E_cstr': use_E_cstr,
             'use_sym': use_sym,
-            'use_cprsn': use_cprsn,
-            'solver_name': solver,
-            'solver_tol': solver_tol,
-            'n_inducing_pts_init': n_inducing_pts_init,
-            'interact_cut_off': interact_cut_off,
+            #'use_cprsn': use_cprsn,
         }
 
         if use_E:
@@ -470,51 +472,96 @@ class GDMLTrain(object):
             task['e_unit'] = train_dataset['e_unit']
 
         if use_sym:
-            n_train = R_train.shape[0]
-            R_train_sync_mat = R_train
-            if n_train > 1000:
-                R_train_sync_mat = R_train[
-                    np.random.choice(n_train, 1000, replace=False), :, :
-                ]
-                self.log.info(
-                    'Symmetry search has been restricted to a random subset of 1000/{:d} training points for faster convergence.'.format(
-                        n_train
+
+            # No permuations provided externally.
+            if perms is None:
+
+                if 'perms' in train_dataset: # take perms from training dataset, if available
+
+                    n_perms = train_dataset['perms'].shape[0]
+                    self.log.info('Using {:d} permutations included in dataset.'.format(n_perms))
+
+                    task['perms'] = train_dataset['perms']
+
+                else: # find perms from scratch
+
+                    n_train = R_train.shape[0]
+                    R_train_sync_mat = R_train
+                    if n_train > 1000:
+                        R_train_sync_mat = R_train[
+                            np.random.choice(n_train, 1000, replace=False), :, :
+                        ]
+                        self.log.info(
+                            'Symmetry search has been restricted to a random subset of 1000/{:d} training points for faster convergence.'.format(
+                                n_train
+                            )
+                        )
+
+                    # TOOD: PBCs disabled when matching (for now).
+                    # task['perms'] = perm.find_perms(
+                    #    R_train_sync_mat, train_dataset['z'], lat_and_inv=lat_and_inv, max_processes=self._max_processes,
+                    # )
+                    task['perms'] = perm.find_perms(
+                        R_train_sync_mat,
+                        train_dataset['z'],
+                        # lat_and_inv=None,
+                        lat_and_inv=lat_and_inv,
+                        callback=callback,
+                        max_processes=self._max_processes,
                     )
-                )
 
-            # TOOD: PBCs disabled when matching (for now).
-            # task['perms'] = perm.find_perms(
-            #    R_train_sync_mat, train_dataset['z'], lat_and_inv=lat_and_inv, max_processes=self._max_processes,
-            # )
-            task['perms'] = perm.find_perms(
-                R_train_sync_mat,
-                train_dataset['z'],
-                lat_and_inv=None,
-                callback=callback,
-                max_processes=self._max_processes,
-            )
+                    # NEW
 
-            # NEW
+                    USE_EXTRA_PERMS = False
 
-            USE_FRAG_PERMS = False
+                    if USE_EXTRA_PERMS:
+                        task['perms'] = perm.find_extra_perms(
+                            R_train_sync_mat,
+                            train_dataset['z'],
+                            # lat_and_inv=None,
+                            lat_and_inv=lat_and_inv,
+                            callback=callback,
+                            max_processes=self._max_processes,
+                        )
 
-            if USE_FRAG_PERMS:
-                frag_perms = perm.find_frag_perms(
-                    R_train_sync_mat,
-                    train_dataset['z'],
-                    lat_and_inv=None,
-                    max_processes=self._max_processes,
-                )
-                task['perms'] = np.vstack((task['perms'], frag_perms))
-                task['perms'] = np.unique(task['perms'], axis=0)
+                    # NEW
 
-                print(
-                    '| Keeping '
-                    + str(task['perms'].shape[0])
-                    + ' unique permutations.'
-                )
+                    # NEW
 
-            # NEW
+                    USE_FRAG_PERMS = False
+
+                    if USE_FRAG_PERMS:
+                        frag_perms = perm.find_frag_perms(
+                            R_train_sync_mat,
+                            train_dataset['z'],
+                            lat_and_inv=lat_and_inv,
+                            max_processes=self._max_processes,
+                        )
+                        task['perms'] = np.vstack((task['perms'], frag_perms))
+                        task['perms'] = np.unique(task['perms'], axis=0)
+
+                        print(
+                            '| Keeping '
+                            + str(task['perms'].shape[0])
+                            + ' unique permutations.'
+                        )
+
+                    # NEW
+
+            else: # use provided perms
+
+                n_atoms = len(task['z'])
+                n_perms, perms_len = perms.shape
+
+                if perms_len != n_atoms:
+                    raise ValueError(  # TODO: Document me
+                        'Provided permutations do not match the number of atoms in dataset.'
+                    )
+                else:
+
+                    self.log.info('Using {:d} externally provided permutations.'.format(n_perms))
+
+                    task['perms'] = perms
 
         else:
             task['perms'] = np.arange(train_dataset['R'].shape[1])[
@@ -522,14 +569,14 @@ class GDMLTrain(object):
             ]  # no symmetries
 
         # Which atoms can we keep, if we exclude all symmetric ones?
-        n_perms = task['perms'].shape[0]
-        if use_cprsn and n_perms > 1:
+        #n_perms = task['perms'].shape[0]
+        #if use_cprsn and n_perms > 1:
 
-            _, cprsn_keep_idxs = np.unique(
-                np.sort(task['perms'], axis=0), axis=1, return_index=True
-            )
+        #    _, cprsn_keep_idxs = np.unique(
+        #        np.sort(task['perms'], axis=0), axis=1, return_index=True
+        #    )
 
-            task['cprsn_keep_atoms_idxs'] = cprsn_keep_idxs
+        #    task['cprsn_keep_atoms_idxs'] = cprsn_keep_idxs
 
         return task
 
@@ -561,11 +608,7 @@ class GDMLTrain(object):
             'use_E_cstr': use_E_cstr,
             'use_sym': use_sym,
             'perms': model['perms'],
-            'use_cprsn': model['use_cprsn'],
-            'solver_name': model['solver_name'],
-            'solver_tol': model['solver_tol'], # check me
-            'n_inducing_pts_init': model['n_inducing_pts_init'],
-            'interact_cut_off': None, # check me
+            #'use_cprsn': model['use_cprsn'],
         }
 
         if use_E:
@@ -577,6 +620,9 @@ class GDMLTrain(object):
         if 'r_unit' in model and 'e_unit' in model:
             task['r_unit'] = model['r_unit']
             task['e_unit'] = model['e_unit']
+
+        # if 'P_t' in model:
+        #    task['P_t'] = model['P_t']
 
         if 'alphas_F' in model:
             task['alphas0_F'] = model['alphas_F']
@@ -592,7 +638,6 @@ class GDMLTrain(object):
 
         return task
 
-
     def create_model(
         self,
         task,
@@ -603,45 +648,34 @@ class GDMLTrain(object):
         std,
         alphas_F,
         alphas_E=None,
-        solver_resid=None,
-        solver_iters=None,
-        norm_y_train=None,
-        inducing_pts_idxs=None,  # NEW : which columns were used to construct nystrom preconditioner
     ):
 
         n_train, dim_d = R_d_desc.shape[:2]
         n_atoms = int((1 + np.sqrt(8 * dim_d + 1)) / 2)
 
-        if 'cprsn_keep_atoms_idxs' in task:
-            cprsn_keep_idxs = task['cprsn_keep_atoms_idxs']
+        desc = Desc(
+            n_atoms,
+            max_processes=self._max_processes,
+        )
 
-            desc = Desc(
-                n_atoms,
-                interact_cut_off=task['interact_cut_off'],
-                max_processes=self._max_processes,
-            )
+        #if 'cprsn_keep_atoms_idxs' in task:
+        #    cprsn_keep_idxs = task['cprsn_keep_atoms_idxs']
 
-            R_d_desc_full = desc.d_desc_from_comp(R_d_desc).reshape(
-                n_train, dim_d, n_atoms, 3
-            )
-            R_d_desc_full = R_d_desc_full[:, :, cprsn_keep_idxs, :].reshape(
-                n_train, dim_d, -1
-            )
+        #    R_d_desc_full = desc.d_desc_from_comp(R_d_desc).reshape(
+        #        n_train, dim_d, n_atoms, 3
+        #    )
+        #    R_d_desc_full = R_d_desc_full[:, :, cprsn_keep_idxs, :].reshape(
+        #        n_train, dim_d, -1
+        #    )
 
-            r_d_desc_alpha = np.einsum(
-                'kji,ki->kj', R_d_desc_full, alphas_F.reshape(n_train, -1)
-            )
+        #    R_d_desc_alpha = np.einsum(
+        #        'kji,ki->kj', R_d_desc_full, alphas_F.reshape(n_train, -1)
+        #    )
 
-        else:
+        #else:
 
-            # TOOD: why not use 'd_desc_dot_vec'?
-
-            i, j = np.tril_indices(n_atoms, k=-1)
-            alphas_F_exp = alphas_F.reshape(-1, n_atoms, 3)
-
-            r_d_desc_alpha = np.einsum(
-                'kji,kji->kj', R_d_desc, alphas_F_exp[:, j, :] - alphas_F_exp[:, i, :]
-            )
+        dim_i = desc.dim_i
+        R_d_desc_alpha = desc.d_desc_dot_vec(R_d_desc, alphas_F.reshape(-1, dim_i))
 
         model = {
             'type': 'm',
@@ -649,9 +683,6 @@ class GDMLTrain(object):
             'dataset_name': task['dataset_name'],
             'dataset_theory': task['dataset_theory'],
             'solver_name': solver,
-            'solver_tol': task['solver_tol'],
-            'norm_y_train': norm_y_train,
-            'n_inducing_pts_init': task['n_inducing_pts_init'],
             'z': task['z'],
             'idxs_train': task['idxs_train'],
             'md5_train': task['md5_train'],
@@ -661,8 +692,7 @@ class GDMLTrain(object):
             'md5_test': None,
             'f_err': {'mae': np.nan, 'rmse': np.nan},
             'R_desc': R_desc.T,
-            'R_d_desc_alpha': r_d_desc_alpha,
-            'interact_cut_off': task['interact_cut_off'],
+            'R_d_desc_alpha': R_d_desc_alpha,
             'c': 0.0,
             'std': std,
             'sig': task['sig'],
@@ -671,19 +701,8 @@ class GDMLTrain(object):
             'perms': task['perms'],
             'tril_perms_lin': tril_perms_lin,
             'use_E': task['use_E'],
-            'use_cprsn': task['use_cprsn'],
+            #'use_cprsn': task['use_cprsn'],
         }
-
-        if solver_resid is not None:
-            model['solver_resid'] = solver_resid  # residual of solution (cg solver)
-
-        if solver_iters is not None:
-            model[
-                'solver_iters'
-            ] = solver_iters  # number of iterations performed to obtain solution (cg solver)
-
-        if inducing_pts_idxs is not None:
-            model['inducing_pts_idxs'] = inducing_pts_idxs
 
         if task['use_E']:
             model['e_err'] = {'mae': np.nan, 'rmse': np.nan}
@@ -700,13 +719,12 @@ class GDMLTrain(object):
 
         return model
 
-    #from memory_profiler import profile
-
-    #@profile
+    # from memory_profiler import profile
+    # @profile
     def train(  # noqa: C901
         self,
         task,
-        cprsn_callback=None,
+        #cprsn_callback=None,
         save_progr_callback=None,  # TODO: document me
         callback=None,
     ):
@@ -717,12 +735,6 @@ class GDMLTrain(object):
         ----------
             task : :obj:`dict`
                 Data structure of custom type :obj:`task`.
-            cprsn_callback : callable, optional
-                Symmetry compression status.
-                    n_atoms : int
-                        Total number of atoms.
-                    n_atoms_kept : float or None, optional
-                        Number of atoms kept after compression.
             desc_callback : callable, optional
                 Descriptor and descriptor Jacobian generation status.
                     current : int
@@ -764,19 +776,15 @@ class GDMLTrain(object):
 
         task = dict(task)  # make mutable
 
-        solver = task['solver_name']
-        assert solver == 'analytic' or solver == 'cg'  # or solver == 'fk'
-
         n_train, n_atoms = task['R_train'].shape[:2]
 
         desc = Desc(
             n_atoms,
-            interact_cut_off=task['interact_cut_off'],
             max_processes=self._max_processes,
         )
 
         n_perms = task['perms'].shape[0]
-        tril_perms = np.array([desc.perm(p) for p in task['perms']])
+        tril_perms = np.array([Desc.perm(p) for p in task['perms']])
 
         dim_i = 3 * n_atoms
         dim_d = desc.dim
@@ -796,13 +804,13 @@ class GDMLTrain(object):
                 )
 
             # # TODO: check if all atoms are within unit cell
-            # for r in task['R_train']:
-            #     r_lat = lat_and_inv[1].dot(r.T)
-            #     if not (r_lat >= 0).all():
-            #         # raise ValueError( # TODO: Document me
-            #         #    'Some atoms appear outside of the unit cell! Please check lattice vectors in dataset file.'
-            #         # )
-            #         pass
+            #for r in task['R_train']:
+            #    r_lat = lat_and_inv[1].dot(r.T)
+            #    if not (r_lat >= 0).all():
+            #         raise ValueError( # TODO: Document me
+            #            'Some atoms appear outside of the unit cell! Please check lattice vectors in dataset file.'
+            #         )
+            #        #pass
 
         R = task['R_train'].reshape(n_train, -1)
         R_desc, R_d_desc = desc.from_R(
@@ -810,22 +818,8 @@ class GDMLTrain(object):
             lat_and_inv=lat_and_inv,
             callback=partial(
                 callback, disp_str='Generating descriptors and their Jacobians'
-            ),
+            ) if callback is not None else None,
         )
-
-
-        # dist2 = R_desc
-        # pwdist = np.linalg.norm(dist2[:, None, :] - dist2[None, :, :], axis=-1)
-
-        # r,c = np.triu_indices(n_train,1)
-        # pwdist = pwdist[r,c]
-        # print(pwdist)
-
-        # print(pwdist.shape)
-        # print(np.min(pwdist))
-        # print(np.max(pwdist))
-
-        # sys.exit()
 
         # Generate label vector.
         E_train_mean = None
@@ -839,30 +833,79 @@ class GDMLTrain(object):
         y_std = np.std(y)
         y /= y_std
 
-        num_iters = None  # number of iterations performed (cg solver)
-        resid = None  # residual of solution
-        if solver == 'analytic':
+        max_memory_bytes = self._max_memory * 1024 ** 3
+
+        # Memory cost of analytic solver
+        est_bytes_analytic = Analytic.est_memory_requirement(n_train, n_atoms)
+
+        # Memory overhead (solver independent)
+        est_bytes_overhead = y.nbytes
+        est_bytes_overhead += R.nbytes
+        est_bytes_overhead += R_desc.nbytes
+        est_bytes_overhead += R_d_desc.nbytes
+
+        solver_keys = {}
+
+        use_analytic_solver = (
+            est_bytes_analytic + est_bytes_overhead
+        ) < max_memory_bytes
+
+        # Fall back to analytic solver, if iterative solver file is missing.
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        iter_solver_path = os.path.join(base_path, 'solvers/iterative.py')
+        if not os.path.exists(iter_solver_path):
+            self.log.debug('Iterative solver not installed.')
+            use_analytic_solver = True
+
+
+        #use_analytic_solver = False # remove me!
+
+        if use_analytic_solver:
+
+            self.log.info(
+                'Using analytic solver (expected memory requirement: ~{})'.format(
+                    ui.gen_memory_str(est_bytes_analytic + est_bytes_overhead)
+                )
+            )
 
             analytic = Analytic(self, desc, callback=callback)
             alphas = analytic.solve(task, R_desc, R_d_desc, tril_perms_lin, y)
 
-        elif solver == 'cg':
+        else:
+
+            max_n_inducing_pts = Iterative.max_n_inducing_pts(
+                n_train, n_atoms, max_memory_bytes
+            )
+            est_bytes_iterative = Iterative.est_memory_requirement(
+                n_train, max_n_inducing_pts, n_atoms
+            )
+
+            self.log.info(
+                'Using iterative solver (expected memory requirement: ~{})'.format(
+                    ui.gen_memory_str(est_bytes_iterative + est_bytes_overhead)
+                )
+            )
 
             alphas_F = task['alphas0_F'] if 'alphas0_F' in task else None
             alphas_E = task['alphas0_E'] if 'alphas0_E' in task else None
 
-            # this solver needs stronger regularization than the default 1e-15
-            task['lam'] = 1e-10
-
             iterative = Iterative(
-                self, desc, callback=callback, max_processes=self._max_processes, use_torch=self._use_torch
+                self,
+                desc,
+                self._max_memory,
+                self._max_processes,
+                self._use_torch,
+                callback=callback,
             )
             (
                 alphas,
-                num_iters,
-                resid,
+                solver_keys['solver_tol'],
+                solver_keys[
+                    'solver_iters'
+                ],  # number of iterations performed (cg solver)
+                solver_keys['solver_resid'],  # residual of solution
                 train_rmse,
-                inducing_pts_idxs,
+                solver_keys['inducing_pts_idxs'],
                 is_conv,
             ) = iterative.solve(
                 task,
@@ -873,6 +916,8 @@ class GDMLTrain(object):
                 y_std,
                 save_progr_callback=save_progr_callback,
             )
+
+            solver_keys['norm_y_train'] = np.linalg.norm(y)
 
             if not is_conv:
                 self.log.warning(
@@ -892,11 +937,6 @@ class GDMLTrain(object):
                     + ' We will continue with this unconverged model, but its accuracy will likely be very bad.'
                 )
 
-        else:
-            raise ValueError(
-                'Unknown solver keyword \'{}\'.'.format(solver)
-            )  # TODO: refine
-
         alphas_E = None
         alphas_F = alphas
         if task['use_E_cstr']:
@@ -905,18 +945,15 @@ class GDMLTrain(object):
 
         model = self.create_model(
             task,
-            solver,
+            'analytic' if use_analytic_solver else 'cg',
             R_desc,
             R_d_desc,
             tril_perms_lin,
             y_std,
             alphas_F,
             alphas_E=alphas_E,
-            solver_resid=resid,
-            solver_iters=num_iters,
-            norm_y_train=np.linalg.norm(y),
-            inducing_pts_idxs=inducing_pts_idxs if solver == 'cg' else None,
         )
+        model.update(solver_keys)
 
         # Recover integration constant.
         # Note: if energy constraints are included in the kernel (via 'use_E_cstr'), do not
@@ -982,14 +1019,18 @@ class GDMLTrain(object):
                 detected in the provided dataset.
         """
 
-        gdml = GDMLPredict(
-            model, max_processes=self._max_processes
-        )  # , use_torch=self._use_torch
+        gdml_predict = GDMLPredict(
+            model,
+            max_memory=self._max_memory,
+            max_processes=self._max_processes,
+            use_torch=self._use_torch,
+            log_level=logging.CRITICAL,
+        )
 
-        n_train = task['E_train'].shape[0]
-        R = task['R_train'].reshape(n_train, -1)
+        gdml_predict.set_R_desc(R_desc)
+        gdml_predict.set_R_d_desc(R_d_desc)
 
-        E_pred, _ = gdml.predict(R, R_desc=R_desc, R_d_desc=R_d_desc)
+        E_pred, _ = gdml_predict.predict()
         E_ref = np.squeeze(task['E_train'])
 
         e_fact = np.linalg.lstsq(
@@ -997,13 +1038,14 @@ class GDMLTrain(object):
         )[0][0]
         corrcoef = np.corrcoef(E_ref, E_pred)[0, 1]
 
-        # import matplotlib.pyplot as plt
-        # sidx = np.argsort(E_ref)
-        # plt.plot(E_ref[sidx])
-        # c = np.sum(E_ref - E_pred) / E_ref.shape[0]
-        # plt.plot(E_pred[sidx]+c)
-        # plt.show()
-        # sys.exit()
+
+        #import matplotlib.pyplot as plt
+        #sidx = np.argsort(E_ref)
+        #plt.plot(E_ref[sidx])
+        #c = np.sum(E_ref - E_pred) / E_ref.shape[0]
+        #plt.plot(E_pred[sidx]+c)
+        #plt.show()
+        #sys.exit()
 
         # import matplotlib.pyplot as plt
         # sidx = np.argsort(F_ref)
@@ -1094,6 +1136,7 @@ class GDMLTrain(object):
         desc,  # TODO: document me
         use_E_cstr=False,
         col_idxs=np.s_[:],  # TODO: document me
+        alloc_extra_rows=0, # TODO: document me
         callback=None,
     ):
         r"""
@@ -1229,20 +1272,94 @@ class GDMLTrain(object):
             # tupels: (block index in final K, block index global, indices of partials within block)
             J = list(zip(blk_start_idxs, m_idxs_uniq, m_n_idxs))
 
-        callback(0, 100)  # 0%
+        if callback is not None:
+            callback(0, 100)  # 0%
 
-        K = mp.RawArray('d', K_n_rows * K_n_cols)
-        glob['K'], glob['K_shape'] = K, (K_n_rows, K_n_cols)
+        if self._use_torch:
+            if not _has_torch:
+                raise ImportError(
+                    'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
+                )
+
+            K = np.empty((K_n_rows+alloc_extra_rows, K_n_cols))
+
+            if J is not list:
+                J = list(J)
+
+            global torch_assemble_done
+            torch_assemble_todo, torch_assemble_done = K_n_cols, 0
+
+            def progress_callback(done):
+
+                global torch_assemble_done
+                torch_assemble_done += done
+
+                if callback is not None:
+                    callback(
+                        torch_assemble_done,
+                        torch_assemble_todo,
+                        newline_when_done=False,
+                    )
+
+            start = timeit.default_timer()
+
+            torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+            R_desc_torch = torch.from_numpy(R_desc).to(torch_device)  # N, d
+            R_d_desc_torch = torch.from_numpy(R_d_desc).to(torch_device)
+
+            from .torchtools import GDMLTorchAssemble
+
+            torch_assemble = GDMLTorchAssemble(
+                J,
+                tril_perms_lin,
+                sig,
+                R_desc_torch,
+                R_d_desc_torch,
+                out=K[:K_n_rows, :],
+                callback=progress_callback,
+            )
+
+            # Enable data parallelism
+            n_gpu = torch.cuda.device_count()
+            if n_gpu > 1:
+                torch_assemble = torch.nn.DataParallel(torch_assemble)
+            torch_assemble.to(torch_device)
+
+            torch_assemble.forward(torch.arange(len(J)))
+            del torch_assemble
+
+            del R_desc_torch
+            del R_d_desc_torch
+
+            stop = timeit.default_timer()
+
+            if callback is not None:
+                dur_s = stop - start
+                sec_disp_str = 'took {:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
+                callback(DONE, sec_disp_str=sec_disp_str)
+
+            return K
+
+        K = mp.RawArray('d', (K_n_rows+alloc_extra_rows) * K_n_cols)
+        glob['K'], glob['K_shape'] = K, (K_n_rows+alloc_extra_rows, K_n_cols)
         glob['R_desc'], glob['R_desc_shape'] = _share_array(R_desc, 'd')
         glob['R_d_desc'], glob['R_d_desc_shape'] = _share_array(R_d_desc, 'd')
 
         glob['desc_func'] = desc
 
         start = timeit.default_timer()
-        pool = Pool(self._max_processes)
+
+        pool = None
+        map_func = map
+        if self._max_processes != 1 and mp.cpu_count() > 1:
+            pool = Pool(
+                (self._max_processes or mp.cpu_count()) - 1
+            )  # exclude main process
+            map_func = pool.imap_unordered
 
         todo, done = K_n_cols, 0
-        for done_wkr in pool.imap_unordered(
+        for done_wkr in map_func(
             partial(
                 _assemble_kernel_mat_wkr,
                 tril_perms_lin=tril_perms_lin,
@@ -1258,12 +1375,15 @@ class GDMLTrain(object):
             if callback is not None:
                 callback(done, todo, newline_when_done=False)
 
-        pool.close()
-        pool.join()  # Wait for the worker processes to terminate (to measure total runtime correctly).
+        if pool is not None:
+            pool.close()
+            pool.join()  # Wait for the worker processes to terminate (to measure total runtime correctly).
+            pool = None
+
         stop = timeit.default_timer()
 
         if callback is not None:
-            dur_s = (stop - start) / 2
+            dur_s = stop - start
             sec_disp_str = 'took {:.1f} s'.format(dur_s) if dur_s >= 0.1 else ''
             callback(DONE, sec_disp_str=sec_disp_str)
 
@@ -1272,7 +1392,8 @@ class GDMLTrain(object):
         glob.pop('R_desc', None)
         glob.pop('R_d_desc', None)
 
-        return np.frombuffer(K).reshape(glob['K_shape'])
+        #return np.frombuffer(K).reshape(glob['K_shape'])
+        return np.frombuffer(K).reshape((K_n_rows+alloc_extra_rows), K_n_cols)
 
     def draw_strat_sample(self, T, n, excl_idxs=None):
         """

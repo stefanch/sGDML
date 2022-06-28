@@ -159,24 +159,22 @@ def z_to_z_str(z):
     return [_z_to_z_str_dict[int(x)] for x in z]
 
 
-def train_dir_name(
-    dataset, n_train, use_sym, use_cprsn, use_E, use_E_cstr
-):
+def train_dir_name(dataset, n_train, use_sym, use_E, use_E_cstr):
 
     theory_level_str = re.sub(r'[^\w\-_\.]', '.', str(dataset['theory']))
     theory_level_str = re.sub(r'\.\.', '.', theory_level_str)
 
     sym_str = '-sym' if use_sym else ''
-    cprsn_str = '-cprsn' if use_cprsn else ''
+    #cprsn_str = '-cprsn' if use_cprsn else ''
     noE_str = '-noE' if not use_E else ''
     Ecstr_str = '-Ecstr' if use_E_cstr else ''
 
-    return 'sgdml_cv_%s-%s-train%d%s%s%s%s' % (
+    return 'sgdml_cv_%s-%s-train%d%s%s%s' % (
         dataset['name'].astype(str),
         theory_level_str,
         n_train,
         sym_str,
-        cprsn_str,
+        #cprsn_str,
         noE_str,
         Ecstr_str,
     )
@@ -304,8 +302,8 @@ def generate_xyz_str(r, z, e=None, f=None, lattice=None):
 
 def lattice_vec_to_par(lat):
 
-    cell = lat.T
-    lengths = [np.linalg.norm(v) for v in cell]
+    lat = lat.T
+    lengths = [np.linalg.norm(v) for v in lat]
 
     angles = []
     for i in range(3):
@@ -314,7 +312,7 @@ def lattice_vec_to_par(lat):
 
         ll = lengths[j] * lengths[k]
         if ll > 1e-16:
-            x = np.dot(cell[j], cell[k]) / ll
+            x = np.dot(lat[j], lat[k]) / ll
             angle = 180.0 / np.pi * np.arccos(x)
         else:
             angle = 90.0

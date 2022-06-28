@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2021 Stefan Chmiela
+# Copyright (c) 2018-2022 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,9 +29,11 @@ import multiprocessing as mp
 import argparse
 import os
 import shutil
+import psutil
 import sys
 import traceback
 import time
+from functools import partial
 
 import numpy as np
 import scipy as sp
@@ -55,7 +57,7 @@ from .predict import GDMLPredict
 from .train import GDMLTrain
 from .utils import io, ui
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+#BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PACKAGE_NAME = 'sgdml'
 
 log = logging.getLogger(__name__)
@@ -65,7 +67,7 @@ class AssistantError(Exception):
     pass
 
 
-def _print_splash(max_processes=None, use_torch=False):
+def _print_splash(max_memory, max_processes, use_torch):
 
     logo_str = r"""         __________  __  _____
    _____/ ____/ __ \/  |/  / /
@@ -82,18 +84,14 @@ def _print_splash(max_processes=None, use_torch=False):
         else ''
     )
 
-    # TODO: does this import test work in python3?
-    max_processes_str = (
-        ''
-        if max_processes is None or max_processes >= mp.cpu_count()
-        else ' [using {}]'.format(max_processes)
-    )
-    hardware_str = 'found {:d} CPU(s){}'.format(mp.cpu_count(), max_processes_str)
+    max_memory_str = '{:d} GB(s) memory'.format(max_memory)
+    max_processes_str = '{:d} CPU(s)'.format(max_processes)
+    hardware_str = 'using {}, {}'.format(max_memory_str, max_processes_str)
 
     if use_torch and _has_torch and torch.cuda.is_available():
         num_gpu = torch.cuda.device_count()
         if num_gpu > 0:
-            hardware_str += ' / {:d} GPU(s)'.format(num_gpu)
+            hardware_str += ', {:d} GPU(s)'.format(num_gpu)
 
     logo_str_split = logo_str.splitlines()
     print('\n'.join(logo_str_split[:-1]))
@@ -141,7 +139,7 @@ def _check_update():
 
 def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
-    print(ui.white_bold_str(title_str))
+    print(ui.color_str(title_str, bold=True))
 
     n_mols, n_atoms, _ = dataset['R'].shape
     print('  {:<18} \'{}\''.format('Name:', ui.unicode_str(dataset['name'])))
@@ -151,6 +149,11 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     print('  {:<18} {:,} data points'.format('Size:', n_mols))
 
     ui.print_lattice(dataset['lattice'] if 'lattice' in dataset else None)
+
+    if 'perms' in dataset:
+        ui.print_two_column_str(
+            '  {:<18} {}'.format('Symmetries:', len(dataset['perms'])), 'This dataset contains precomputed permutations.'
+        )
 
     if 'E' in dataset:
 
@@ -164,7 +167,9 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
         else:
             E_min, E_max = np.min(dataset['E']), np.max(dataset['E'])
         E_range_str = ui.gen_range_str(E_min, E_max)
-        ui.print_two_column_str('    {:<16} {}'.format('Range:', E_range_str), 'min |-- range --| max')
+        ui.print_two_column_str(
+            '    {:<16} {}'.format('Range:', E_range_str), 'min |-- range --| max'
+        )
 
         E_mean = dataset['E_mean'] if 'E_mean' in dataset else np.mean(dataset['E'])
         print('    {:<16} {:<.3f}'.format('Mean:', E_mean))
@@ -187,7 +192,9 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     else:
         F_min, F_max = np.min(dataset['F'].ravel()), np.max(dataset['F'].ravel())
     F_range_str = ui.gen_range_str(F_min, F_max)
-    ui.print_two_column_str('    {:<16} {}'.format('Range:', F_range_str), 'min |-- range --| max')
+    ui.print_two_column_str(
+        '    {:<16} {}'.format('Range:', F_range_str), 'min |-- range --| max'
+    )
 
     F_mean = dataset['F_mean'] if 'F_mean' in dataset else np.mean(dataset['F'].ravel())
     print('    {:<16} {:<.3f}'.format('Mean:', F_mean))
@@ -208,9 +215,10 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
     print(
         '\n'
-        + ui.white_bold_str('Example geometry')
-        + ' (no. {:,}, chosen randomly)'.format(idx + 1)
+        + ui.color_str('Example geometry', fore_color=ui.WHITE, bold=True)
+        + ' (point no. {:,}, chosen randomly)'.format(idx + 1)
     )
+
     xyz_info_str = 'Copy & paste the string below into Jmol (www.jmol.org), Avogadro (www.avogadro.cc), etc. to visualize one of the geometries from this dataset. A new example will be drawn on each run.'
     xyz_info_str = ui.wrap_str(xyz_info_str, width=MAX_PRINT_WIDTH - 2)
     xyz_info_str = ui.indent_str(xyz_info_str, 2)
@@ -221,7 +229,9 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
     cut_str = '---- COPY HERE '
     cut_str_reps = int(np.floor((MAX_PRINT_WIDTH - 6) / len(cut_str)))
-    cutline_str = ui.gray_str('  -' + cut_str * cut_str_reps + '-----')
+    cutline_str = ui.color_str(
+        '  -' + cut_str * cut_str_reps + '-----', fore_color=ui.GRAY
+    )
 
     print(cutline_str)
     print(xyz_str)
@@ -229,13 +239,10 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
 
 def _print_task_properties(
-    use_sym, use_cprsn, use_E, use_E_cstr, title_str='Task properties'
+    use_sym, use_E, use_E_cstr, title_str='Task properties'
 ):
 
-    print(ui.white_bold_str(title_str))
-
-    # print('  {:<18} {}'.format('Solver:', ui.unicode_str('[solver name]')))
-    # print('    {:<16} {}'.format('Tolerance:', '[tol]'))
+    print(ui.color_str(title_str, bold=True))
 
     energy_fix_str = (
         (
@@ -253,20 +260,102 @@ def _print_task_properties(
             'Symmetries:', 'include (sGDML)' if use_sym else 'ignore (GDML)'
         )
     )
+    #print(
+    #    '  {:<16} {}'.format(
+    #        'Compression:', 'requested' if use_cprsn else 'not requested'
+    #    )
+    #)
+
+
+def _print_task_properties2(task, title_str='Task properties'):
+
+    print(ui.color_str(title_str, bold=True))
+
+    print('  {:<18}'.format('Dataset'))
+    print('    {:<16} \'{}\''.format('Name:', ui.unicode_str(task['dataset_name'])))
     print(
-        '  {:<16} {}'.format(
-            'Compression:', 'requested' if use_cprsn else 'not requested'
+        '    {:<16} \'{}\''.format(
+            'Theory level:', ui.unicode_str(task['dataset_theory'])
         )
     )
+
+    n_atoms = len(task['z'])
+    print('    {:<16} {:<d}'.format('Num. atoms:', n_atoms))
+
+    ui.print_lattice(task['lattice'] if 'lattice' in task else None, inset=True)
+
+    print('  {:<18} {:<d}'.format('Avail. symmetries:', len(task['perms'])))
+
+    print('  {:<18}'.format('Hyper-parameters'))
+    print('    {:<16} {:<d}'.format('Length scale:', task['sig']))
+
+    if 'lam' in task:
+        print('    {:<16} {:<.0e}'.format('Regularization:', task['lam']))
+
+    if 'solver_name' in task:
+        print('  {:<18}'.format('Solver configuration'))
+        print('    {:<16} \'{}\''.format('Type:', task['solver_name']))
+
+        if task['solver_name'] == 'cg':
+
+            if 'solver_tol' in task:
+                print('    {:<16} {:<.0e}'.format('Tolerance:', task['solver_tol']))
+
+            if 'n_inducing_pts_init' in task:
+                print(
+                    '    {:<16} {:<d}'.format(
+                        'Inducing points:', task['n_inducing_pts_init']
+                    )
+                )
+    else:
+        print('  {:<18} {}'.format('Solver:', 'unknown'))
+
+    n_train = len(task['idxs_train'])
+    ui.print_two_column_str(
+        '  {:<18} {:,} points'.format('Train on:', n_train),
+        'from \'' + ui.unicode_str(task['md5_train']) + '\'',
+    )
+
+    n_valid = len(task['idxs_valid'])
+    ui.print_two_column_str(
+        '  {:<18} {:,} points'.format('Validate on:', n_valid),
+        'from \'' + ui.unicode_str(task['md5_valid']) + '\'',
+    )
+
+    print('  {:<18}'.format('Estimated memory requirement (min.)'))
+
+    mem_kernel_mat_const = 0
+    mem_precond_const = 0
+    print(
+        '    {:<16} {}'.format(
+            'CPU:', ui.gen_memory_str(mem_kernel_mat_const + mem_precond_const)
+        )
+    )
+    # print('      {:<14} {}'.format('Kernel matrix:', ui.gen_memory_str(mem_kernel_mat_const))
+    # print('      {:<14} {}'.format('Precond. factor:', ui.gen_memory_str(mem_precond_const)))
+
+    mem_torch_assemble = 0
+    mem_torch_eval = 0
+    print(
+        '    {:<16} {}'.format(
+            'GPU:', ui.gen_memory_str(mem_torch_assemble + mem_torch_eval)
+        )
+    )
+    # print('      {:<14} {}'.format('Kernel matrix assembly:', ui.gen_memory_str(mem_torch_assemble)))
+    # print('      {:<14} {}'.format('Model evaluation:', ui.gen_memory_str(mem_torch_eval)))
 
 
 def _print_model_properties(model, title_str='Model properties'):
 
-    print(ui.white_bold_str(title_str))
+    print(ui.color_str(title_str, bold=True))
 
     print('  {:<18}'.format('Dataset'))
     print('    {:<16} \'{}\''.format('Name:', ui.unicode_str(model['dataset_name'])))
-    print('    {:<16} \'{}\''.format('Theory level:', ui.unicode_str(model['dataset_theory'])))
+    print(
+        '    {:<16} \'{}\''.format(
+            'Theory level:', ui.unicode_str(model['dataset_theory'])
+        )
+    )
 
     n_atoms = len(model['z'])
     print('    {:<16} {:<d}'.format('Atoms:', n_atoms))
@@ -275,18 +364,18 @@ def _print_model_properties(model, title_str='Model properties'):
 
     print('  {:<18} {:<d}'.format('Symmetries:', len(model['perms'])))
 
-    _, cprsn_keep_idxs = np.unique(
-        np.sort(model['perms'], axis=0), axis=1, return_index=True
-    )
-    n_atoms_kept = cprsn_keep_idxs.shape[0]
-    print(
-        '  {:<18} {}'.format(
-            'Compression:',
-            '{:<d} effective atoms'.format(n_atoms_kept)
-            if 'use_cprsn' in model and model['use_cprsn']
-            else 'n/a',
-        )
-    )
+    #_, cprsn_keep_idxs = np.unique(
+    #    np.sort(model['perms'], axis=0), axis=1, return_index=True
+    #)
+    #n_atoms_kept = cprsn_keep_idxs.shape[0]
+    #print(
+    #    '  {:<18} {}'.format(
+    #        'Compression:',
+    #        '{:<d} effective atoms'.format(n_atoms_kept)
+    #        if 'use_cprsn' in model and model['use_cprsn']
+    #        else 'n/a',
+    #    )
+    #)
 
     print('  {:<18}'.format('Hyper-parameters'))
     print('    {:<16} {:<d}'.format('Length scale:', model['sig']))
@@ -301,22 +390,43 @@ def _print_model_properties(model, title_str='Model properties'):
         if model['solver_name'] == 'cg':
 
             if 'solver_tol' in model:
-                ui.print_two_column_str('    {:<16} {:<.0e}'.format('Tolerance:', model['solver_tol']), 'iterate until: norm(K*alpha - y) <= tol*norm(y) = {:<.0e}'.format(model['solver_tol']*model['norm_y_train']))
+                ui.print_two_column_str(
+                    '    {:<16} {:<.0e}'.format('Tolerance:', model['solver_tol']),
+                    'iterate until: norm(K*alpha - y) <= tol*norm(y) = {:<.0e}'.format(
+                        model['solver_tol'] * model['norm_y_train']
+                    ),
+                )
 
-            if 'solver_resid' in model:
-                is_conv = model['solver_resid'] <= model['solver_tol']*model['norm_y_train']
-                print('    {:<16} {:<.0e}{}'.format('Converged to:', model['solver_resid'], '' if is_conv else ' (NOT CONVERGED)'))
+                if 'solver_resid' in model:
+                    is_conv = (
+                        model['solver_resid']
+                        <= model['solver_tol'] * model['norm_y_train']
+                    )
+                    print(
+                        '    {:<16} {:<.0e}{}'.format(
+                            'Converged to:',
+                            model['solver_resid'],
+                            '' if is_conv else ' (NOT CONVERGED)',
+                        )
+                    )
 
             if 'solver_iters' in model:
                 print('    {:<16} {:<d}'.format('Iterations:', model['solver_iters']))
 
             if 'n_inducing_pts_init' in model and 'inducing_pts_idxs' in model:
-                n_inducing_pts_final = len(model['inducing_pts_idxs']) // (3*n_atoms)
-                increased_str = ' (increased to {:<d})'.format(n_inducing_pts_final) if model['n_inducing_pts_init'] < n_inducing_pts_final else ''
-                print('    {:<16} {:<d}{}'.format('Inducing points:', model['n_inducing_pts_init'], increased_str))
+                n_inducing_pts_final = len(model['inducing_pts_idxs']) // (3 * n_atoms)
+                increased_str = (
+                    ' (increased to {:<d})'.format(n_inducing_pts_final)
+                    if model['n_inducing_pts_init'] < n_inducing_pts_final
+                    else ''
+                )
+                print(
+                    '    {:<16} {:<d}{}'.format(
+                        'Inducing points:', model['n_inducing_pts_init'], increased_str
+                    )
+                )
     else:
         print('  {:<18} {}'.format('Solver:', 'unknown'))
-
 
     n_train = len(model['idxs_train'])
     ui.print_two_column_str(
@@ -368,14 +478,19 @@ def _print_model_properties(model, title_str='Model properties'):
             )
         )
 
-def _print_next_step(prev_step, task_dir=None, model_dir=None, model_files=None, dataset_path=None):
+
+def _print_next_step(
+    prev_step, task_dir=None, model_dir=None, model_files=None, dataset_path=None
+):
 
     if prev_step == 'create':
 
         assert task_dir is not None
 
         ui.print_step_title(
-            'NEXT STEP', '{} train {} <valid_dataset_file>'.format(PACKAGE_NAME, task_dir), underscore=False
+            'NEXT STEP',
+            '{} train {} <valid_dataset_file>'.format(PACKAGE_NAME, task_dir),
+            underscore=False,
         )
 
     elif prev_step == 'train' or prev_step == 'validate' or prev_step == 'resume':
@@ -404,18 +519,18 @@ def _print_next_step(prev_step, task_dir=None, model_dir=None, model_files=None,
 
     elif prev_step == 'select':
 
-        assert model_files is not None 
+        assert model_files is not None
 
         ui.print_step_title(
             'NEXT STEP',
-            '{} test {} <test_dataset_file> [<n_test>]'.format(PACKAGE_NAME, model_files[0]),
+            '{} test {} <test_dataset_file> [<n_test>]'.format(
+                PACKAGE_NAME, model_files[0]
+            ),
             underscore=False,
         )
 
     else:
-        raise AssistantError(
-            'Unexpected previous step string.'
-        )
+        raise AssistantError('Unexpected previous step string.')
 
 
 def all(
@@ -429,20 +544,22 @@ def all(
     gdml,
     use_E,
     use_E_cstr,
-    use_cprsn,
+    #use_cprsn,
     overwrite,
+    max_memory,
     max_processes,
     use_torch,
-    solver,
-    n_inducing_pts_init,
-    interact_cut_off,
     task_dir=None,
     model_file=None,
+    perms_from_arg=None,
     **kwargs
 ):
 
     print(
-        '\n' + ui.white_back_str(' STEP 0 ') + ' Dataset(s)\n' + '-' * MAX_PRINT_WIDTH
+        '\n'
+        + ui.color_str(' STEP 0 ', fore_color=ui.BLACK, back_color=ui.WHITE, bold=True)
+        + ' Dataset(s)\n'
+        + '-' * MAX_PRINT_WIDTH
     )
 
     _, dataset_extracted = dataset
@@ -454,7 +571,7 @@ def all(
         _, valid_dataset_extracted = valid_dataset
         print()
         _print_dataset_properties(
-            valid_dataset_extracted, title_str='Properties (validation)'
+            valid_dataset_extracted, title_str='Properties (validation dataset)'
         )
 
         if not np.array_equal(dataset_extracted['z'], valid_dataset_extracted['z']):
@@ -466,7 +583,9 @@ def all(
         test_dataset = dataset
     else:
         _, test_dataset_extracted = test_dataset
-        _print_dataset_properties(test_dataset_extracted, title_str='Properties (test)')
+        _print_dataset_properties(
+            test_dataset_extracted, title_str='Properties (test dataset)'
+        )
 
         if not np.array_equal(dataset_extracted['z'], test_dataset_extracted['z']):
             raise AssistantError(
@@ -483,20 +602,25 @@ def all(
         gdml,
         use_E,
         use_E_cstr,
-        use_cprsn,
+        #use_cprsn,
         overwrite,
+        max_memory,
         max_processes,
         task_dir,
-        solver=solver,
-        n_inducing_pts_init=n_inducing_pts_init,
-        interact_cut_off=interact_cut_off,
+        perms_from_arg=perms_from_arg,
         **kwargs
     )
 
     ui.print_step_title('STEP 2', 'Training and validation')
     task_dir_arg = io.is_dir_with_file_type(task_dir, 'task')
     model_dir_or_file_path = train(
-        task_dir_arg, valid_dataset, overwrite, max_processes, use_torch, **kwargs
+        task_dir_arg,
+        valid_dataset,
+        overwrite,
+        max_memory,
+        max_processes,
+        use_torch,
+        **kwargs
     )
 
     model_dir_arg = io.is_dir_with_file_type(
@@ -505,7 +629,7 @@ def all(
 
     ui.print_step_title('STEP 3', 'Hyper-parameter selection')
     model_file_name = select(
-        model_dir_arg, overwrite, max_processes, model_file, **kwargs
+        model_dir_arg, overwrite, max_memory, max_processes, model_file, **kwargs
     )
 
     ui.print_step_title('STEP 4', 'Testing')
@@ -515,6 +639,7 @@ def all(
         test_dataset,
         n_test,
         overwrite=False,
+        max_memory=max_memory,
         max_processes=max_processes,
         use_torch=use_torch,
         **kwargs
@@ -539,13 +664,12 @@ def create(  # noqa: C901
     gdml,
     use_E,
     use_E_cstr,
-    use_cprsn,
+    #use_cprsn,
     overwrite,
+    max_memory,
     max_processes,
     task_dir=None,
-    solver='analytic',
-    n_inducing_pts_init=None,
-    interact_cut_off=None,
+    perms_from_arg=None,
     command=None,
     **kwargs
 ):
@@ -564,7 +688,7 @@ def create(  # noqa: C901
         print()
 
     _print_task_properties(
-        use_sym=not gdml, use_cprsn=use_cprsn, use_E=use_E, use_E_cstr=use_E_cstr
+        use_sym=not gdml, use_E=use_E, use_E_cstr=use_E_cstr
     )
     print()
 
@@ -604,7 +728,7 @@ def create(  # noqa: C901
             dataset,
             n_train,
             use_sym=not gdml,
-            use_cprsn=use_cprsn,
+            #use_cprsn=use_cprsn,
             use_E=use_E,
             use_E_cstr=use_E_cstr,
         )
@@ -612,7 +736,7 @@ def create(  # noqa: C901
     task_file_names = []
     if os.path.exists(task_dir):
         if overwrite:
-            log.info('Overwriting existing training directory.')
+            log.info('Overwriting existing training directory')
             shutil.rmtree(task_dir, ignore_errors=True)
             os.makedirs(task_dir)
         else:
@@ -681,7 +805,18 @@ def create(  # noqa: C901
                 'Lattice vectors found in dataset: applying periodic boundary conditions.'
             )
 
-        gdml_train = GDMLTrain(max_processes=max_processes)
+        perms = None
+        if perms_from_arg is not None:
+
+            _, perms_from = perms_from_arg
+            if 'perms' in perms_from:
+                perms = perms_from['perms']
+            else:
+                raise AssistantError(
+                    'Provided permutation file does not contain any (looking for \'perms\'-key).'
+                )
+
+        gdml_train = GDMLTrain(max_memory=max_memory, max_processes=max_processes)
         try:
             tmpl_task = gdml_train.create_task(
                 dataset,
@@ -689,19 +824,18 @@ def create(  # noqa: C901
                 valid_dataset,
                 n_valid,
                 sig=1,
+                perms=perms,
                 use_sym=not gdml,
                 use_E=use_E,
                 use_E_cstr=use_E_cstr,
-                use_cprsn=use_cprsn,
-                solver=solver,
-                n_inducing_pts_init=n_inducing_pts_init,
-                interact_cut_off=interact_cut_off,
+                #use_cprsn=use_cprsn,
                 callback=ui.callback,
             )  # template task
         except:
             print()
             log.critical(traceback.format_exc())
-            sys.exit()
+            print()
+            os._exit(1)
 
     n_written = 0
     for sig in sigs:
@@ -716,7 +850,7 @@ def create(  # noqa: C901
             n_written += 1
     if n_written > 0:
         log.done(
-            'Writing {:d}/{:d} task(s) with {} training points each.'.format(
+            'Writing {:d}/{:d} task(s) with m={} training points each'.format(
                 n_written, len(sigs), tmpl_task['R_train'].shape[0]
             )
         )
@@ -726,8 +860,16 @@ def create(  # noqa: C901
 
     return task_dir
 
+
 def train(
-    task_dir, valid_dataset, overwrite, max_processes, use_torch, command=None, **kwargs
+    task_dir,
+    valid_dataset,
+    overwrite,
+    max_memory,
+    max_processes,
+    use_torch,
+    command=None,
+    **kwargs
 ):
 
     task_dir, task_file_names = task_dir
@@ -739,37 +881,45 @@ def train(
     if func_called_directly:
         ui.print_step_title('MODEL TRAINING')
 
-    def cprsn_callback(n_atoms, n_atoms_kept):
-        log.info(
-            '{:d} out of {:d} atoms remain after compression.\n'.format(
-                n_atoms_kept, n_atoms
-            )
-            + 'Note: Compression reduces the size of the optimization problem the cost of prediction accuracy!'
-        )
-
-    unconv_model_file = '_unconv_model.npz'
-    unconv_model_path = os.path.join(task_dir, unconv_model_file)
+    #def cprsn_callback(n_atoms, n_atoms_kept):
+    #    log.info(
+    #        '{:d} out of {:d} atoms remain after compression.\n'.format(
+    #            n_atoms_kept, n_atoms
+    #        )
+    #        + 'Note: Compression reduces the size of the optimization problem the cost of prediction accuracy!'
+    #    )
 
     def save_progr_callback(
-        unconv_model,
+        unconv_model, unconv_model_path=None
     ):  # saves current (unconverged) model during iterative training
+
+        if unconv_model_path is None:
+            log.critical(
+                'Path for unconverged model not set in \'save_progr_callback\'.'
+            )
+            print()
+            os._exit(1)
 
         np.savez_compressed(unconv_model_path, **unconv_model)
 
     try:
-        gdml_train = GDMLTrain(max_processes=max_processes, use_torch=use_torch)
+        gdml_train = GDMLTrain(
+            max_memory=max_memory, max_processes=max_processes, use_torch=use_torch
+        )
     except:
         print()
         log.critical(traceback.format_exc())
-        sys.exit()
+        print()
+        os._exit(1)
 
     prev_valid_err = -1
+    has_converged_once = False
 
     for i, task_file_name in enumerate(task_file_names):
         if n_tasks > 1:
             if i > 0:
                 print()
-            print(ui.white_bold_str('Task {:d} of {:d}'.format(i + 1, n_tasks)))
+            print(ui.color_str('Task {:d} of {:d}'.format(i + 1, n_tasks), bold=True))
 
         task_file_path = os.path.join(task_dir, task_file_name)
         with np.load(task_file_path, allow_pickle=True) as task:
@@ -790,14 +940,23 @@ def train(
                 )
                 continue
 
+            n_train, n_atoms = task['R_train'].shape[:2]
+
+            unconv_model_file = '_unconv_{}'.format(model_file_name)
+            unconv_model_path = os.path.join(task_dir, unconv_model_file)
+
             try:
                 model = gdml_train.train(
-                    task, cprsn_callback, save_progr_callback, ui.callback
+                    task,
+                    #cprsn_callback,
+                    partial(save_progr_callback, unconv_model_path=unconv_model_path),
+                    ui.callback,
                 )
             except:
                 print()
                 log.critical(traceback.format_exc())
-                sys.exit()
+                print()
+                os._exit(1)
             else:
                 if func_called_directly:
                     log.done('Writing model to file \'{}\''.format(model_file_path))
@@ -809,10 +968,10 @@ def train(
                     os.remove(unconv_model_path)
 
                 # Delete template model, if one exists.
-                templ_model_path = os.path.join(task_dir, 'm0.npz')
-                templ_model_exists = os.path.isfile(templ_model_path)
-                if templ_model_exists:
-                    os.remove(templ_model_path)
+                # templ_model_path = os.path.join(task_dir, 'm0.npz')
+                # templ_model_exists = os.path.isfile(templ_model_path)
+                # if templ_model_exists:
+                #    os.remove(templ_model_path)
 
             # Validate model.
             model_dir = (task_dir, [model_file_name])
@@ -821,13 +980,22 @@ def train(
                 valid_dataset,
                 -1,  # n_test = -1 -> validation mode
                 overwrite,
+                max_memory,
                 max_processes,
                 use_torch,
                 command,
                 **kwargs
             )
 
-            if prev_valid_err != -1 and prev_valid_err < valid_errs[0]:
+            is_conv = True
+            if 'solver_resid' in model:
+                is_conv = (
+                    model['solver_resid']
+                    <= model['solver_tol'] * model['norm_y_train']
+                )
+            has_converged_once = has_converged_once or is_conv
+
+            if has_converged_once and prev_valid_err != -1 and prev_valid_err < valid_errs[0]:
                 print()
                 log.warning(
                     'Skipping remaining training tasks, as validation error is rising again.'
@@ -839,7 +1007,9 @@ def train(
     model_dir_or_file_path = model_file_path if n_tasks == 1 else task_dir
     if func_called_directly:
 
-        model_dir_arg = io.is_dir_with_file_type(model_dir_or_file_path, 'model', or_file=True)
+        model_dir_arg = io.is_dir_with_file_type(
+            model_dir_or_file_path, 'model', or_file=True
+        )
         model_dir, model_files = model_dir_arg
         _print_next_step('train', model_dir=model_dir, model_files=model_files)
 
@@ -865,7 +1035,17 @@ def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
     return mae, mae_n_sum, rmse, rmse_n_sum
 
 
-def resume(model, dataset, valid_dataset, overwrite, max_processes, use_torch, command=None, **kwargs):
+def resume(
+    model,
+    dataset,
+    valid_dataset,
+    overwrite,
+    max_memory,
+    max_processes,
+    use_torch,
+    command=None,
+    **kwargs
+):
 
     model_path, model = model
     dataset_path, dataset = dataset
@@ -874,7 +1054,7 @@ def resume(model, dataset, valid_dataset, overwrite, max_processes, use_torch, c
     valid_dataset_path, valid_dataset = valid_dataset
 
     ui.print_step_title('RESUME TRAINING')
-    _print_model_properties(model, title_str='Model properties (before)')
+    _print_model_properties(model, title_str='Model properties (initial)')
     print()
 
     if dataset['md5'] != model['md5_train']:
@@ -888,83 +1068,83 @@ def resume(model, dataset, valid_dataset, overwrite, max_processes, use_torch, c
 
     if model['solver_name'] == 'analytic':
         raise AssistantError(
-            'This model was trained using the analytic solver and is thus converged to a higher accuracy than the iterative solver can provide!'
+            'This model was trained using a matrix decomposition method and thus already converged to the highest possible accuracy! It does not make sense to resume training in this case.'
         )
     elif 'solver_resid' in model and 'solver_tol' in model:
-        if model['solver_resid'] <= model['solver_tol']*model['norm_y_train']:
+        if model['solver_resid'] > model['solver_tol'] * model['norm_y_train']:
+
+            gdml_train = GDMLTrain(
+                max_memory=max_memory, max_processes=max_processes, use_torch=use_torch
+            )
+            try:
+                task = gdml_train.create_task_from_model(
+                    model,
+                    dataset,
+                )
+            except:
+                print()
+                log.critical(traceback.format_exc())
+                print()
+                os._exit(1)
+            del gdml_train
+
+            def save_progr_callback(
+                unconv_model,
+            ):  # saves current (unconverged) model during iterative training
+                np.savez_compressed(model_path, **unconv_model)
+
+            try:
+                gdml_train = GDMLTrain(
+                    max_memory=max_memory,
+                    max_processes=max_processes,
+                    use_torch=use_torch,
+                )
+            except:
+                print()
+                log.critical(traceback.format_exc())
+                print()
+                os._exit(1)
+
+            try:
+                model = gdml_train.train(
+                    task, save_progr_callback=save_progr_callback, callback=ui.callback
+                )
+            except:
+                print()
+                log.critical(traceback.format_exc())
+                print()
+                os._exit(1)
+            else:
+                log.done('Model parameters have been updated.')
+                np.savez_compressed(model_path, **model)
+
+        else:
             log.warning('Model is already converged to the specified tolerance.')
 
-    gdml_train = GDMLTrain(max_processes=max_processes, use_torch=use_torch)
-    try:
-        task = gdml_train.create_task_from_model(
-            model,
-            dataset,
-        )
-    except:
-        print()
-        log.critical(traceback.format_exc())
-        sys.exit()
-    del gdml_train
+    # Validate model.
+    model_dir, model_file_name = os.path.split(model_path)
+    model_dir_arg = (model_dir, [model_file_name])
 
-    n_train = len(model['idxs_train'])
-
-    use_sym = model['perms'].shape[0] > 1
-    use_E = 'e_err' in model
-    use_E_cstr = 'alphas_E' in model
-
-    task_dir = 'resume_' + io.train_dir_name(
-        dataset,
-        n_train,
-        use_sym=use_sym,
-        use_cprsn=False, # fix me
-        use_E=use_E,
-        use_E_cstr=use_E_cstr,
+    valid_errs = test(
+        model_dir_arg,
+        valid_dataset_arg,
+        -1,  # n_test = -1 -> validation mode
+        overwrite,
+        max_memory,
+        max_processes,
+        use_torch,
+        command,
+        **kwargs
     )
 
-    if os.path.exists(task_dir):
-        if overwrite:
-            log.info('Overwriting existing training directory.')
-            shutil.rmtree(task_dir, ignore_errors=True)
-            os.makedirs(task_dir)
-        else:
-            raise AssistantError(
-                'Task directory already exists: \'{}\'.\n'.format(
-                    task_dir
-                )
-                + 'Run \'%s %s %s %s %s -o\' to overwrite.'
-                % (
-                    PACKAGE_NAME,
-                    command,
-                    model_path,
-                    dataset_path,
-                    valid_dataset_path,
-                )
-            )
-    else:
-        os.makedirs(task_dir)
+    _print_next_step('resume', model_dir=model_dir, model_files=[model_file_name])
 
-    # try to safe task file
-    task_file_name = io.task_file_name(task)
-    task_path = os.path.join(task_dir, task_file_name)
-    if os.path.isfile(task_path):
-        raise AssistantError(
-            'Task file with same name already exists!'
-        )
-    else:
-        np.savez_compressed(task_path, **task)
-
-    task_dir_arg = io.is_dir_with_file_type(task_path, 'task', or_file=True)
-    model_dir_or_file_path = train(
-        task_dir_arg, valid_dataset_arg, overwrite, max_processes, use_torch, **kwargs
-    )
-
-    model_dir, model_files = io.is_dir_with_file_type(model_path, 'model', or_file=True)
-    _print_next_step('resume', model_dir=model_dir, model_files=model_files)
 
 def validate(
     model_dir,
     valid_dataset,
     overwrite,
+    max_memory,
     max_processes,
     use_torch,
     command=None,
@@ -985,6 +1165,7 @@ def validate(
         valid_dataset,
         -1,  # n_test = -1 -> validation mode
         overwrite,
+        max_memory,
         max_processes,
         use_torch,
         command,
@@ -1003,6 +1184,7 @@ def test(
     test_dataset,
     n_test,
     overwrite,
+    max_memory,
     max_processes,
     use_torch,
     command=None,
@@ -1050,7 +1232,7 @@ def test(
 
     # NEW
 
-    num_workers, batch_size = 0, 0
+    num_workers, batch_size = -1, -1
     gdml_train = None
     for i, model_file_name in enumerate(model_file_names):
 
@@ -1087,9 +1269,10 @@ def test(
             if i > 0:
                 print()
             print(
-                ui.white_bold_str(
+                ui.color_str(
                     '%s model %d of %d'
-                    % ('Testing' if is_test else 'Validating', i + 1, n_models)
+                    % ('Testing' if is_test else 'Validating', i + 1, n_models),
+                    bold=True,
                 )
             )
 
@@ -1150,7 +1333,9 @@ def test(
 
             if 'E' in dataset:
                 if gdml_train is None:
-                    gdml_train = GDMLTrain(max_processes=max_processes)
+                    gdml_train = GDMLTrain(
+                        max_memory=max_memory, max_processes=max_processes
+                    )
                 test_idxs = gdml_train.draw_strat_sample(
                     dataset['E'], n_test, excl_idxs=excl_idxs
                 )
@@ -1177,38 +1362,55 @@ def test(
 
         try:
             gdml_predict = GDMLPredict(
-                model, max_processes=max_processes, use_torch=use_torch
+                model,
+                max_memory=max_memory,
+                max_processes=max_processes,
+                use_torch=use_torch,
             )
         except:
             print()
             log.critical(traceback.format_exc())
-            sys.exit()
+            print()
+            os._exit(1)
 
         b_size = min(1000, len(test_idxs))
 
         if not use_torch:
-            if num_workers == 0 or batch_size == 0:
+            if num_workers == -1 or batch_size == -1:
                 ui.callback(NOT_DONE, disp_str='Optimizing parallelism')
 
                 gps, is_from_cache = gdml_predict.prepare_parallel(
                     n_bulk=b_size, return_is_from_cache=True
                 )
-                num_workers, batch_size, bulk_mp = (
+                num_workers, chunk_size, bulk_mp = (
                     gdml_predict.num_workers,
                     gdml_predict.chunk_size,
                     gdml_predict.bulk_mp,
                 )
 
+                sec_disp_str = 'no chunking'.format(chunk_size)
+                if chunk_size != gdml_predict.n_train:
+                    sec_disp_str = 'chunks of {:d}'.format(chunk_size)
+
+                if num_workers == 0:
+                    sec_disp_str = 'no workers / ' + sec_disp_str
+                else:
+                    sec_disp_str = (
+                        '{:d} workers {}/ '.format(
+                            num_workers, '[MP] ' if bulk_mp else ''
+                        )
+                        + sec_disp_str
+                    )
+
                 ui.callback(
                     DONE,
                     disp_str='Optimizing parallelism'
                     + (' (from cache)' if is_from_cache else ''),
-                    sec_disp_str='%d workers %s/ chunks of %d'
-                    % (num_workers, '[MP] ' if bulk_mp else '', batch_size),
+                    sec_disp_str=sec_disp_str,
                 )
             else:
                 gdml_predict._set_num_workers(num_workers)
-                gdml_predict._set_batch_size(batch_size)
+                gdml_predict._set_chunk_size(chunk_size)
                 gdml_predict._set_bulk_mp(bulk_mp)
 
         n_atoms = z.shape[0]
@@ -1236,6 +1438,10 @@ def test(
                     np.squeeze(e) - e_pred, 1, n_done, e_mae_sum, e_rmse_sum
                 )
 
+                # import matplotlib.pyplot as plt
+                # plt.hist(np.squeeze(e) - e_pred)
+                # plt.show()
+
             # force component error
             f = F[b_range].reshape(n_done_step, -1)
             f_mae, f_mae_sum, f_rmse, f_rmse_sum = _online_err(
@@ -1252,7 +1458,10 @@ def test(
             # normalized cosine error
             f_pred_norm = f_pred.reshape(-1, 3) / f_pred_mags[:, None]
             f_norm = f.reshape(-1, 3) / f_mags[:, None]
-            cos_err = np.arccos(np.clip(np.einsum('ij,ij->i', f_pred_norm, f_norm), -1, 1)) / np.pi
+            cos_err = (
+                np.arccos(np.clip(np.einsum('ij,ij->i', f_pred_norm, f_norm), -1, 1))
+                / np.pi
+            )
             cos_mae, cos_mae_sum, cos_rmse, cos_rmse_sum = _online_err(
                 cos_err, n_atoms, n_done, cos_mae_sum, cos_rmse_sum
             )
@@ -1361,7 +1570,7 @@ def test(
 
         # if func_called_directly and n_models == 1:
         if is_test and n_models == 1:
-            print(ui.white_bold_str('\nTest errors (MAE/RMSE)'))
+            print(ui.color_str('\nTest errors (MAE/RMSE)', bold=True))
 
             r_unit = 'unknown unit'
             e_unit = 'unknown unit'
@@ -1441,7 +1650,13 @@ def test(
 
 
 def select(
-    model_dir, overwrite, max_processes, model_file=None, command=None, **kwargs
+    model_dir,
+    overwrite,
+    max_memory,
+    max_processes,
+    model_file=None,
+    command=None,
+    **kwargs
 ):  # noqa: C901
 
     func_called_directly = (
@@ -1509,7 +1724,7 @@ def select(
                 + 'This is required before selecting the best performer.'
             )
             print()
-            sys.exit()
+            os._exit(1)
 
         if any_model_is_tested:
             log.error(
@@ -1523,7 +1738,7 @@ def select(
         best_sig = rows[best_idx][0]
 
         rows = sorted(rows, key=lambda col: col[0])  # sort according to sigma
-        print(ui.white_bold_str('Cross-validation errors'))
+        print(ui.color_str('Cross-validation errors', bold=True))
         print(' ' * 7 + 'Energy' + ' ' * 6 + 'Forces')
         print((' {:>3} ' + '{:>5} ' * 4).format(*data_names))
         print(' ' + '-' * 27)
@@ -1536,7 +1751,7 @@ def select(
                 row_str = format_str_no_E.format(*[row[0], row[3], row[4]])
 
             if row[0] != best_sig:
-                row_str = ui.gray_str(row_str)
+                row_str = ui.color_str(row_str, fore_color=ui.GRAY)
             print(row_str)
         print()
 
@@ -1589,7 +1804,7 @@ def select(
     return model_file
 
 
-def show(file, overwrite, max_processes, command=None, **kwargs):
+def show(file, overwrite, max_memory, max_processes, command=None, **kwargs):
 
     ui.print_step_title('SHOW DETAILS')
     file_path, file = file
@@ -1600,10 +1815,14 @@ def show(file, overwrite, max_processes, command=None, **kwargs):
     if file['type'].astype(str) == 't':
         _print_task_properties(
             use_sym=file['use_sym'],
-            use_cprsn=file['use_cprsn'],
+            #use_cprsn=file['use_cprsn'],
             use_E=file['use_E'],
             use_E_cstr=file['use_E_cstr'],
         )
+
+        # NEW
+        print()
+        _print_task_properties2(file)
 
     if file['type'].astype(str) == 'm':
         _print_model_properties(file)
@@ -1623,28 +1842,17 @@ def reset(command=None, **kwargs):
             except OSError:
                 print()
                 log.critical('Exception: unable to delete benchmark cache.')
-                sys.exit()
+                print()
+                os._exit(1)
 
             log.done('Benchmark cache deleted.')
         else:
             log.info('Benchmark cache was already empty.')
     else:
         print(' Cancelled.')
-    print()
 
 
 def main():
-    #def _add_argument_dataset(parser, qualifier_str='', help='path to dataset file'):
-    #    parser.add_argument(
-    #        'dataset',
-    #        metavar='<'
-    #        + qualifier_str
-    #        + ('_' if qualifier_str != '' else '')
-    #        + 'dataset_file>',
-    #        type=lambda x: io.is_file_type(x, 'dataset'),
-    #        help=help,
-    #    )
-
     def _add_argument_sample_size(parser, subset_str):
         subparser.add_argument(
             'n_%s' % subset_str,
@@ -1683,13 +1891,29 @@ def main():
         action='store_true',
         help='overwrite existing files',
     )
+
+    total_memory = psutil.virtual_memory().total // 2 ** 30
+    parent_parser.add_argument(
+        '-m',
+        '--max_memory',
+        metavar='<max_memory>',
+        type=int,
+        help='limit memory usage (whenever possible) [GB]',
+        choices=range(1, total_memory + 1),
+        default=total_memory,
+    )
+
+    total_cpus = mp.cpu_count()
     parent_parser.add_argument(
         '-p',
         '--max_processes',
         metavar='<max_processes>',
-        type=io.is_strict_pos_int,
-        help='limit the number of processes for this application',
+        type=int,
+        help='limit number of processes',
+        choices=range(1, total_cpus + 1),
+        default=total_cpus,
     )
+
     parent_parser.add_argument(
         '--torch',
         dest='use_torch',
@@ -1700,7 +1924,9 @@ def main():
     subparsers = parser.add_subparsers(title='commands', dest='command')
     subparsers.required = True
     parser_all = subparsers.add_parser(
-        'all', help='reconstruct force field from beginning to end', parents=[parent_parser]
+        'all',
+        help='reconstruct force field from beginning to end',
+        parents=[parent_parser],
     )
     parser_create = subparsers.add_parser(
         'create', help='create training task(s)', parents=[parent_parser]
@@ -1778,11 +2004,19 @@ def main():
             action='store_true',
             help='don\'t include symmetries in the model (GDML)',
         )
+        #group.add_argument(
+        #    '--cprsn',
+        #    dest='use_cprsn',
+        #    action='store_true',
+        #    help='compress kernel matrix along symmetric degrees of freedom',
+        #)
+
         group.add_argument(
-            '--cprsn',
-            dest='use_cprsn',
-            action='store_true',
-            help='compress kernel matrix along symmetric degrees of freedom',
+            '--perms_from',
+            metavar='<file>',
+            dest='perms_from_arg',
+            type=lambda x: io.is_valid_file_type(x),
+            help='path to file to take permutations from (key: \'perms\')',
         )
 
         group = subparser.add_mutually_exclusive_group()
@@ -1833,10 +2067,6 @@ def main():
             help='user-defined model output file name',
         )
 
-    
-    # train
-    _add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
-
     # resume
     parser_resume.add_argument(
         'model',
@@ -1850,6 +2080,9 @@ def main():
         type=lambda x: io.is_file_type(x, 'dataset'),
         help='path to original training dataset file',
     )
+
+    # train
+    _add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
 
     for subparser in [parser_train, parser_resume]:
         subparser.add_argument(
@@ -1884,8 +2117,6 @@ def main():
         if not args.model_file.endswith('.npz'):
             args.model_file += '.npz'
 
-    _print_splash(args.max_processes, args.use_torch)
-
     # Check PyTorch GPU support.
     if 'use_torch' in args and args.use_torch:
         if _has_torch:
@@ -1899,30 +2130,29 @@ def main():
             log.critical(
                 'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
             )
-            sys.exit()
+            print()
+            os._exit(1)
 
-    # Replace solver flags with keyword.
     args = vars(args)
-    args['solver'] = 'analytic'
-    if 'use_cg' in args and args['use_cg']:
-        args['solver'] = 'cg'
-    args.pop('use_cg', None)
-
 
     # TODO: remove dummy variables once iterative solver ships
-    missing_keys = ['n_inducing_pts_init', 'interact_cut_off', 'use_cg']
-    for missing_key in missing_keys:
-        if missing_key not in args: 
-            args[missing_key] = None
+    #missing_keys = ['n_inducing_pts_init', 'interact_cut_off', 'use_cg']
+    #for missing_key in missing_keys:
+    #    if missing_key not in args:
+    #        args[missing_key] = None
+
+    _print_splash(args['max_memory'], args['max_processes'], args['use_torch'])
 
     try:
         getattr(sys.modules[__name__], args['command'])(**args)
     except AssistantError as err:
         log.error(str(err))
-        sys.exit('')
+        print()
+        os._exit(1)
     except:
         log.critical(traceback.format_exc())
-        sys.exit()
+        print()
+        os._exit(1)
     print()
 
 
