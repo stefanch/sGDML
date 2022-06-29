@@ -72,12 +72,7 @@ def _pbc_diff(diffs, lat_and_inv, use_torch=False):
         diffs -= lat.mm(c.round()).t()
     else:
         c = lat_inv.dot(diffs.T)
-
-        #diffs -= lat.dot(np.rint(c)).T
         diffs -= lat.dot(np.around(c)).T
-
-        #print('lat.dot', c)
-        #print('diffs', diffs)
 
     return diffs
 
@@ -110,15 +105,6 @@ def _pdist(r, lat_and_inv=None):
         pdist = sp.spatial.distance.pdist(
             r, lambda u, v: np.linalg.norm(_pbc_diff(u - v, lat_and_inv))
         )
-
-        #lat, lat_inv = lat_and_inv
-        #diffs = r[:, None, :] - r[None, :, :]
-        #print("diffs.shape ", diffs.shape)
-        #c2 = lat_inv.dot(diffs.reshape(-1, 3).T)
-        #diffs -= lat.dot(c2.round()).T
-        #pdist = np.linalg.norm(diffs, axis=1)
-        #tril_idxs = np.tril_indices(n_atoms, k=-1)
-        #print("pdist ", 1 / sp.spatial.distance.squareform(pdist, checks=False)[tril_idxs])
 
     tril_idxs = np.tril_indices(n_atoms, k=-1)
     return sp.spatial.distance.squareform(pdist, checks=False)[tril_idxs]
@@ -247,8 +233,6 @@ def _from_r(r, lat_and_inv=None):
 
     pd = _pdist(r, lat_and_inv)
 
-    #r_desc = _r_to_desc(r, pd, coff=coff)
-    #r_d_desc = _r_to_d_desc(r, pd, lat_and_inv, coff=coff)
     r_desc = _r_to_desc(r, pd)
     r_d_desc = _r_to_d_desc(r, pd, lat_and_inv)
 
@@ -256,7 +240,7 @@ def _from_r(r, lat_and_inv=None):
 
 
 class Desc(object):
-    #def __init__(self, n_atoms, interact_cut_off=None, max_processes=None):
+    # def __init__(self, n_atoms, interact_cut_off=None, max_processes=None):
     def __init__(self, n_atoms, max_processes=None):
         """
         Generate descriptors and their Jacobians for molecular geometries,
@@ -301,14 +285,6 @@ class Desc(object):
 
         self.max_processes = max_processes
 
-        # NEW: cutoff
-        #self.coff_dist = (
-        #    interact_cut_off
-        #    if not hasattr(interact_cut_off, '__iter__')
-        #    else interact_cut_off.item()
-        #)  # TODO: that's a hack :(
-        #self.coff_slope = 10
-        # NEW
 
     def from_R(self, R, lat_and_inv=None, max_processes=None, callback=None):
         """
@@ -360,8 +336,6 @@ class Desc(object):
         # Generate descriptor and their Jacobians
         start = timeit.default_timer()
 
-        #coff = None if self.coff_dist is None else (self.coff_dist, self.coff_slope)
-
         pool = None
         map_func = map
         max_processes = max_processes or self.max_processes
@@ -369,9 +343,6 @@ class Desc(object):
             pool = Pool((max_processes or mp.cpu_count()) - 1)  # exclude main process
             map_func = pool.imap
 
-        #for i, r_desc_r_d_desc in enumerate(
-        #    map_func(partial(_from_r, lat_and_inv=lat_and_inv, coff=coff), R)
-        #):
         for i, r_desc_r_d_desc in enumerate(
             map_func(partial(_from_r, lat_and_inv=lat_and_inv), R)
         ):
@@ -394,7 +365,8 @@ class Desc(object):
 
         return R_desc, R_d_desc
 
-    # multiplies descriptor(s) jacobian with 3N-vector(s) from the right side
+
+    # Multiplies descriptor(s) jacobian with 3N-vector(s) from the right side
     def d_desc_dot_vec(self, R_d_desc, vecs, overwrite_vecs=False):
 
         if R_d_desc.ndim == 2:
@@ -414,7 +386,8 @@ class Desc(object):
 
         return einsum('...ij,...ij->...i', R_d_desc, vecs[:, j, :] - vecs[:, i, :])
 
-    # multiplies descriptor(s) jacobian with N(N-1)/2-vector(s) from the left side
+
+    # Multiplies descriptor(s) jacobian with N(N-1)/2-vector(s) from the left side
     def vec_dot_d_desc(self, R_d_desc, vecs, out=None):
 
         if R_d_desc.ndim == 2:

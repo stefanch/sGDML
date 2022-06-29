@@ -57,7 +57,7 @@ from .predict import GDMLPredict
 from .train import GDMLTrain
 from .utils import io, ui
 
-#BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PACKAGE_NAME = 'sgdml'
 
 log = logging.getLogger(__name__)
@@ -152,7 +152,8 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
 
     if 'perms' in dataset:
         ui.print_two_column_str(
-            '  {:<18} {}'.format('Symmetries:', len(dataset['perms'])), 'This dataset contains precomputed permutations.'
+            '  {:<18} {}'.format('Symmetries:', len(dataset['perms'])),
+            'This dataset contains precomputed permutations.',
         )
 
     if 'E' in dataset:
@@ -238,9 +239,7 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     print(cutline_str)
 
 
-def _print_task_properties(
-    use_sym, use_E, use_E_cstr, title_str='Task properties'
-):
+def _print_task_properties_reduced(use_sym, use_E, use_E_cstr, title_str='Task properties'):
 
     print(ui.color_str(title_str, bold=True))
 
@@ -260,14 +259,9 @@ def _print_task_properties(
             'Symmetries:', 'include (sGDML)' if use_sym else 'ignore (GDML)'
         )
     )
-    #print(
-    #    '  {:<16} {}'.format(
-    #        'Compression:', 'requested' if use_cprsn else 'not requested'
-    #    )
-    #)
 
 
-def _print_task_properties2(task, title_str='Task properties'):
+def _print_task_properties(task, title_str='Task properties'):
 
     print(ui.color_str(title_str, bold=True))
 
@@ -280,11 +274,11 @@ def _print_task_properties2(task, title_str='Task properties'):
     )
 
     n_atoms = len(task['z'])
-    print('    {:<16} {:<d}'.format('Num. atoms:', n_atoms))
+    print('    {:<16} {:<d}'.format('Atoms:', n_atoms))
 
     ui.print_lattice(task['lattice'] if 'lattice' in task else None, inset=True)
 
-    print('  {:<18} {:<d}'.format('Avail. symmetries:', len(task['perms'])))
+    print('  {:<18} {:<d}'.format('Symmetries:', len(task['perms'])))
 
     print('  {:<18}'.format('Hyper-parameters'))
     print('    {:<16} {:<d}'.format('Length scale:', task['sig']))
@@ -292,23 +286,23 @@ def _print_task_properties2(task, title_str='Task properties'):
     if 'lam' in task:
         print('    {:<16} {:<.0e}'.format('Regularization:', task['lam']))
 
-    if 'solver_name' in task:
-        print('  {:<18}'.format('Solver configuration'))
-        print('    {:<16} \'{}\''.format('Type:', task['solver_name']))
+    # if 'solver_name' in task:
+    #     print('  {:<18}'.format('Solver configuration'))
+    #     print('    {:<16} \'{}\''.format('Type:', task['solver_name']))
 
-        if task['solver_name'] == 'cg':
+    #     if task['solver_name'] == 'cg':
 
-            if 'solver_tol' in task:
-                print('    {:<16} {:<.0e}'.format('Tolerance:', task['solver_tol']))
+    #         if 'solver_tol' in task:
+    #             print('    {:<16} {:<.0e}'.format('Tolerance:', task['solver_tol']))
 
-            if 'n_inducing_pts_init' in task:
-                print(
-                    '    {:<16} {:<d}'.format(
-                        'Inducing points:', task['n_inducing_pts_init']
-                    )
-                )
-    else:
-        print('  {:<18} {}'.format('Solver:', 'unknown'))
+    #         if 'n_inducing_pts_init' in task:
+    #             print(
+    #                 '    {:<16} {:<d}'.format(
+    #                     'Inducing points:', task['n_inducing_pts_init']
+    #                 )
+    #             )
+    # else:
+    #     print('  {:<18} {}'.format('Solver:', 'unknown'))
 
     n_train = len(task['idxs_train'])
     ui.print_two_column_str(
@@ -322,25 +316,25 @@ def _print_task_properties2(task, title_str='Task properties'):
         'from \'' + ui.unicode_str(task['md5_valid']) + '\'',
     )
 
-    print('  {:<18}'.format('Estimated memory requirement (min.)'))
+    #print('  {:<18}'.format('Estimated memory requirement (min.)'))
 
-    mem_kernel_mat_const = 0
-    mem_precond_const = 0
-    print(
-        '    {:<16} {}'.format(
-            'CPU:', ui.gen_memory_str(mem_kernel_mat_const + mem_precond_const)
-        )
-    )
+    #mem_kernel_mat_const = 0
+    #mem_precond_const = 0
+    #print(
+    #    '    {:<16} {}'.format(
+    #        'CPU:', ui.gen_memory_str(mem_kernel_mat_const + mem_precond_const)
+    #    )
+    #)
     # print('      {:<14} {}'.format('Kernel matrix:', ui.gen_memory_str(mem_kernel_mat_const))
     # print('      {:<14} {}'.format('Precond. factor:', ui.gen_memory_str(mem_precond_const)))
 
-    mem_torch_assemble = 0
-    mem_torch_eval = 0
-    print(
-        '    {:<16} {}'.format(
-            'GPU:', ui.gen_memory_str(mem_torch_assemble + mem_torch_eval)
-        )
-    )
+    #mem_torch_assemble = 0
+    #mem_torch_eval = 0
+    #print(
+    #    '    {:<16} {}'.format(
+    #        'GPU:', ui.gen_memory_str(mem_torch_assemble + mem_torch_eval)
+    #    )
+    #)
     # print('      {:<14} {}'.format('Kernel matrix assembly:', ui.gen_memory_str(mem_torch_assemble)))
     # print('      {:<14} {}'.format('Model evaluation:', ui.gen_memory_str(mem_torch_eval)))
 
@@ -363,19 +357,6 @@ def _print_model_properties(model, title_str='Model properties'):
     ui.print_lattice(model['lattice'] if 'lattice' in model else None, inset=True)
 
     print('  {:<18} {:<d}'.format('Symmetries:', len(model['perms'])))
-
-    #_, cprsn_keep_idxs = np.unique(
-    #    np.sort(model['perms'], axis=0), axis=1, return_index=True
-    #)
-    #n_atoms_kept = cprsn_keep_idxs.shape[0]
-    #print(
-    #    '  {:<18} {}'.format(
-    #        'Compression:',
-    #        '{:<d} effective atoms'.format(n_atoms_kept)
-    #        if 'use_cprsn' in model and model['use_cprsn']
-    #        else 'n/a',
-    #    )
-    #)
 
     print('  {:<18}'.format('Hyper-parameters'))
     print('    {:<16} {:<d}'.format('Length scale:', model['sig']))
@@ -544,7 +525,6 @@ def all(
     gdml,
     use_E,
     use_E_cstr,
-    #use_cprsn,
     overwrite,
     max_memory,
     max_processes,
@@ -602,7 +582,6 @@ def all(
         gdml,
         use_E,
         use_E_cstr,
-        #use_cprsn,
         overwrite,
         max_memory,
         max_processes,
@@ -664,7 +643,6 @@ def create(  # noqa: C901
     gdml,
     use_E,
     use_E_cstr,
-    #use_cprsn,
     overwrite,
     max_memory,
     max_processes,
@@ -687,9 +665,7 @@ def create(  # noqa: C901
         _print_dataset_properties(dataset)
         print()
 
-    _print_task_properties(
-        use_sym=not gdml, use_E=use_E, use_E_cstr=use_E_cstr
-    )
+    _print_task_properties_reduced(use_sym=not gdml, use_E=use_E, use_E_cstr=use_E_cstr)
     print()
 
     if n_data < n_train:
@@ -728,7 +704,6 @@ def create(  # noqa: C901
             dataset,
             n_train,
             use_sym=not gdml,
-            #use_cprsn=use_cprsn,
             use_E=use_E,
             use_E_cstr=use_E_cstr,
         )
@@ -828,7 +803,6 @@ def create(  # noqa: C901
                 use_sym=not gdml,
                 use_E=use_E,
                 use_E_cstr=use_E_cstr,
-                #use_cprsn=use_cprsn,
                 callback=ui.callback,
             )  # template task
         except:
@@ -877,21 +851,13 @@ def train(
 
     func_called_directly = (
         command == 'train'
-    )  # has this function been called from command line or from 'all'?
+    )  # Has this function been called from command line or from 'all'?
     if func_called_directly:
         ui.print_step_title('MODEL TRAINING')
 
-    #def cprsn_callback(n_atoms, n_atoms_kept):
-    #    log.info(
-    #        '{:d} out of {:d} atoms remain after compression.\n'.format(
-    #            n_atoms_kept, n_atoms
-    #        )
-    #        + 'Note: Compression reduces the size of the optimization problem the cost of prediction accuracy!'
-    #    )
-
     def save_progr_callback(
         unconv_model, unconv_model_path=None
-    ):  # saves current (unconverged) model during iterative training
+    ):  # Saves current (unconverged) model during iterative training
 
         if unconv_model_path is None:
             log.critical(
@@ -948,7 +914,6 @@ def train(
             try:
                 model = gdml_train.train(
                     task,
-                    #cprsn_callback,
                     partial(save_progr_callback, unconv_model_path=unconv_model_path),
                     ui.callback,
                 )
@@ -987,15 +952,21 @@ def train(
                 **kwargs
             )
 
+            if valid_errs is None: # Only one model found, i.e. there is nothing to validate.
+                break
+
             is_conv = True
             if 'solver_resid' in model:
                 is_conv = (
-                    model['solver_resid']
-                    <= model['solver_tol'] * model['norm_y_train']
+                    model['solver_resid'] <= model['solver_tol'] * model['norm_y_train']
                 )
             has_converged_once = has_converged_once or is_conv
 
-            if has_converged_once and prev_valid_err != -1 and prev_valid_err < valid_errs[0]:
+            if (
+                has_converged_once
+                and prev_valid_err != -1
+                and prev_valid_err < valid_errs[0]
+            ):
                 print()
                 log.warning(
                     'Skipping remaining training tasks, as validation error is rising again.'
@@ -1200,12 +1171,9 @@ def test(
     is_validation = n_test < 0
     is_test = n_test >= 0
 
-    # NEW: turn me back on!
-    # if (
-    #    is_validation and n_models == 1
-    # ):  # validation mode with only one model to validate
-    #    log.warning('Skipping validation step as there is only one model to validate.')
-    #    return
+    if (is_validation and n_models == 1):  # validation mode with only one model to validate
+        log.warning('Skipping validation step as there is only one model to validate.')
+        return
 
     dataset_path, dataset = test_dataset
 
@@ -1216,7 +1184,7 @@ def test(
         ui.print_step_title('MODEL TEST')
         _print_dataset_properties(dataset)
 
-    F_rmse = []  # NEW
+    F_rmse = []
 
     # NEW
 
@@ -1813,16 +1781,7 @@ def show(file, overwrite, max_memory, max_processes, command=None, **kwargs):
         _print_dataset_properties(file)
 
     if file['type'].astype(str) == 't':
-        _print_task_properties(
-            use_sym=file['use_sym'],
-            #use_cprsn=file['use_cprsn'],
-            use_E=file['use_E'],
-            use_E_cstr=file['use_E_cstr'],
-        )
-
-        # NEW
-        print()
-        _print_task_properties2(file)
+        _print_task_properties(file)
 
     if file['type'].astype(str) == 'm':
         _print_model_properties(file)
@@ -2004,12 +1963,6 @@ def main():
             action='store_true',
             help='don\'t include symmetries in the model (GDML)',
         )
-        #group.add_argument(
-        #    '--cprsn',
-        #    dest='use_cprsn',
-        #    action='store_true',
-        #    help='compress kernel matrix along symmetric degrees of freedom',
-        #)
 
         group.add_argument(
             '--perms_from',
@@ -2105,14 +2058,14 @@ def main():
 
     args = parser.parse_args()
 
-    # post-processing for optional sig argument
+    # Post-processing for optional sig argument
     if 'sigs' in args and args.sigs is not None:
         args.sigs = np.hstack(
             args.sigs
-        ).tolist()  # flatten list, if (part of it) was generated using the range syntax
+        ).tolist()  # Flatten list, if (part of it) was generated using the range syntax
         args.sigs = sorted(list(set(args.sigs)))  # remove potential duplicates
 
-    # post-processing for optional model output file argument
+    # Post-processing for optional model output file argument
     if 'model_file' in args and args.model_file is not None:
         if not args.model_file.endswith('.npz'):
             args.model_file += '.npz'
@@ -2134,12 +2087,6 @@ def main():
             os._exit(1)
 
     args = vars(args)
-
-    # TODO: remove dummy variables once iterative solver ships
-    #missing_keys = ['n_inducing_pts_init', 'interact_cut_off', 'use_cg']
-    #for missing_key in missing_keys:
-    #    if missing_key not in args:
-    #        args[missing_key] = None
 
     _print_splash(args['max_memory'], args['max_processes'], args['use_torch'])
 

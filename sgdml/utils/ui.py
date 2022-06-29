@@ -134,8 +134,10 @@ def callback(
 
     if sec_disp_str is not None:
         w = MAX_PRINT_WIDTH - LOG_LEVELNAME_WIDTH - len(disp_str) - 1
-        #sys.stdout.write(' \x1b[90m{0: >{width}}\x1b[0m'.format(sec_disp_str, width=w))
-        sys.stdout.write(color_str(' {:>{width}}'.format(sec_disp_str, width=w), fore_color=GRAY))
+        # sys.stdout.write(' \x1b[90m{0: >{width}}\x1b[0m'.format(sec_disp_str, width=w))
+        sys.stdout.write(
+            color_str(' {:>{width}}'.format(sec_disp_str, width=w), fore_color=GRAY)
+        )
 
     if is_done and newline_when_done:
         sys.stdout.write('\n')
@@ -159,7 +161,7 @@ def sec_callback(
     if is_toggle:
         sec_disp_str = '{} | {}'.format(disp_str, 'DONE' if is_done else ' .. ')
     else:
-        
+
         # Only show progress in 10 percent steps when not printing to terminal.
         pct = int(float(current) * 100 / total)
         pct = int(np.ceil(pct / 10.0)) * 10 if not sys.stdout.isatty() else pct

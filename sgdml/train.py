@@ -134,7 +134,7 @@ def _assemble_kernel_mat_wkr(
     dim_i = 3 * n_atoms
     n_perms = int(len(tril_perms_lin) / dim_d)
 
-    if type(j) is tuple:  # selective/"fancy" indexing
+    if type(j) is tuple:  # Selective/"fancy" indexing
         (
             K_j,
             j,
@@ -142,7 +142,7 @@ def _assemble_kernel_mat_wkr(
         ) = j  # (block index in final K, block index global, indices of partials within block)
         blk_j = slice(K_j, K_j + len(keep_idxs_3n))
 
-    else:  # sequential indexing
+    else:  # Sequential indexing
         blk_j = slice(j * dim_i, (j + 1) * dim_i)
         keep_idxs_3n = slice(None)  # same as [:]
 
@@ -317,11 +317,10 @@ class GDMLTrain(object):
         n_valid,
         sig,
         lam=1e-10,
-        perms=None,  # TODO: document me, these take priority over the ones in train_dataset and running the matching algorithm
+        perms=None,
         use_sym=True,
         use_E=True,
         use_E_cstr=False,
-        #use_cprsn=False,
         callback=None,  # TODO: document me
     ):
         """
@@ -352,6 +351,11 @@ class GDMLTrain(object):
                 Hyper-parameter (kernel length scale).
             lam : float, optional
                 Hyper-parameter lambda (regularization strength).
+            perms : :obj:`numpy.ndarray`, optional
+                An 2D array of size P x N containing P possible permutations
+                of the N atoms in the system. This argument takes priority over the ones
+                provided in the trainig dataset. No automatic discovery is run when this
+                argument is provided.
             use_sym : bool, optional
                 True: include symmetries (sGDML), False: GDML.
             use_E : bool, optional
@@ -363,6 +367,15 @@ class GDMLTrain(object):
             use_E_cstr : bool, optional
                 True: include energy constraints in the kernel,
                 False: default (s)GDML.
+            callback : callable, optional
+                Progress callback function that takes three
+                arguments:
+                    current : int
+                        Current progress.
+                    total : int
+                        Task size.
+                    done_str : :obj:`str`, optional
+                        Once complete, this string is shown.
 
         Returns
         -------
@@ -450,7 +463,6 @@ class GDMLTrain(object):
             'use_E': use_E,
             'use_E_cstr': use_E_cstr,
             'use_sym': use_sym,
-            #'use_cprsn': use_cprsn,
         }
 
         if use_E:
@@ -476,14 +488,18 @@ class GDMLTrain(object):
             # No permuations provided externally.
             if perms is None:
 
-                if 'perms' in train_dataset: # take perms from training dataset, if available
+                if (
+                    'perms' in train_dataset
+                ):  # take perms from training dataset, if available
 
                     n_perms = train_dataset['perms'].shape[0]
-                    self.log.info('Using {:d} permutations included in dataset.'.format(n_perms))
+                    self.log.info(
+                        'Using {:d} permutations included in dataset.'.format(n_perms)
+                    )
 
                     task['perms'] = train_dataset['perms']
 
-                else: # find perms from scratch
+                else:  # find perms from scratch
 
                     n_train = R_train.shape[0]
                     R_train_sync_mat = R_train
@@ -548,7 +564,7 @@ class GDMLTrain(object):
 
                     # NEW
 
-            else: # use provided perms
+            else:  # use provided perms
 
                 n_atoms = len(task['z'])
                 n_perms, perms_len = perms.shape
@@ -559,7 +575,9 @@ class GDMLTrain(object):
                     )
                 else:
 
-                    self.log.info('Using {:d} externally provided permutations.'.format(n_perms))
+                    self.log.info(
+                        'Using {:d} externally provided permutations.'.format(n_perms)
+                    )
 
                     task['perms'] = perms
 
@@ -568,19 +586,34 @@ class GDMLTrain(object):
                 None, :
             ]  # no symmetries
 
-        # Which atoms can we keep, if we exclude all symmetric ones?
-        #n_perms = task['perms'].shape[0]
-        #if use_cprsn and n_perms > 1:
-
-        #    _, cprsn_keep_idxs = np.unique(
-        #        np.sort(task['perms'], axis=0), axis=1, return_index=True
-        #    )
-
-        #    task['cprsn_keep_atoms_idxs'] = cprsn_keep_idxs
-
         return task
 
+
     def create_task_from_model(self, model, dataset):
+        """
+        Create a data structure of custom type `task` from existing
+        an structure of custom type `model`. This method is used to
+        resume training of unconverged models.
+
+        Any hyperparameter (including all symmetry permutations) in the 
+        provided model file is reused without further optimization. The
+        current linear coeffiecient are used as starting point for the
+        iterative training procedure.
+
+        Parameters
+        ----------
+            model : :obj:`dict`
+                Data structure of custom type :obj:`model` based on which
+                to create the training task.
+            dataset : :obj:`dict`
+                Data structure of custom type :obj:`dataset` containing
+                the original dataset from which the provided model emerged.
+
+        Returns
+        -------
+            dict
+                Data structure of custom type :obj:`task`.
+        """
 
         idxs_train = model['idxs_train']
         R_train = dataset['R'][idxs_train, :, :]
@@ -608,7 +641,6 @@ class GDMLTrain(object):
             'use_E_cstr': use_E_cstr,
             'use_sym': use_sym,
             'perms': model['perms'],
-            #'use_cprsn': model['use_cprsn'],
         }
 
         if use_E:
@@ -620,9 +652,6 @@ class GDMLTrain(object):
         if 'r_unit' in model and 'e_unit' in model:
             task['r_unit'] = model['r_unit']
             task['e_unit'] = model['e_unit']
-
-        # if 'P_t' in model:
-        #    task['P_t'] = model['P_t']
 
         if 'alphas_F' in model:
             task['alphas0_F'] = model['alphas_F']
@@ -649,6 +678,49 @@ class GDMLTrain(object):
         alphas_F,
         alphas_E=None,
     ):
+        """
+        Create a data structure of custom type `model`.
+
+        These data structures contain the trained model are everything
+        that is needed to generate predictions for new inputs.
+
+        Each task also contains the MD5 fingerprints of the used datasets.
+
+        Parameters
+        ----------
+            task : :obj:`dict`
+                Data structure of custom type :obj:`task` from which
+                the model emerged.
+            solver : :obj:`str`
+                Identifier string for the solver that has been used to
+                train this model.
+            R_desc : :obj:`numpy.ndarray`, optional
+                    An 2D array of size M x D containing the
+                    descriptors of dimension D for M
+                    molecules.
+            R_d_desc : :obj:`numpy.ndarray`, optional
+                    A 2D array of size M x D x 3N containing of the
+                    descriptor Jacobians for M molecules. The descriptor
+                    has dimension D with 3N partial derivatives with
+                    respect to the 3N Cartesian coordinates of each atom.
+            tril_perms_lin : :obj:`numpy.ndarray`
+                1D array containing all recovered permutations
+                expanded as one large permutation to be applied to a
+                tiled copy of the object to be permuted.
+            std : float
+                Standard deviation of the training labels.
+            alphas_F : :obj:`numpy.ndarray`
+                    A 1D array of size 3NM containing of the linear
+                    coefficients that correspond to the force constraints.
+            alphas_E : :obj:`numpy.ndarray`, optional
+                    A 1D array of size N containing of the linear
+                    coefficients that correspond to the energy constraints.
+
+        Returns
+        -------
+            dict
+                Data structure of custom type :obj:`model`.
+        """
 
         n_train, dim_d = R_d_desc.shape[:2]
         n_atoms = int((1 + np.sqrt(8 * dim_d + 1)) / 2)
@@ -657,22 +729,6 @@ class GDMLTrain(object):
             n_atoms,
             max_processes=self._max_processes,
         )
-
-        #if 'cprsn_keep_atoms_idxs' in task:
-        #    cprsn_keep_idxs = task['cprsn_keep_atoms_idxs']
-
-        #    R_d_desc_full = desc.d_desc_from_comp(R_d_desc).reshape(
-        #        n_train, dim_d, n_atoms, 3
-        #    )
-        #    R_d_desc_full = R_d_desc_full[:, :, cprsn_keep_idxs, :].reshape(
-        #        n_train, dim_d, -1
-        #    )
-
-        #    R_d_desc_alpha = np.einsum(
-        #        'kji,ki->kj', R_d_desc_full, alphas_F.reshape(n_train, -1)
-        #    )
-
-        #else:
 
         dim_i = desc.dim_i
         R_d_desc_alpha = desc.d_desc_dot_vec(R_d_desc, alphas_F.reshape(-1, dim_i))
@@ -701,7 +757,6 @@ class GDMLTrain(object):
             'perms': task['perms'],
             'tril_perms_lin': tril_perms_lin,
             'use_E': task['use_E'],
-            #'use_cprsn': task['use_cprsn'],
         }
 
         if task['use_E']:
@@ -724,7 +779,6 @@ class GDMLTrain(object):
     def train(  # noqa: C901
         self,
         task,
-        #cprsn_callback=None,
         save_progr_callback=None,  # TODO: document me
         callback=None,
     ):
@@ -804,7 +858,7 @@ class GDMLTrain(object):
                 )
 
             # # TODO: check if all atoms are within unit cell
-            #for r in task['R_train']:
+            # for r in task['R_train']:
             #    r_lat = lat_and_inv[1].dot(r.T)
             #    if not (r_lat >= 0).all():
             #         raise ValueError( # TODO: Document me
@@ -818,7 +872,9 @@ class GDMLTrain(object):
             lat_and_inv=lat_and_inv,
             callback=partial(
                 callback, disp_str='Generating descriptors and their Jacobians'
-            ) if callback is not None else None,
+            )
+            if callback is not None
+            else None,
         )
 
         # Generate label vector.
@@ -857,8 +913,7 @@ class GDMLTrain(object):
             self.log.debug('Iterative solver not installed.')
             use_analytic_solver = True
 
-
-        #use_analytic_solver = False # remove me!
+        # use_analytic_solver = False # remove me!
 
         if use_analytic_solver:
 
@@ -1038,14 +1093,13 @@ class GDMLTrain(object):
         )[0][0]
         corrcoef = np.corrcoef(E_ref, E_pred)[0, 1]
 
-
-        #import matplotlib.pyplot as plt
-        #sidx = np.argsort(E_ref)
-        #plt.plot(E_ref[sidx])
-        #c = np.sum(E_ref - E_pred) / E_ref.shape[0]
-        #plt.plot(E_pred[sidx]+c)
-        #plt.show()
-        #sys.exit()
+        # import matplotlib.pyplot as plt
+        # sidx = np.argsort(E_ref)
+        # plt.plot(E_ref[sidx])
+        # c = np.sum(E_ref - E_pred) / E_ref.shape[0]
+        # plt.plot(E_pred[sidx]+c)
+        # plt.show()
+        # sys.exit()
 
         # import matplotlib.pyplot as plt
         # sidx = np.argsort(F_ref)
@@ -1136,7 +1190,7 @@ class GDMLTrain(object):
         desc,  # TODO: document me
         use_E_cstr=False,
         col_idxs=np.s_[:],  # TODO: document me
-        alloc_extra_rows=0, # TODO: document me
+        alloc_extra_rows=0,  # TODO: document me
         callback=None,
     ):
         r"""
@@ -1281,7 +1335,7 @@ class GDMLTrain(object):
                     'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
                 )
 
-            K = np.empty((K_n_rows+alloc_extra_rows, K_n_cols))
+            K = np.empty((K_n_rows + alloc_extra_rows, K_n_cols))
 
             if J is not list:
                 J = list(J)
@@ -1341,8 +1395,8 @@ class GDMLTrain(object):
 
             return K
 
-        K = mp.RawArray('d', (K_n_rows+alloc_extra_rows) * K_n_cols)
-        glob['K'], glob['K_shape'] = K, (K_n_rows+alloc_extra_rows, K_n_cols)
+        K = mp.RawArray('d', (K_n_rows + alloc_extra_rows) * K_n_cols)
+        glob['K'], glob['K_shape'] = K, (K_n_rows + alloc_extra_rows, K_n_cols)
         glob['R_desc'], glob['R_desc_shape'] = _share_array(R_desc, 'd')
         glob['R_d_desc'], glob['R_d_desc_shape'] = _share_array(R_d_desc, 'd')
 
@@ -1392,8 +1446,8 @@ class GDMLTrain(object):
         glob.pop('R_desc', None)
         glob.pop('R_d_desc', None)
 
-        #return np.frombuffer(K).reshape(glob['K_shape'])
-        return np.frombuffer(K).reshape((K_n_rows+alloc_extra_rows), K_n_cols)
+        # return np.frombuffer(K).reshape(glob['K_shape'])
+        return np.frombuffer(K).reshape((K_n_rows + alloc_extra_rows), K_n_cols)
 
     def draw_strat_sample(self, T, n, excl_idxs=None):
         """

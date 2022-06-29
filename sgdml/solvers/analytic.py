@@ -44,8 +44,8 @@ class Analytic(object):
 
         self.callback = callback
 
-    #from memory_profiler import profile
-    #@profile
+    # from memory_profiler import profile
+    # @profile
     def solve(self, task, R_desc, R_d_desc, tril_perms_lin, y):
 
         sig = task['sig']
@@ -55,22 +55,6 @@ class Analytic(object):
         n_train, dim_d = R_d_desc.shape[:2]
         n_atoms = int((1 + np.sqrt(8 * dim_d + 1)) / 2)
         dim_i = 3 * n_atoms
-
-        # Compress kernel based on symmetries
-        col_idxs = np.s_[:]
-        if 'cprsn_keep_atoms_idxs' in task:
-
-            cprsn_keep_idxs = task['cprsn_keep_atoms_idxs']
-            cprsn_keep_idxs_lin = (
-                np.arange(dim_i).reshape(n_atoms, -1)[cprsn_keep_idxs, :].ravel()
-            )
-
-            # if cprsn_callback is not None:
-            #    cprsn_callback(n_atoms, cprsn_keep_idxs.shape[0])
-
-            col_idxs = (
-                cprsn_keep_idxs_lin[:, None] + np.arange(n_train) * dim_i
-            ).T.ravel()
 
         if self.callback is not None:
             self.callback = partial(
@@ -85,26 +69,8 @@ class Analytic(object):
             sig,
             self.desc,
             use_E_cstr=use_E_cstr,
-            col_idxs=col_idxs,
             callback=self.callback,
-        ) # flip sign to make convex
-
-
-
-
-
-        #import matplotlib.pyplot as plt
-
-        #plt.imshow(K, cmap='PiYG', interpolation='nearest')
-        #plt.show()
-
-        #print('analytic!')
-
-        #sys.exit()
-
-
-
-
+        )  # Flip sign to make convex
 
         start = timeit.default_timer()
 
@@ -113,73 +79,7 @@ class Analytic(object):
 
             if K.shape[0] == K.shape[1]:
 
-                K[np.diag_indices_from(K)] += lam  # regularize
-
-
-                # def block_view(A, block=(3, 3)):
-                #     """Provide a 2D block view to 2D array. No error checking made.
-                #     Therefore meaningful (as implemented) only for blocks strictly
-                #     compatible with the shape of A."""
-                #     # simple shape and strides computations may seem at first strange
-                #     # unless one is able to recognize the 'tuple additions' involved ;-)
-
-                #     shape = (A.shape[0] // block[0], A.shape[1] // block[1]) + block
-                #     strides = (block[0] * A.strides[0], block[1] * A.strides[1]) + A.strides
-                #     return np.lib.stride_tricks.as_strided(A, shape=shape, strides=strides)
-
-
-                # # NEW
-
-                # K_stripped = np.zeros(K.shape)
-
-                # K_blocked = block_view(K)
-
-
-                # #k_atom = np.zeros((n_train*3, n_train*3))
-                # #y_atom = np.zeros((n_train*3,))
-               
-
-                # K_stripped_blocked = block_view(K_stripped)
-
-
-
-                # for a in range(n_atoms):
-                #     K_stripped_blocked[a::n_atoms, a::n_atoms] = K_blocked[a::n_atoms, a::n_atoms]
-
-                # #for a in range(n_atoms):
-                # #    for i in range(3):
-                #         #k_atom[i::3, i::3] = K[i::(n_atoms*3), i::(n_atoms*3)]
-                #         #y_atom[i::3] = y[i::(n_atoms*3)]
-
-
-
-                #         #for j in range(3):
-                #         #    K_stripped[(a*3+i)::(n_atoms*3), (a*3+j)] = K[(a*3+i)::(n_atoms*3), (a*3+j)]
-
-
-                # #import matplotlib.pyplot as plt
-
-                # #plt.imshow(np.abs(K_stripped), cmap='PiYG')
-                # #plt.colorbar()
-                # #plt.show()
-
-                # K = K_stripped
-
-                # #a_atom = np.linalg.solve(-k_atom, y_atom)
-
-                # L, lower = sp.linalg.cho_factor(
-                #     -k_atom, overwrite_a=True, check_finite=False
-                # )
-                # a_atom = -sp.linalg.cho_solve(
-                #     (L, lower), y_atom, overwrite_b=True, check_finite=False
-                # )
-
-                # print(a_atom)
-
-                #Kop = K.copy()
-                #yop = y.copy()
-
-                # NEW
+                K[np.diag_indices_from(K)] += lam  # Regularize
 
                 if self.callback is not None:
                     self.callback = partial(
@@ -192,13 +92,13 @@ class Analytic(object):
 
                     # Cholesky (do not overwrite K in case we need to retry)
                     L, lower = sp.linalg.cho_factor(
-                        K, overwrite_a=False, check_finite=False 
+                        K, overwrite_a=False, check_finite=False
                     )
                     alphas = -sp.linalg.cho_solve(
                         (L, lower), y, overwrite_b=False, check_finite=False
                     )
 
-                except np.linalg.LinAlgError:  # try a solver that makes less assumptions
+                except np.linalg.LinAlgError:  # Try a solver that makes less assumptions
 
                     if self.callback is not None:
                         self.callback = partial(
@@ -234,7 +134,7 @@ class Analytic(object):
                     )
                     self.callback(NOT_DONE)
 
-                # least squares for non-square K
+                # Least squares for non-square K
                 alphas = -np.linalg.lstsq(K, y, rcond=-1)[0]
 
         stop = timeit.default_timer()
@@ -253,7 +153,7 @@ class Analytic(object):
     @staticmethod
     def est_memory_requirement(n_train, n_atoms):
 
-        est_bytes = 3 * (n_train * 3 * n_atoms) ** 2 * 8 # K + factor(s) of K
-        est_bytes += (n_train * 3 * n_atoms) * 8 # alpha
+        est_bytes = 3 * (n_train * 3 * n_atoms) ** 2 * 8  # K + factor(s) of K
+        est_bytes += (n_train * 3 * n_atoms) * 8  # alpha
 
         return est_bytes

@@ -381,25 +381,25 @@ class GDMLTorchPredict(nn.Module):
 
         # Check dublicates in permutation list.
         if model['perms'].shape[0] != np.unique(model['perms'], axis=0).shape[0]:
-            self._log.warning(
-                'Model contains dublicate permutations'
-            )
+            self._log.warning('Model contains dublicate permutations')
 
         # Find index of identify permutation.
-        self.idx_id_perm = np.where((model['perms'] == np.arange(self.n_atoms)).all(axis=1))[0]
+        self.idx_id_perm = np.where(
+            (model['perms'] == np.arange(self.n_atoms)).all(axis=1)
+        )[0]
 
         # No identity permutation found.
         if len(self.idx_id_perm) == 0:
-            self._log.critical(
-                'Identity permutation is missing!'
-            )
+            self._log.critical('Identity permutation is missing!')
             print()
             os._exit(1)
 
         # Identity permutation not at index zero.
         if len(self.idx_id_perm) > 0 and self.idx_id_perm[0] != 0:
             self._log.debug(
-                'Identity is not at first position in permutation list (found at index {})'.format(self.idx_id_perm[0])
+                'Identity is not at first position in permutation list (found at index {})'.format(
+                    self.idx_id_perm[0]
+                )
             )
 
         self.idx_id_perm = self.idx_id_perm[0]
@@ -411,7 +411,7 @@ class GDMLTorchPredict(nn.Module):
         self.tril_indices = np.tril_indices(self.n_atoms, k=-1)
 
         self.R_d_desc = None
-        #self._xs_Jxs_train = None
+        # self._xs_Jxs_train = None
 
         if torch.cuda.is_available():  # Ignore limits and take whatever the GPU has.
             max_memory = (
@@ -535,7 +535,9 @@ class GDMLTorchPredict(nn.Module):
 
     def remove_perms_from_obj(self, xs):
 
-        return xs.reshape(self.n_train, -1, self.dim_d)[:, self.idx_id_perm, :].reshape(-1, self.dim_d)
+        return xs.reshape(self.n_train, -1, self.dim_d)[:, self.idx_id_perm, :].reshape(
+            -1, self.dim_d
+        )
 
     def uncache_perms(self):
 
@@ -757,7 +759,7 @@ class GDMLTorchPredict(nn.Module):
 
     def _forward(self, Rs_or_train_idxs, return_E=True):
 
-        #import scipy as sp
+        # import scipy as sp
 
         q = np.sqrt(5) / self._sig
         i, j = self.tril_indices
@@ -796,7 +798,7 @@ class GDMLTorchPredict(nn.Module):
             xs = self._xs_train.reshape(self.n_train, -1, self.dim_d)[
                 train_idxs, self.idx_id_perm, :
             ]  # ignore permutations
-            
+
             Jxs = self.R_d_desc[train_idxs, :, :]
 
         # current:
@@ -861,7 +863,6 @@ class GDMLTorchPredict(nn.Module):
             # my_expr = oe.contract_expression("ij,ijl,jl,ijk->ik", (5, 140), (5, 140, 68265), (140, 68265), (5, 140, 68265))
             # Fs_x = Fs_x + my_expr(exp_xs, x_diffs, Jx_alphas_perm_split, x_diffs, backend='torch')
             # print(my_expr)
-
 
             # import opt_einsum as oe
 
@@ -957,12 +958,9 @@ class GDMLTorchPredict(nn.Module):
 
         else:
             # unknown input
-            self._log.critical(
-                'Invalid input for \'Rs_or_train_idxs\'.'
-            )
+            self._log.critical('Invalid input for \'Rs_or_train_idxs\'.')
             print()
             os._exit(1)
-
 
         # if Rs is not None:
         #     assert Rs.dim() == 3
@@ -973,7 +971,7 @@ class GDMLTorchPredict(nn.Module):
         # else:
         #     dtype = self.R_d_desc.dtype
 
-        #xs_Jxs_train = self._xs_Jxs_train if Rs is None else Rs
+        # xs_Jxs_train = self._xs_Jxs_train if Rs is None else Rs
 
         while True:
             try:

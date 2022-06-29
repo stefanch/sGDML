@@ -836,8 +836,6 @@ class GDMLPredict(object):
 
             num_workers, chunk_size, bulk_mp, gps = bmark_result
 
-            # print(bmark_result)
-
             self._set_chunk_size(chunk_size)
             self._set_num_workers(num_workers)
             self._set_bulk_mp(bulk_mp)
@@ -893,7 +891,6 @@ class GDMLPredict(object):
                 )
                 chunk_size_rng = list(range(min_chunk_size, 0, -1))
 
-                # for i in range(0,min_batch_size):
                 chunk_size_rng_sizes = [
                     chunk_size
                     for chunk_size in chunk_size_rng

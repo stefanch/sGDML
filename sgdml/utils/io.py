@@ -165,7 +165,7 @@ def train_dir_name(dataset, n_train, use_sym, use_E, use_E_cstr):
     theory_level_str = re.sub(r'\.\.', '.', theory_level_str)
 
     sym_str = '-sym' if use_sym else ''
-    #cprsn_str = '-cprsn' if use_cprsn else ''
+    # cprsn_str = '-cprsn' if use_cprsn else ''
     noE_str = '-noE' if not use_E else ''
     Ecstr_str = '-Ecstr' if use_E_cstr else ''
 
@@ -174,7 +174,7 @@ def train_dir_name(dataset, n_train, use_sym, use_E, use_E_cstr):
         theory_level_str,
         n_train,
         sym_str,
-        #cprsn_str,
+        # cprsn_str,
         noE_str,
         Ecstr_str,
     )
