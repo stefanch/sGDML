@@ -239,7 +239,9 @@ def _print_dataset_properties(dataset, title_str='Dataset properties'):
     print(cutline_str)
 
 
-def _print_task_properties_reduced(use_sym, use_E, use_E_cstr, title_str='Task properties'):
+def _print_task_properties_reduced(
+    use_sym, use_E, use_E_cstr, title_str='Task properties'
+):
 
     print(ui.color_str(title_str, bold=True))
 
@@ -316,25 +318,25 @@ def _print_task_properties(task, title_str='Task properties'):
         'from \'' + ui.unicode_str(task['md5_valid']) + '\'',
     )
 
-    #print('  {:<18}'.format('Estimated memory requirement (min.)'))
+    # print('  {:<18}'.format('Estimated memory requirement (min.)'))
 
-    #mem_kernel_mat_const = 0
-    #mem_precond_const = 0
-    #print(
+    # mem_kernel_mat_const = 0
+    # mem_precond_const = 0
+    # print(
     #    '    {:<16} {}'.format(
     #        'CPU:', ui.gen_memory_str(mem_kernel_mat_const + mem_precond_const)
     #    )
-    #)
+    # )
     # print('      {:<14} {}'.format('Kernel matrix:', ui.gen_memory_str(mem_kernel_mat_const))
     # print('      {:<14} {}'.format('Precond. factor:', ui.gen_memory_str(mem_precond_const)))
 
-    #mem_torch_assemble = 0
-    #mem_torch_eval = 0
-    #print(
+    # mem_torch_assemble = 0
+    # mem_torch_eval = 0
+    # print(
     #    '    {:<16} {}'.format(
     #        'GPU:', ui.gen_memory_str(mem_torch_assemble + mem_torch_eval)
     #    )
-    #)
+    # )
     # print('      {:<14} {}'.format('Kernel matrix assembly:', ui.gen_memory_str(mem_torch_assemble)))
     # print('      {:<14} {}'.format('Model evaluation:', ui.gen_memory_str(mem_torch_eval)))
 
@@ -525,6 +527,7 @@ def all(
     gdml,
     use_E,
     use_E_cstr,
+    lazy_training,
     overwrite,
     max_memory,
     max_processes,
@@ -595,6 +598,7 @@ def all(
     model_dir_or_file_path = train(
         task_dir_arg,
         valid_dataset,
+        lazy_training,
         overwrite,
         max_memory,
         max_processes,
@@ -606,10 +610,25 @@ def all(
         model_dir_or_file_path, 'model', or_file=True
     )
 
+    _, model_file_names = model_dir_arg
+    if len(model_file_names) == 0:
+        raise AssistantError(
+            'No trained models found!'
+            + ('\nTry turning turning off \'--lazy\'-mode.' if lazy_training else '')
+        )
+
     ui.print_step_title('STEP 3', 'Hyper-parameter selection')
     model_file_name = select(
         model_dir_arg, overwrite, max_memory, max_processes, model_file, **kwargs
     )
+
+    # Have all tasks been trained?
+    _, task_file_names = task_dir_arg
+    if len(task_file_names) > len(model_file_names):
+        log.warning(
+            'Not all training tasks have been completed! The model selected here might not be optimal.'
+            + ('\nTry turning turning off \'--lazy\'-mode.' if lazy_training else '')
+        )
 
     ui.print_step_title('STEP 4', 'Testing')
     model_dir_arg = io.is_dir_with_file_type(model_file_name, 'model', or_file=True)
@@ -818,7 +837,7 @@ def create(  # noqa: C901
         task_path = os.path.join(task_dir, task_file_name)
 
         if os.path.isfile(task_path):
-            log.warning('Skipping existing task \'{}\'.'.format(task_file_name))
+            log.info('Skipping existing task \'{}\'.'.format(task_file_name))
         else:
             np.savez_compressed(task_path, **tmpl_task)
             n_written += 1
@@ -838,6 +857,7 @@ def create(  # noqa: C901
 def train(
     task_dir,
     valid_dataset,
+    lazy_training,
     overwrite,
     max_memory,
     max_processes,
@@ -893,9 +913,14 @@ def train(
             model_file_name = io.model_file_name(task, is_extended=False)
             model_file_path = os.path.join(task_dir, model_file_name)
 
-            if not overwrite and os.path.isfile(model_file_path):
-                log.warning(
-                    'Skipping exising model \'{}\'.'.format(model_file_name)
+            # is_conv = True
+            # valid_errs = None
+            # is_model_validated = False
+            if not overwrite and os.path.isfile(
+                model_file_path
+            ):  # Train model found, validate if necessary
+                log.info(
+                    'Model \'{}\' already exists.'.format(model_file_name)
                     + (
                         '\nRun \'{} train -o {}\' to overwrite.'.format(
                             PACKAGE_NAME, task_file_path
@@ -904,71 +929,125 @@ def train(
                         else ''
                     )
                 )
-                continue
 
-            n_train, n_atoms = task['R_train'].shape[:2]
+                model_path = os.path.join(task_dir, model_file_name)
+                _, model = io.is_file_type(model_path, 'model')
 
-            unconv_model_file = '_unconv_{}'.format(model_file_name)
-            unconv_model_path = os.path.join(task_dir, unconv_model_file)
+                e_err = {'mae': 0.0, 'rmse': 0.0}
+                if model['use_E']:
+                    e_err = model['e_err'].item()
+                f_err = model['f_err'].item()
 
-            try:
-                model = gdml_train.train(
-                    task,
-                    partial(save_progr_callback, unconv_model_path=unconv_model_path),
-                    ui.callback,
+                is_conv = True
+                if 'solver_resid' in model:
+                    is_conv = (
+                        model['solver_resid']
+                        <= model['solver_tol'] * model['norm_y_train']
+                    )
+
+                is_model_validated = not (
+                    np.isnan(f_err['mae']) or np.isnan(f_err['rmse'])
                 )
-            except:
-                print()
-                log.critical(traceback.format_exc())
-                print()
-                os._exit(1)
-            else:
-                if func_called_directly:
-                    log.done('Writing model to file \'{}\''.format(model_file_path))
-                np.savez_compressed(model_file_path, **model)
+                if is_model_validated:
 
-                # Delete temporary model, if one exists.
-                unconv_model_exists = os.path.isfile(unconv_model_path)
-                if unconv_model_exists:
-                    os.remove(unconv_model_path)
+                    disp_str = (
+                        'energy %.3f/%.3f, ' % (e_err['mae'], e_err['rmse'])
+                        if model['use_E']
+                        else ''
+                    )
+                    disp_str += 'forces %.3f/%.3f' % (f_err['mae'], f_err['rmse'])
+                    disp_str = 'Validation errors (MAE/RMSE): ' + disp_str
+                    ui.callback(1, 1, disp_str=disp_str)
 
-                # Delete template model, if one exists.
-                # templ_model_path = os.path.join(task_dir, 'm0.npz')
-                # templ_model_exists = os.path.isfile(templ_model_path)
-                # if templ_model_exists:
-                #    os.remove(templ_model_path)
+                    valid_errs = [f_err['rmse']]
 
-            # Validate model.
-            model_dir = (task_dir, [model_file_name])
-            valid_errs = test(
-                model_dir,
-                valid_dataset,
-                -1,  # n_test = -1 -> validation mode
-                overwrite,
-                max_memory,
-                max_processes,
-                use_torch,
-                command,
-                **kwargs
-            )
+            else:  # Train and validate model
 
-            if valid_errs is None: # Only one model found, i.e. there is nothing to validate.
-                break
+                # Check if training this task has been attempted before.
+                if lazy_training and n_tasks > 1:
+                    if 'tried_training' in task and task['tried_training']:
+                        log.warning(
+                            'Skipping task, because it has been tried before (without success).'
+                        )
+                        continue
 
-            is_conv = True
-            if 'solver_resid' in model:
-                is_conv = (
-                    model['solver_resid'] <= model['solver_tol'] * model['norm_y_train']
+                # Record in task file that there was a training attempt.
+                task = dict(task)
+                task['tried_training'] = True
+                np.savez_compressed(task_file_path, **task)
+
+                n_train, n_atoms = task['R_train'].shape[:2]
+
+                unconv_model_file = '_unconv_{}'.format(model_file_name)
+                unconv_model_path = os.path.join(task_dir, unconv_model_file)
+
+                try:
+                    model = gdml_train.train(
+                        task,
+                        partial(
+                            save_progr_callback, unconv_model_path=unconv_model_path
+                        ),
+                        ui.callback,
+                    )
+                except:
+                    print()
+                    log.critical(traceback.format_exc())
+                    print()
+                    os._exit(1)
+                else:
+                    if func_called_directly:
+                        log.done('Writing model to file \'{}\''.format(model_file_path))
+                    np.savez_compressed(model_file_path, **model)
+
+                    # Delete temporary model, if one exists.
+                    unconv_model_exists = os.path.isfile(unconv_model_path)
+                    if unconv_model_exists:
+                        os.remove(unconv_model_path)
+
+                is_model_validated = False
+
+            if not is_model_validated:
+
+                if (
+                    n_tasks == 1
+                ):  # Only validate if there is more than one training task.
+                    log.info(
+                        'Skipping validation step as there is only one model to validate.'
+                    )
+                    break
+
+                # Validate model.
+                model_dir = (task_dir, [model_file_name])
+                valid_errs = test(
+                    model_dir,
+                    valid_dataset,
+                    -1,  # n_test = -1 -> validation mode
+                    overwrite,
+                    max_memory,
+                    max_processes,
+                    use_torch,
+                    command,
+                    **kwargs
                 )
+
+                # if valid_errs is None: # Only one model found, i.e. there is nothing to validate.
+                #    break
+
+                is_conv = True
+                if 'solver_resid' in model:
+                    is_conv = (
+                        model['solver_resid']
+                        <= model['solver_tol'] * model['norm_y_train']
+                    )
+
             has_converged_once = has_converged_once or is_conv
-
             if (
                 has_converged_once
                 and prev_valid_err != -1
                 and prev_valid_err < valid_errs[0]
             ):
                 print()
-                log.warning(
+                log.info(
                     'Skipping remaining training tasks, as validation error is rising again.'
                 )
                 break
@@ -1171,10 +1250,6 @@ def test(
     is_validation = n_test < 0
     is_test = n_test >= 0
 
-    if (is_validation and n_models == 1):  # validation mode with only one model to validate
-        log.warning('Skipping validation step as there is only one model to validate.')
-        return
-
     dataset_path, dataset = test_dataset
 
     func_called_directly = (
@@ -1246,7 +1321,7 @@ def test(
 
         if is_validation:
             if is_model_validated and not overwrite:
-                log.warning(
+                log.info(
                     'Skipping already validated model \'{}\'.'.format(model_file_name)
                     + (
                         '\nRun \'{} validate -o {} {}\' to overwrite.'.format(
@@ -1687,12 +1762,10 @@ def select(
             model.close()
 
         if any_model_not_validated:
-            log.error(
-                'One or more models in the given directory have not been validated yet.\n'
-                + 'This is required before selecting the best performer.'
+            log.warning(
+                'One or more models in the given directory have not been validated.'
             )
             print()
-            os._exit(1)
 
         if any_model_is_tested:
             log.error(
@@ -1733,9 +1806,7 @@ def select(
             )
 
     else:  # only one model available
-        log.warning(
-            'Skipping model selection step as there is only one model to select.'
-        )
+        log.info('Skipping model selection step as there is only one model to select.')
 
         best_idx = 0
 
@@ -1984,6 +2055,14 @@ def main():
             dest='use_E_cstr',
             action='store_true',
             help='include the energy constraints in the kernel',
+        )
+
+    for subparser in [parser_all, parser_train]:
+        subparser.add_argument(
+            '--lazy',
+            dest='lazy_training',
+            action='store_true',
+            help='give up on unfinished tasks (if more than one)',
         )
 
     for subparser in [parser_valid, parser_test]:

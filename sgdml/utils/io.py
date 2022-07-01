@@ -561,10 +561,10 @@ def is_dir_with_file_type(arg, type, or_file=False):
 
         file_names = filter_file_type(arg, type)
 
-        if not len(file_names):
-            raise argparse.ArgumentTypeError(
-                '{0} contains no {1} files'.format(arg, type)
-            )
+        # if not len(file_names):
+        #    raise argparse.ArgumentTypeError(
+        #        '{0} contains no {1} files'.format(arg, type)
+        #    )
 
         return arg, file_names
 

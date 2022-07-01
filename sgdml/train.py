@@ -588,14 +588,13 @@ class GDMLTrain(object):
 
         return task
 
-
     def create_task_from_model(self, model, dataset):
         """
         Create a data structure of custom type `task` from existing
         an structure of custom type `model`. This method is used to
         resume training of unconverged models.
 
-        Any hyperparameter (including all symmetry permutations) in the 
+        Any hyperparameter (including all symmetry permutations) in the
         provided model file is reused without further optimization. The
         current linear coeffiecient are used as starting point for the
         iterative training procedure.

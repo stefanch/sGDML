@@ -285,7 +285,6 @@ class Desc(object):
 
         self.max_processes = max_processes
 
-
     def from_R(self, R, lat_and_inv=None, max_processes=None, callback=None):
         """
         Generate descriptor and its Jacobian for multiple molecular geometries
@@ -365,7 +364,6 @@ class Desc(object):
 
         return R_desc, R_d_desc
 
-
     # Multiplies descriptor(s) jacobian with 3N-vector(s) from the right side
     def d_desc_dot_vec(self, R_d_desc, vecs, overwrite_vecs=False):
 
@@ -385,7 +383,6 @@ class Desc(object):
             einsum = torch.einsum
 
         return einsum('...ij,...ij->...i', R_d_desc, vecs[:, j, :] - vecs[:, i, :])
-
 
     # Multiplies descriptor(s) jacobian with N(N-1)/2-vector(s) from the left side
     def vec_dot_d_desc(self, R_d_desc, vecs, out=None):
