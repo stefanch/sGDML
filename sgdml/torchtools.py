@@ -759,8 +759,6 @@ class GDMLTorchPredict(nn.Module):
 
     def _forward(self, Rs_or_train_idxs, return_E=True):
 
-        # import scipy as sp
-
         q = np.sqrt(5) / self._sig
         i, j = self.tril_indices
 
@@ -795,8 +793,12 @@ class GDMLTorchPredict(nn.Module):
 
             train_idxs = Rs_or_train_idxs
 
+            # Get index of identity permutation, depending on caching configuration.
+            xs_train_n_perms = self._xs_train.numel() // (self.n_train * self.dim_d)
+            idx_id_perm = 0 if xs_train_n_perms == 1 else self.idx_id_perm
+
             xs = self._xs_train.reshape(self.n_train, -1, self.dim_d)[
-                train_idxs, self.idx_id_perm, :
+                train_idxs, idx_id_perm, :
             ]  # ignore permutations
 
             Jxs = self.R_d_desc[train_idxs, :, :]
