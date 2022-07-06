@@ -110,30 +110,30 @@ def _pdist(r, lat_and_inv=None):
     return sp.spatial.distance.squareform(pdist, checks=False)[tril_idxs]
 
 
-# def _squareform(vec_or_mat):
+def _squareform(vec_or_mat):
 
-#     # vector to matrix representation
-#     if vec_or_mat.ndim == 1:
+    # vector to matrix representation
+    if vec_or_mat.ndim == 1:
 
-#         n_tril = vec_or_mat.size
-#         n = int((1 + np.sqrt(8 * n_tril + 1)) / 2)
+        n_tril = vec_or_mat.size
+        n = int((1 + np.sqrt(8 * n_tril + 1)) / 2)
 
-#         i, j = np.tril_indices(n, k=-1)
+        i, j = np.tril_indices(n, k=-1)
 
-#         mat = np.zeros((n, n))
-#         mat[i, j] = vec_or_mat
-#         mat[j, i] = vec_or_mat
+        mat = np.zeros((n, n))
+        mat[i, j] = vec_or_mat
+        mat[j, i] = vec_or_mat
 
-#         return mat
+        return mat
 
-#     else:  # matrix to vector
+    else:  # matrix to vector
 
-#         assert vec_or_mat.shape[0] == vec_or_mat.shape[1]  # matrix is square
+        assert vec_or_mat.shape[0] == vec_or_mat.shape[1]  # matrix is square
 
-#         n = vec_or_mat.shape[0]
-#         i, j = np.tril_indices(n, k=-1)
+        n = vec_or_mat.shape[0]
+        i, j = np.tril_indices(n, k=-1)
 
-#         return vec_or_mat[i, j]
+        return vec_or_mat[i, j]
 
 
 def _r_to_desc(r, pdist):
