@@ -586,8 +586,6 @@ def all(
         use_E,
         use_E_cstr,
         overwrite,
-        max_memory,
-        max_processes,
         task_dir,
         perms_from_arg=perms_from_arg,
         **kwargs
@@ -619,7 +617,7 @@ def all(
 
     ui.print_step_title('STEP 3', 'Hyper-parameter selection')
     model_file_name = select(
-        model_dir_arg, overwrite, max_memory, max_processes, model_file, **kwargs
+        model_dir_arg, overwrite, model_file, **kwargs
     )
 
     # Have all tasks been trained?
@@ -663,8 +661,6 @@ def create(  # noqa: C901
     use_E,
     use_E_cstr,
     overwrite,
-    max_memory,
-    max_processes,
     task_dir=None,
     perms_from_arg=None,
     command=None,
@@ -810,7 +806,9 @@ def create(  # noqa: C901
                     'Provided permutation file does not contain any (looking for \'perms\'-key).'
                 )
 
-        gdml_train = GDMLTrain(max_memory=max_memory, max_processes=max_processes)
+        gdml_train = (
+            GDMLTrain()
+        )  # No process number of memory restrictions necessary here.
         try:
             tmpl_task = gdml_train.create_task(
                 dataset,
@@ -1692,15 +1690,7 @@ def test(
     return F_rmse
 
 
-def select(
-    model_dir,
-    overwrite,
-    max_memory,
-    max_processes,
-    model_file=None,
-    command=None,
-    **kwargs
-):  # noqa: C901
+def select(model_dir, overwrite, model_file=None, command=None, **kwargs):  # noqa: C901
 
     func_called_directly = (
         command == 'select'
@@ -1843,7 +1833,7 @@ def select(
     return model_file
 
 
-def show(file, overwrite, max_memory, max_processes, command=None, **kwargs):
+def show(file, command=None, **kwargs):
 
     ui.print_step_title('SHOW DETAILS')
     file_path, file = file
@@ -1899,6 +1889,10 @@ def main():
             help='path to %s directory%s' % (type, ' or file' if or_file else ''),
         )
 
+    # Available resources
+    total_memory = psutil.virtual_memory().total // 2 ** 30
+    total_cpus = mp.cpu_count()
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--version',
@@ -1914,48 +1908,12 @@ def main():
     )
 
     parent_parser = argparse.ArgumentParser(add_help=False)
-    parent_parser.add_argument(
-        '-o',
-        '--overwrite',
-        dest='overwrite',
-        action='store_true',
-        help='overwrite existing files',
-    )
-
-    total_memory = psutil.virtual_memory().total // 2 ** 30
-    parent_parser.add_argument(
-        '-m',
-        '--max_memory',
-        metavar='<max_memory>',
-        type=int,
-        help='limit memory usage (whenever possible) [GB]',
-        choices=range(1, total_memory + 1),
-        default=total_memory,
-    )
-
-    total_cpus = mp.cpu_count()
-    parent_parser.add_argument(
-        '-p',
-        '--max_processes',
-        metavar='<max_processes>',
-        type=int,
-        help='limit number of processes',
-        choices=range(1, total_cpus + 1),
-        default=total_cpus,
-    )
-
-    parent_parser.add_argument(
-        '--torch',
-        dest='use_torch',
-        action='store_true',
-        help='use PyTorch to enable GPU acceleration',
-    )
 
     subparsers = parser.add_subparsers(title='commands', dest='command')
     subparsers.required = True
     parser_all = subparsers.add_parser(
         'all',
-        help='reconstruct force field from beginning to end',
+        help='reconstruct a force field from beginning to end',
         parents=[parent_parser],
     )
     parser_create = subparsers.add_parser(
@@ -1965,7 +1923,7 @@ def main():
         'train', help='train model(s) from task(s)', parents=[parent_parser]
     )
     parser_resume = subparsers.add_parser(
-        'resume', help='resume training a model', parents=[parent_parser]
+        'resume', help='resume training of a model', parents=[parent_parser]
     )
     parser_valid = subparsers.add_parser(
         'validate', help='validate model(s)', parents=[parent_parser]
@@ -1978,7 +1936,7 @@ def main():
     )
     parser_show = subparsers.add_parser(
         'show',
-        help='print details about dataset, task or model file',
+        help='print details about a dataset, task or model file',
         parents=[parent_parser],
     )
     subparsers.add_parser(
@@ -2002,7 +1960,7 @@ def main():
             metavar='<valid_dataset_file>',
             dest='valid_dataset',
             type=lambda x: io.is_file_type(x, 'dataset'),
-            help='path to validation dataset file',
+            help='path to separate validation dataset file',
         )
         subparser.add_argument(
             '-t',
@@ -2010,7 +1968,7 @@ def main():
             metavar='<test_dataset_file>',
             dest='test_dataset',
             type=lambda x: io.is_file_type(x, 'dataset'),
-            help='path to test dataset file',
+            help='path to separate test dataset file',
         )
         subparser.add_argument(
             '-s',
@@ -2020,12 +1978,6 @@ def main():
             type=io.parse_list_or_range,
             help='integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-parameter sigma',
             nargs='+',
-        )
-        subparser.add_argument(
-            '--task_dir',
-            metavar='<task_dir>',
-            dest='task_dir',
-            help='user-defined task output dir name',
         )
 
         group = subparser.add_mutually_exclusive_group()
@@ -2055,6 +2007,21 @@ def main():
             dest='use_E_cstr',
             action='store_true',
             help='include the energy constraints in the kernel',
+        )
+
+        subparser.add_argument(
+            '--task_dir',
+            metavar='<task_dir>',
+            dest='task_dir',
+            help='user-defined task output dir name',
+        )
+
+    for subparser in [parser_all, parser_select]:
+        subparser.add_argument(
+            '--model_file',
+            metavar='<model_file>',
+            dest='model_file',
+            help='user-defined model output file name',
         )
 
     for subparser in [parser_all, parser_train]:
@@ -2091,15 +2058,6 @@ def main():
             default=None,
         )
 
-    for subparser in [parser_all, parser_select]:
-        subparser.add_argument(
-            '--model_file',
-            metavar='<model_file>',
-            dest='model_file',
-            help='user-defined model output file name',
-        )
-
-    # resume
     parser_resume.add_argument(
         'model',
         metavar='<model_file>',
@@ -2113,7 +2071,6 @@ def main():
         help='path to original training dataset file',
     )
 
-    # train
     _add_argument_dir_with_file_type(parser_train, 'task', or_file=True)
 
     for subparser in [parser_train, parser_resume]:
@@ -2124,16 +2081,66 @@ def main():
             help='path to validation dataset file',
         )
 
-    # select
     _add_argument_dir_with_file_type(parser_select, 'model')
 
-    # show
     parser_show.add_argument(
         'file',
         metavar='<file>',
         type=lambda x: io.is_valid_file_type(x),
         help='path to dataset, task or model file',
     )
+
+    for subparser in [
+        parser_all,
+        parser_train,
+        parser_resume,
+        parser_valid,
+        parser_test,
+    ]:
+
+        subparser.add_argument(
+            '-m',
+            '--max_memory',
+            metavar='<max_memory>',
+            type=int,
+            help='limit memory usage (whenever possible) [GB]',
+            choices=range(1, total_memory + 1),
+            default=total_memory,
+        )
+
+        subparser.add_argument(
+            '-p',
+            '--max_processes',
+            metavar='<max_processes>',
+            type=int,
+            help='limit number of processes',
+            choices=range(1, total_cpus + 1),
+            default=total_cpus,
+        )
+
+        subparser.add_argument(
+            '--cpu',
+            dest='use_torch',
+            action='store_false',
+            help='use CPU implementation (no PyTorch dependency)',
+        )
+
+    for subparser in [
+        parser_all,
+        parser_create,
+        parser_train,
+        parser_resume,
+        parser_valid,
+        parser_select,
+        parser_test,
+    ]:
+        subparser.add_argument(
+            '-o',
+            '--overwrite',
+            dest='overwrite',
+            action='store_true',
+            help='overwrite existing files',
+        )
 
     args = parser.parse_args()
 
@@ -2150,24 +2157,28 @@ def main():
             args.model_file += '.npz'
 
     # Check PyTorch GPU support.
-    if 'use_torch' in args and args.use_torch:
+    if ('use_torch' in args and args.use_torch) or 'use_torch' not in args:
         if _has_torch:
             if not torch.cuda.is_available():
                 print()  # TODO: print only if log level includes warning
                 log.warning(
-                    'Your PyTorch installation does not see any GPU(s) on your system and will thus run all calculations on the CPU! Unless this is what you want, we recommend running CPU calculations without \'--torch\' for improved performance.'
+                    'Your PyTorch installation does not see any GPU(s) on your system and will thus run all calculations on the CPU! If this is what you want, we recommend bypassing PyTorch using \'--cpu\' for improved performance.'
                 )
         else:
             print()
             log.critical(
-                'Optional PyTorch dependency not found! Please run \'pip install sgdml[torch]\' to install it or disable the PyTorch option.'
+                'PyTorch dependency not found! Please install or use \'--cpu\' to bypass PyTorch and run everything the CPU.'
             )
             print()
             os._exit(1)
 
     args = vars(args)
 
-    _print_splash(args['max_memory'], args['max_processes'], args['use_torch'])
+    _print_splash(
+        args['max_memory'] if 'max_memory' in args else total_memory,
+        args['max_processes'] if 'max_processes' in args else total_cpus,
+        args['use_torch'] if 'use_torch' in args else True,
+    )
 
     try:
         getattr(sys.modules[__name__], args['command'])(**args)

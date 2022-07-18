@@ -133,7 +133,7 @@ class GDMLTorchAssemble(nn.Module):
             rj_desc_perms_torch = torch.reshape(
                 torch.tile(self.R_desc_torch[j, :], (n_perms_batch,))[
                     tril_perms_lin_batch
-                ], # .T
+                ],
                 (n_perms_batch, -1)[::-1],
             ).T  # reshape using Fortran order
 

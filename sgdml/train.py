@@ -1234,7 +1234,6 @@ class GDMLTrain(object):
                 kernel function. The resulting kernel matrix will have dimension
                 M*3N x M*len(cols_3n_keep_idxs).
 
-
         Returns
         -------
             :obj:`numpy.ndarray`

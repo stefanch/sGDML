@@ -1,15 +1,15 @@
 # Symmetric Gradient Domain Machine Learning (sGDML)
 
-For more details visit: [sgdml.org](http://sgdml.org/)  
-Documentation can be found here: [docs.sgdml.org](http://docs.sgdml.org/)
+For more details visit: [www.sgdml.org](http://sgdml.org/)  
+Documentation can be found here: [www.docs.sgdml.org](http://docs.sgdml.org/)
 
 #### Requirements:
 - Python 3.7+
+- PyTorch (>=1.8)
 - NumPy (>=1.19)
 - SciPy (>=1.1)
 
 #### Optional:
-- PyTorch (>=1.8) (for GPU acceleration)
 - ASE (>=3.16.2) (to run atomistic simulations)
 
 ## Getting started
@@ -53,21 +53,12 @@ Using the flag ``--user``, you can tell ``pip`` to install the package to the cu
 Some functionality of this package relies on third-party libraries that are not installed by default. These optional dependencies (or "package extras") are specified during installation using the "square bracket syntax":
 
 ```
-$ pip install sgdml[<optional1>,<optional2>]
+$ pip install sgdml[<optional1>]
 ```
-
-#### GPU acceleration (via PyTorch)
-
-To enable GPU support, you need to install the optional [PyTorch](https://pytorch.org/) dependency using the ``torch`` keyword:
-
-```
-$ pip install sgdml[torch]
-```
-
 
 #### Atomic Simulation Environment (ASE)
 
-If you are interested in interfacing with [ASE](https://wiki.fysik.dtu.dk/ase/) to perform atomistic simulations (see [here](http://quantum-machine.org/gdml/doc/applications.html) for examples), use the ``ase`` keyword:
+If you are interested in interfacing with [ASE](https://wiki.fysik.dtu.dk/ase/) to perform atomistic simulations (see [here](http://docs.sgdml.org/applications.html) for examples), use the ``ase`` keyword:
 
 ```
 $ pip install sgdml[ase]

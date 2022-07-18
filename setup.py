@@ -50,11 +50,11 @@ setup(
     author_email='sgdml@chmiela.com',
     license='LICENSE.txt',
     packages=find_packages(),
-    install_requires=['numpy >= 1.19.0', 'scipy >= 1.1.0', 'psutil', 'future'],
+    install_requires=['torch >= 1.8', 'numpy >= 1.19.0', 'scipy >= 1.1.0', 'psutil', 'future'],
     entry_points={
         'console_scripts': ['sgdml=sgdml.cli:main', 'sgdml-get=sgdml.get:main']
     },
-    extras_require={'torch': ['torch >= 1.8'], 'ase': ['ase >= 3.16.2']},
+    extras_require={'ase': ['ase >= 3.16.2']},
     scripts=scripts,
     include_package_data=True,
     zip_safe=False,
