@@ -79,7 +79,7 @@ def _print_splash(max_memory, max_processes, use_torch):
 
     version_str = __version__
     version_str += (
-        ' ' + ui.yellow_back_str(' Latest: ' + latest_version + ' ')
+        ' ' + ui.color_str(' Latest: ' + latest_version + ' ', fore_color=ui.BLACK, back_color=ui.YELLOW, bold=True)
         if can_update
         else ''
     )
@@ -101,7 +101,7 @@ def _print_splash(max_memory, max_processes, use_torch):
     if can_update:
         print(
             '\n'
-            + ui.yellow_back_str(' UPDATE AVAILABLE ')
+            + ui.color_str(' UPDATE AVAILABLE ', fore_color=ui.BLACK, back_color=ui.YELLOW, bold=True)
             + '\n'
             + '-' * MAX_PRINT_WIDTH
         )
