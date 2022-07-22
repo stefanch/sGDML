@@ -1,7 +1,7 @@
 # Symmetric Gradient Domain Machine Learning (sGDML)
 
-For more details visit: [www.sgdml.org](http://sgdml.org/)  
-Documentation can be found here: [www.docs.sgdml.org](http://docs.sgdml.org/)
+For more details visit: [sgdml.org](http://sgdml.org/)  
+Documentation can be found here: [docs.sgdml.org](http://docs.sgdml.org/)
 
 #### Requirements:
 - Python 3.7+
