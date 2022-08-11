@@ -51,7 +51,15 @@ class GDMLTorchAssemble(nn.Module):
     """
 
     def __init__(
-        self, J, tril_perms_lin, sig, R_desc_torch, R_d_desc_torch, out, callback=None
+        self,
+        J,
+        tril_perms_lin,
+        sig,
+        use_E_cstr,
+        R_desc_torch,
+        R_d_desc_torch,
+        out,
+        callback=None,
     ):
 
         super(GDMLTorchAssemble, self).__init__()
@@ -64,9 +72,11 @@ class GDMLTorchAssemble(nn.Module):
         self.n_atoms = int((1 + np.sqrt(8 * self.dim_d + 1)) / 2)
         self.dim_i = 3 * self.n_atoms
 
-        self.sig = sig
+        self.sig = float(sig)
         self.tril_perms_lin = tril_perms_lin
         self.n_perms = int(len(self.tril_perms_lin) / self.dim_d)
+
+        self.use_E_cstr = use_E_cstr
 
         self.R_desc_torch = nn.Parameter(R_desc_torch, requires_grad=False)
         self.R_d_desc_torch = nn.Parameter(R_d_desc_torch, requires_grad=False)
@@ -95,10 +105,18 @@ class GDMLTorchAssemble(nn.Module):
 
         else:  # sequential indexing
             blk_j_len = self.dim_i
-            blk_j = slice(j * self.dim_i, (j + 1) * self.dim_i)
+            K_j = (
+                j * self.dim_i
+                if j < self.n_train
+                else self.n_train * self.dim_i + (j % self.n_train)
+            )
+            blk_j = (
+                slice(K_j, K_j + self.dim_i)
+                if j < self.n_train
+                else slice(K_j, K_j + 1)
+            )
             keep_idxs_3n = slice(None)  # same as [:]
 
-        # print()
         # import gc
         # for obj in gc.get_objects():
         #     try:
@@ -113,162 +131,283 @@ class GDMLTorchAssemble(nn.Module):
 
         # Create decompressed a 'rj_d_desc'.
         rj_d_desc_decomp_torch = self._desc.d_desc_from_comp(
-            self.R_d_desc_torch[j, :, :]
+            self.R_d_desc_torch[j % self.n_train, :, :]
         )[0][:, keep_idxs_3n]
 
-        n_perms_done = 0
-        for perm_batch in np.array_split(
-            np.arange(self.n_perms), min(self.n_perm_batches, self.n_perms)
-        ):
+        if (
+            j < self.n_train
+        ):  # This column only contrains second and first derivative constraints.
 
-            tril_perms_lin_batch = (
-                self.tril_perms_lin.reshape(-1, self.n_perms)[:, perm_batch]
-                - n_perms_done * self.dim_d
-            ).ravel()  # index shift
+            n_perms_done = 0
+            for perm_batch in np.array_split(
+                np.arange(self.n_perms), min(self.n_perm_batches, self.n_perms)
+            ):
 
-            n_perms_batch = len(perm_batch)
-            n_perms_done += n_perms_batch
+                tril_perms_lin_batch = (
+                    self.tril_perms_lin.reshape(-1, self.n_perms)[:, perm_batch]
+                    - n_perms_done * self.dim_d
+                ).ravel()  # index shift
 
-            # Create a permutated 'rj_desc'.
-            rj_desc_perms_torch = torch.reshape(
-                torch.tile(self.R_desc_torch[j, :], (n_perms_batch,))[
-                    tril_perms_lin_batch
-                ],
-                (n_perms_batch, -1)[::-1],
-            ).T  # reshape using Fortran order
+                n_perms_batch = len(perm_batch)
+                n_perms_done += n_perms_batch
 
-            # Create a permutated 'rj_d_desc'.
-            rj_d_desc_perms_torch = torch.reshape(
-                torch.tile(rj_d_desc_decomp_torch.T, (n_perms_batch,))[
-                    :, tril_perms_lin_batch
-                ],
-                (-1, self.dim_d, n_perms_batch),
-            )
+                # Create a permutated 'rj_desc'.
+                rj_desc_perms_torch = torch.reshape(
+                    torch.tile(self.R_desc_torch[j, :], (n_perms_batch,))[
+                        tril_perms_lin_batch
+                    ],
+                    (-1, n_perms_batch),
+                ).T
 
-            for i_batch in np.array_split(np.arange(self.n_train), self.n_batches):
-
-                diff_ab_perms_torch = (
-                    self.R_desc_torch[i_batch, None, :]
-                    - rj_desc_perms_torch[None, :, :]
-                )  # N, n_perms, d
-
-                norm_ab_perms_torch = sqrt5 * diff_ab_perms_torch.norm(
-                    dim=-1
-                )  # N, n_perms
-                mat52_base_perms_torch = (
-                    torch.exp(-norm_ab_perms_torch / float(self.sig))
-                    / mat52_base_div
-                    * 5
-                )  # N, n_perms
-
-                # print((mat52_base_perms_torch).shape)
-                # print((diff_ab_perms_torch).shape)
-                # print((torch.einsum(
-                #        '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
-                #    )).shape)
-
-                # print('---')
-
-                # start = torch.cuda.Event(enable_timing=True)
-                # end = torch.cuda.Event(enable_timing=True)
-
-                # start.record()
-
-                # print('diff_ab_perms_torch: ' + str(diff_ab_perms_torch.shape))
-                # print('rj_d_desc_perms_torch: ' + str(rj_d_desc_perms_torch.shape))
-                # print('mat52_base_perms_torch: ' + str(mat52_base_perms_torch.shape))
-
-                # diff_ab_outer_perms_torch = torch.einsum(
-                #    'aki,ak,aki,jik->aij',
-                #    diff_ab_perms_torch,
-                #    mat52_base_perms_torch* 5,
-                #    diff_ab_perms_torch,
-                #    rj_d_desc_perms_torch
-                # )  # N, n_perms, a*3
-
-                # import opt_einsum as oe
-
-                # diff_ab_outer_perms_torch = oe.contract('...ki,...k,...kj->...ij',
-                #     diff_ab_perms_torch,
-                #     mat52_base_perms_torch * 5,
-                #     torch.einsum(
-                #         '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
-                #     ),  # N, n_perms, a*3
-                #     backend='torch'
-                # )
-
-                # diff_ab_outer_perms_torch = oe.contract(
-                #     '...ki,...k,...kl,jlk->...ij',
-                #     diff_ab_perms_torch,
-                #     mat52_base_perms_torch * 5,
-                #     diff_ab_perms_torch,
-                #     rj_d_desc_perms_torch,
-                #     backend='torch'
-                # )  # N, n_perms, a*3
-
-                # my_expr = oe.contract_expression('...ki,...k,...ki,jik->...ij', list(diff_ab_perms_torch.size()), list(mat52_base_perms_torch.size()), list(diff_ab_perms_torch.size()), list(rj_d_desc_perms_torch.size()))
-
-                # print(my_expr)
-
-                # diff_ab_outer_perms_torch = torch.einsum(
-                #     '...ki,...k,...kj->...ij',
-                #     diff_ab_perms_torch,
-                #     mat52_base_perms_torch * 5,  # N, n_perms, d
-                #     torch.einsum(
-                #         '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
-                #     ),  # N, n_perms, a*3
-                # )  # N, n_perms, a*3
-
-                diff_ab_outer_perms_torch = torch.einsum(
-                    '...ki,...kj->...ij',  # (slow)
-                    #'...ij,...ik->...jk', #(fast)
-                    diff_ab_perms_torch
-                    * mat52_base_perms_torch[:, :, None]
-                    * 5,  # N, n_perms, d
-                    torch.einsum(
-                        '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
-                    ),  # N, n_perms, a*3
-                )  # N, n_perms, a*3
-                del diff_ab_perms_torch
-
-                # end.record()
-                # Waits for everything to finish running
-                # torch.cuda.synchronize()
-
-                # print('pytroch time: ' + str(start.elapsed_time(end)))
-
-                diff_ab_outer_perms_torch -= torch.einsum(
-                    'ikj,...j->...ki',
-                    rj_d_desc_perms_torch,
-                    (sig_pow2 + float(self.sig) * norm_ab_perms_torch)
-                    * mat52_base_perms_torch,
-                )
-                del norm_ab_perms_torch
-                del mat52_base_perms_torch
-
-                R_d_desc_decomp_torch = self._desc.d_desc_from_comp(
-                    self.R_d_desc_torch[i_batch, :, :]
+                # Create a permutated 'rj_d_desc'.
+                rj_d_desc_perms_torch = torch.reshape(
+                    torch.tile(rj_d_desc_decomp_torch.T, (n_perms_batch,))[
+                        :, tril_perms_lin_batch
+                    ],
+                    (-1, self.dim_d, n_perms_batch),
                 )
 
-                k = torch.einsum(
-                    '...ij,...ik->...kj',
-                    diff_ab_outer_perms_torch,  # N, d, 3*a
-                    R_d_desc_decomp_torch,
-                )
-                del diff_ab_outer_perms_torch
-                del R_d_desc_decomp_torch
+                for i_batch in np.array_split(np.arange(self.n_train), self.n_batches):
 
-                blk_i = slice(i_batch[0] * self.dim_i, (i_batch[-1] + 1) * self.dim_i)
+                    diff_ab_perms_torch = (
+                        self.R_desc_torch[i_batch, None, :]
+                        - rj_desc_perms_torch[None, :, :]
+                    )  # N, n_perms, d
 
-                k_np = k.cpu().numpy().reshape(-1, blk_j_len)
-                if n_perms_done == n_perms_batch:  # first permutation batch iteration
-                    self.out[blk_i, blk_j] = k_np
-                else:
-                    self.out[blk_i, blk_j] = self.out[blk_i, blk_j] + k_np
-                del k
+                    norm_ab_perms_torch = sqrt5 * diff_ab_perms_torch.norm(
+                        dim=-1
+                    )  # N, n_perms
+                    mat52_base_perms_torch = (
+                        torch.exp(-norm_ab_perms_torch / self.sig)
+                        / mat52_base_div
+                        * 5
+                    )  # N, n_perms
 
-            del rj_desc_perms_torch
-            del rj_d_desc_perms_torch
+                    # sys.exit()
+
+                    # print((mat52_base_perms_torch).shape)
+                    # print((diff_ab_perms_torch).shape)
+                    # print((torch.einsum(
+                    #        '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
+                    #    )).shape)
+
+                    # print('---')
+
+                    # start = torch.cuda.Event(enable_timing=True)
+                    # end = torch.cuda.Event(enable_timing=True)
+
+                    # start.record()
+
+                    # print('diff_ab_perms_torch: ' + str(diff_ab_perms_torch.shape))
+                    # print('rj_d_desc_perms_torch: ' + str(rj_d_desc_perms_torch.shape))
+                    # print('mat52_base_perms_torch: ' + str(mat52_base_perms_torch.shape))
+
+                    # diff_ab_outer_perms_torch = torch.einsum(
+                    #    'aki,ak,aki,jik->aij',
+                    #    diff_ab_perms_torch,
+                    #    mat52_base_perms_torch* 5,
+                    #    diff_ab_perms_torch,
+                    #    rj_d_desc_perms_torch
+                    # )  # N, n_perms, a*3
+
+                    # import opt_einsum as oe
+
+                    # diff_ab_outer_perms_torch = oe.contract('...ki,...k,...kj->...ij',
+                    #     diff_ab_perms_torch,
+                    #     mat52_base_perms_torch * 5,
+                    #     torch.einsum(
+                    #         '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
+                    #     ),  # N, n_perms, a*3
+                    #     backend='torch'
+                    # )
+
+                    # diff_ab_outer_perms_torch = oe.contract(
+                    #     '...ki,...k,...kl,jlk->...ij',
+                    #     diff_ab_perms_torch,
+                    #     mat52_base_perms_torch * 5,
+                    #     diff_ab_perms_torch,
+                    #     rj_d_desc_perms_torch,
+                    #     backend='torch'
+                    # )  # N, n_perms, a*3
+
+                    # my_expr = oe.contract_expression('...ki,...k,...ki,jik->...ij', list(diff_ab_perms_torch.size()), list(mat52_base_perms_torch.size()), list(diff_ab_perms_torch.size()), list(rj_d_desc_perms_torch.size()))
+
+                    # print(my_expr)
+
+                    # diff_ab_outer_perms_torch = torch.einsum(
+                    #     '...ki,...k,...kj->...ij',
+                    #     diff_ab_perms_torch,
+                    #     mat52_base_perms_torch * 5,  # N, n_perms, d
+                    #     torch.einsum(
+                    #         '...ki,jik -> ...kj', diff_ab_perms_torch, rj_d_desc_perms_torch
+                    #     ),  # N, n_perms, a*3
+                    # )  # N, n_perms, a*3
+
+                    diff_ab_outer_perms_torch = torch.einsum(
+                        '...ki,...kj->...ij',  # (slow)
+                        #'...ij,...ik->...jk', #(fast)
+                        diff_ab_perms_torch
+                        * mat52_base_perms_torch[:, :, None]
+                        * 5,  # N, n_perms, d
+                        torch.einsum(
+                            '...ki,jik -> ...kj',
+                            diff_ab_perms_torch,
+                            rj_d_desc_perms_torch,
+                        ),  # N, n_perms, a*3
+                    )  # N, n_perms, a*3
+                    # del diff_ab_perms_torch # E_cstr
+
+                    # end.record()
+                    # Waits for everything to finish running
+                    # torch.cuda.synchronize()
+
+                    # print('pytroch time: ' + str(start.elapsed_time(end)))
+
+                    diff_ab_outer_perms_torch -= torch.einsum(
+                        'ikj,...j->...ki',
+                        rj_d_desc_perms_torch,
+                        (sig_pow2 + self.sig * norm_ab_perms_torch)
+                        * mat52_base_perms_torch,
+                    )
+                    # del norm_ab_perms_torch # E_cstr
+                    del mat52_base_perms_torch
+
+                    R_d_desc_decomp_torch = self._desc.d_desc_from_comp(
+                        self.R_d_desc_torch[i_batch, :, :]
+                    )
+
+                    k = torch.einsum(
+                        '...ij,...ik->...kj',
+                        diff_ab_outer_perms_torch,  # N, d, 3*a
+                        R_d_desc_decomp_torch,
+                    )
+                    del diff_ab_outer_perms_torch
+                    del R_d_desc_decomp_torch
+
+                    blk_i = slice(
+                        i_batch[0] * self.dim_i, (i_batch[-1] + 1) * self.dim_i
+                    )
+
+                    k_np = k.cpu().numpy().reshape(-1, blk_j_len)
+                    if (
+                        n_perms_done == n_perms_batch
+                    ):  # first permutation batch iteration
+                        self.out[blk_i, blk_j] = k_np
+                    else:
+                        self.out[blk_i, blk_j] = self.out[blk_i, blk_j] + k_np
+                    del k
+
+                    # First derivative constraints
+                    if self.use_E_cstr:
+
+                        K_fe = (
+                            5
+                            * diff_ab_perms_torch
+                            / (3 * self.sig ** 3)
+                            * (norm_ab_perms_torch[:, :, None] + self.sig)
+                            * torch.exp(-norm_ab_perms_torch / self.sig)[:, :, None]
+                        )
+
+                        K_fe = -torch.einsum(
+                            '...ik,jki -> ...j', K_fe, rj_d_desc_perms_torch
+                        )
+
+                        E_off_i = self.n_train * self.dim_i
+                        i_batch_off = i_batch + E_off_i
+                        self.out[i_batch_off[0] : (i_batch_off[-1] + 1), blk_j] = K_fe.cpu().numpy()
+
+                del rj_desc_perms_torch
+                del rj_d_desc_perms_torch
+
+        else:
+
+            if self.use_E_cstr:
+
+                n_perms_done = 0
+                for perm_batch in np.array_split(
+                    np.arange(self.n_perms), min(self.n_perm_batches, self.n_perms)
+                ):
+
+                    tril_perms_lin_batch = (
+                        self.tril_perms_lin.reshape(-1, self.n_perms)[:, perm_batch]
+                        - n_perms_done * self.dim_d
+                    ).ravel()  # index shift
+
+                    n_perms_batch = len(perm_batch)
+                    n_perms_done += n_perms_batch
+
+                    E_off_i = (
+                        self.n_train * self.dim_i
+                    )  # Account for 'alloc_extra_rows'!.
+                    for i_batch in np.array_split(
+                        np.arange(self.n_train), self.n_batches
+                    ):
+
+                        ri_desc_perms_torch = torch.transpose(
+                            torch.reshape(
+                                torch.tile(
+                                    self.R_desc_torch[i_batch, :], (1, n_perms_batch)
+                                )[:, tril_perms_lin_batch],
+                                (len(i_batch), -1, n_perms_batch),
+                            ),
+                            1,
+                            2,
+                        )
+
+                        # Create decompressed a 'ri_d_desc'.
+                        ri_d_desc_decomp_torch = self._desc.d_desc_from_comp(
+                            self.R_d_desc_torch[i_batch, :, :]
+                        )
+
+                        ri_d_desc_perms_torch = torch.reshape(
+                            torch.tile(ri_d_desc_decomp_torch, (1, n_perms_batch, 1))[
+                                :, tril_perms_lin_batch, :
+                            ],
+                            (len(i_batch), self.dim_d, n_perms_batch, -1),
+                        )
+
+                        diff_ab_perms_torch = (
+                            self.R_desc_torch[j % self.n_train, None, None, :]
+                            - ri_desc_perms_torch
+                        )
+
+                        norm_ab_perms_torch = sqrt5 * diff_ab_perms_torch.norm(dim=-1)
+
+                        K_fe = (
+                            5
+                            * diff_ab_perms_torch
+                            / (3 * self.sig ** 3)
+                            * (norm_ab_perms_torch[:, :, None] + self.sig)
+                            * torch.exp(-norm_ab_perms_torch / self.sig)[:, :, None]
+                        )
+                        K_fe = -torch.einsum(
+                            '...ik,...kij -> ...j', K_fe, ri_d_desc_perms_torch
+                        ).ravel()
+                        k_fe = K_fe.cpu().numpy()
+
+                        k_ee = -torch.einsum(
+                            '...i,...i -> ...',
+                            1
+                            + (norm_ab_perms_torch / self.sig)
+                            * (1 + norm_ab_perms_torch / (3 * self.sig)),
+                            torch.exp(-norm_ab_perms_torch / self.sig),
+                        )
+                        k_ee = k_ee.cpu().numpy()
+
+                        blk_i_full = slice(
+                            i_batch[0] * self.dim_i, (i_batch[-1] + 1) * self.dim_i
+                        )
+                        if (
+                            n_perms_done == n_perms_batch
+                        ):  # first permutation batch iteration
+                            self.out[blk_i_full, K_j] = k_fe
+                            self.out[E_off_i + i_batch, K_j] = k_ee
+                        else:
+                            self.out[blk_i_full, K_j] = self.out[blk_i_full, K_j] + k_fe
+                            self.out[E_off_i + i_batch, K_j] = (
+                                self.out[E_off_i + i_batch, K_j] + k_ee
+                            )
+                        # del k
 
         return blk_j.stop - blk_j.start
 
@@ -470,6 +609,12 @@ class GDMLTorchPredict(nn.Module):
             requires_grad=False,
         )
 
+        self._alphas_E = None
+        if 'alphas_E' in model:
+            self._alphas_E = nn.Parameter(
+                torch.from_numpy(model['alphas_E']), requires_grad=False
+            )
+
         # Try to cache all permutated variants of 'self._xs_train' and 'self._Jx_alphas'
         try:
             self.set_n_perm_batches(n_perm_batches)
@@ -666,7 +811,7 @@ class GDMLTorchPredict(nn.Module):
 
         self.R_d_desc = nn.Parameter(self.R_d_desc, requires_grad=False)
 
-    def set_alphas(self, alphas):
+    def set_alphas(self, alphas, alphas_E=None):
         """
         Reconfigure the current model with a new set of regression parameters.
 
@@ -676,7 +821,19 @@ class GDMLTorchPredict(nn.Module):
         ----------
                 alphas : :obj:`numpy.ndarray`
                     1D array containing the new model parameters.
+                alphas_E : :obj:`numpy.ndarray`, optional
+                    1D array containing the additional new model parameters, if
+                    energy constraints are used in the kernel (`use_E_cstr=True`)
         """
+
+        # NEW
+
+        if alphas_E is not None:
+            self._alphas_E = nn.Parameter(
+                torch.from_numpy(alphas_E).to(self.R_d_desc.device), requires_grad=False
+            )
+
+        # NEW
 
         if self.R_d_desc is None:
             self._log.critical(
@@ -807,8 +964,12 @@ class GDMLTorchPredict(nn.Module):
         # diffs: N, a, a, 3
         # xs: # N, d
 
-        Fs_x = torch.zeros(xs.shape, device=xs.device)
-        Es = torch.zeros((xs.shape[0],), device=xs.device) if return_E else None
+        Fs_x = torch.zeros(xs.shape, device=xs.device, dtype=xs.dtype)
+        Es = (
+            torch.zeros((xs.shape[0],), device=xs.device, dtype=xs.dtype)
+            if return_E
+            else None
+        )
 
         n_perms_done = 0
         for perm_batch in np.array_split(np.arange(self.n_perms), self.n_perm_batches):
@@ -878,8 +1039,8 @@ class GDMLTorchPredict(nn.Module):
             # exp_xs_1_x_dists: N, n_perms*N_train
             # Fs_x: N, d
 
-            del exp_xs
-            del x_diffs
+            # del exp_xs # alphas_E
+            # del x_diffs # alphas_E
 
             # Fs_x -= exp_xs_1_x_dists.mm(self._Jx_alphas)  # N, d
             Fs_x -= exp_xs_1_x_dists.mm(Jx_alphas_perm_split)  # N, d
@@ -889,6 +1050,17 @@ class GDMLTorchPredict(nn.Module):
                     torch.einsum('...j,...j', exp_xs_1_x_dists, dot_x_diff_Jx_alphas)
                     / q
                 )
+
+            # Note: Energies are automatically predicted with a flipped sign here (because -E are trained, instead of E)
+            if self._alphas_E is not None:
+
+                K_fe = (x_diffs / q) * exp_xs[:, :, None] * (x_dists[:, :, None] + 1)
+                K_fe = K_fe.reshape(-1, self.n_train, self.n_perms, self.dim_d)
+                Fs_x += torch.einsum('j,...jkl->...l', self._alphas_E, K_fe)
+
+                K_ee = (1 + x_dists * (1 + x_dists / 3)) * torch.exp(-x_dists)
+                K_ee = K_ee.reshape(-1, self.n_train, self.n_perms)
+                Es += torch.einsum('j,...jk->...', self._alphas_E, K_ee)
 
         # current:
         # diffs: N, a, a, 3
@@ -949,7 +1121,7 @@ class GDMLTorchPredict(nn.Module):
         global _batch_size
 
         if Rs_or_train_idxs.dim() == 1:
-            # contains index list. return predicitons for these training points
+            # contains index list. return predictions for these training points
             dtype = self.R_d_desc.dtype
         elif Rs_or_train_idxs.dim() == 3:
             # this is real data
@@ -972,8 +1144,6 @@ class GDMLTorchPredict(nn.Module):
         #     dtype = Rs.dtype
         # else:
         #     dtype = self.R_d_desc.dtype
-
-        # xs_Jxs_train = self._xs_Jxs_train if Rs is None else Rs
 
         while True:
             try:

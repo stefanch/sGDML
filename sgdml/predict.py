@@ -214,6 +214,7 @@ def _predict_wkr(
             K_ee = (
                 1 + (norm_ab_perms * sig_inv) * (1 + norm_ab_perms / (3 * sig))
             ) * np.exp(-norm_ab_perms * sig_inv)
+
             E_F[0] += K_ee.dot(alphas_E_lin[b_start:b_stop])
 
         b_start = b_stop
@@ -224,19 +225,6 @@ def _predict_wkr(
     if dim_d < dim_i:
         out = np.empty((dim_i + 1,))
         out[0] = E_F[0]
-
-    # NEW
-    # print(r_d_desc.shape)
-
-    # r_d_desc = desc_func.d_desc_from_comp(r_d_desc)[0]
-
-    # u, s, vh = np.linalg.svd(r_d_desc[0], full_matrices=False)
-    # s[s < 1e-15] = 1
-    # r_d_desc = np.dot(u * s, vh)
-    # out[1:] = r_d_desc.T.dot(F)
-    # return out
-
-    # NEW
 
     out[1:] = desc_func.vec_dot_d_desc(
         r_d_desc,
@@ -444,10 +432,6 @@ class GDMLPredict(object):
 
             self.bulk_mp = False  # Bulk predictions with multiple processes?
 
-            # self.max_processes = max_processes
-            # if self.max_processes is None:
-            #    self.max_processes = mp.cpu_count()
-
             self.pool = None
 
             # How many workers in addition to main process?
@@ -557,7 +541,7 @@ class GDMLPredict(object):
         ----------
                 alphas_F : :obj:`numpy.ndarray`
                     1D array containing the new model parameters.
-                alphas_F : :obj:`numpy.ndarray`, optional
+                alphas_E : :obj:`numpy.ndarray`, optional
                     1D array containing the additional new model parameters, if
                     energy constraints are used in the kernel (`use_E_cstr=True`)
         """
@@ -568,10 +552,7 @@ class GDMLPredict(object):
             if isinstance(self.torch_predict, torch.nn.DataParallel):
                 model = model.module
 
-            # TODO: E_cstr does not work on GPU!
-            assert alphas_E is None
-
-            model.set_alphas(alphas_F)
+            model.set_alphas(alphas_F, alphas_E=alphas_E)
 
         else:
 

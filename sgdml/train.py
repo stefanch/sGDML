@@ -143,21 +143,21 @@ def _assemble_kernel_mat_wkr(
         blk_j = slice(K_j, K_j + len(keep_idxs_3n))
 
     else:  # Sequential indexing
-        blk_j = slice(j * dim_i, (j + 1) * dim_i)
+        K_j = j * dim_i if j < n_train else n_train * dim_i + (j % n_train)
+        blk_j = slice(K_j, K_j + dim_i) if j < n_train else slice(K_j, K_j+1) ######
         keep_idxs_3n = slice(None)  # same as [:]
 
-    # TODO: document this exception
-    if use_E_cstr and not (cols_m_limit is None or cols_m_limit == n_train):
-        raise ValueError(
-            '\'use_E_cstr\'- and \'cols_m_limit\'-parameters are mutually exclusive!'
-        )
+    # Note: The modulo-operator wraps around the index pointer on the training points when
+    # energy constraints are used in the kernel. In that case each point is accessed twice.
 
     # Create permutated variants of 'rj_desc' and 'rj_d_desc'.
     rj_desc_perms = np.reshape(
-        np.tile(R_desc[j, :], n_perms)[tril_perms_lin], (n_perms, -1), order='F'
+        np.tile(R_desc[j % n_train, :], n_perms)[tril_perms_lin],
+        (n_perms, -1),
+        order='F',
     )
 
-    rj_d_desc = desc_func.d_desc_from_comp(R_d_desc[j, :, :])[0][
+    rj_d_desc = desc_func.d_desc_from_comp(R_d_desc[j % n_train, :, :])[0][
         :, keep_idxs_3n
     ]  # convert descriptor back to full representation
 
@@ -175,71 +175,115 @@ def _assemble_kernel_mat_wkr(
     ri_d_desc = np.zeros((1, dim_d, dim_i))  # must be zeros!
     k = np.empty((dim_i, dim_i_keep))
 
-    for i in range(j if exploit_sym else 0, n_train):
+    if (
+        j < n_train
+    ):  # This column only contrains second and first derivative constraints.
 
-        blk_i = slice(i * dim_i, (i + 1) * dim_i)
+        #for i in range(j if exploit_sym else 0, n_train):
+        for i in range(0, n_train):
 
-        # diff_ab_perms = R_desc[i, :] - rj_desc_perms
-        np.subtract(R_desc[i, :], rj_desc_perms, out=diff_ab_perms)
+            blk_i = slice(i * dim_i, (i + 1) * dim_i)
 
-        norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
-        mat52_base_perms = np.exp(-norm_ab_perms / sig) / mat52_base_div * 5
+            # diff_ab_perms = R_desc[i, :] - rj_desc_perms
+            np.subtract(R_desc[i, :], rj_desc_perms, out=diff_ab_perms)
 
-        # diff_ab_outer_perms = 5 * np.einsum(
-        #    'ki,kj->ij',
-        #    diff_ab_perms * mat52_base_perms[:, None],
-        #    np.einsum('ik,jki -> ij', diff_ab_perms, rj_d_desc_perms)
-        # )
-        np.einsum(
-            'ki,kj->ij',
-            diff_ab_perms * mat52_base_perms[:, None] * 5,
-            np.einsum('ki,jik -> kj', diff_ab_perms, rj_d_desc_perms),
-            out=diff_ab_outer_perms,
-        )
-
-        diff_ab_outer_perms -= np.einsum(
-            'ikj,j->ki',
-            rj_d_desc_perms,
-            (sig_pow2 + sig * norm_ab_perms) * mat52_base_perms,
-        )
-
-        # ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0]
-        desc_func.d_desc_from_comp(R_d_desc[i, :, :], out=ri_d_desc)
-
-        # K[blk_i, blk_j] = ri_d_desc[0].T.dot(diff_ab_outer_perms)
-        np.dot(ri_d_desc[0].T, diff_ab_outer_perms, out=k)
-        K[blk_i, blk_j] = k
-
-        # print(k - k2)
-
-        if exploit_sym and (
-            cols_m_limit is None or i < cols_m_limit
-        ):  # this will never be called with 'keep_idxs_3n' set to anything else than [:]
-            K[blk_j, blk_i] = K[blk_i, blk_j].T
-
-    if use_E_cstr:
-
-        E_off = K.shape[0] - n_train, K.shape[1] - n_train
-        blk_j_full = slice(j * dim_i, (j + 1) * dim_i)
-        for i in range(n_train):
-
-            diff_ab_perms = R_desc[i, :] - rj_desc_perms
             norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
+            mat52_base_perms = np.exp(-norm_ab_perms / sig) / mat52_base_div * 5
 
-            K_fe = (
-                5
-                * diff_ab_perms
-                / (3 * sig ** 3)
-                * (norm_ab_perms[:, None] + sig)
-                * np.exp(-norm_ab_perms / sig)[:, None]
+            # diff_ab_outer_perms = 5 * np.einsum(
+            #    'ki,kj->ij',
+            #    diff_ab_perms * mat52_base_perms[:, None],
+            #    np.einsum('ik,jki -> ij', diff_ab_perms, rj_d_desc_perms)
+            # )
+            np.einsum(
+                'ki,kj->ij',
+                diff_ab_perms * mat52_base_perms[:, None] * 5,
+                np.einsum('ki,jik -> kj', diff_ab_perms, rj_d_desc_perms),
+                out=diff_ab_outer_perms,
             )
-            K_fe = -np.einsum('ik,jki -> j', K_fe, rj_d_desc_perms)
-            K[blk_j_full, E_off[1] + i] = K_fe  # vertical
-            K[E_off[0] + i, blk_j] = K_fe[keep_idxs_3n]  # lower horizontal
 
-            K[E_off[0] + i, E_off[1] + j] = K[E_off[0] + j, E_off[1] + i] = -(
-                1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
-            ).dot(np.exp(-norm_ab_perms / sig))
+            diff_ab_outer_perms -= np.einsum(
+                'ikj,j->ki',
+                rj_d_desc_perms,
+                (sig_pow2 + sig * norm_ab_perms) * mat52_base_perms,
+            )
+
+            # ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0]
+            desc_func.d_desc_from_comp(R_d_desc[i, :, :], out=ri_d_desc)
+
+            # K[blk_i, blk_j] = ri_d_desc[0].T.dot(diff_ab_outer_perms)
+            np.dot(ri_d_desc[0].T, diff_ab_outer_perms, out=k)
+            K[blk_i, blk_j] = k
+
+            if exploit_sym and (
+                cols_m_limit is None or i < cols_m_limit
+            ):  # this will never be called with 'keep_idxs_3n' set to anything else than [:]
+                K[blk_j, blk_i] = K[blk_i, blk_j].T
+
+            # First derivative constraints
+            if use_E_cstr:
+
+                K_fe = (
+                    5
+                    * diff_ab_perms
+                    / (3 * sig ** 3)
+                    * (norm_ab_perms[:, None] + sig)
+                    * np.exp(-norm_ab_perms / sig)[:, None]
+                )
+
+                K_fe = -np.einsum('ik,jki -> j', K_fe, rj_d_desc_perms)
+
+                E_off_i = n_train * dim_i#, K.shape[1] - n_train
+                K[E_off_i + i, blk_j] = K_fe
+
+    else:
+
+        if use_E_cstr:
+
+            #rj_d_desc = desc_func.d_desc_from_comp(R_d_desc[j % n_train, :, :])[0][
+            #    :, :
+            #]  # convert descriptor back to full representation
+
+            #rj_d_desc_perms = np.reshape(
+            #    np.tile(rj_d_desc.T, n_perms)[:, tril_perms_lin], (-1, dim_d, n_perms)
+            #)
+
+            E_off_i = n_train * dim_i # Account for 'alloc_extra_rows'!.
+            #blk_j_full = slice((j % n_train) * dim_i, ((j % n_train) + 1) * dim_i)
+            # for i in range((j % n_train) if exploit_sym else 0, n_train):
+            for i in range(0, n_train):
+
+                ri_desc_perms = np.reshape(
+                    np.tile(R_desc[i, :], n_perms)[tril_perms_lin],
+                    (n_perms, -1),
+                    order='F',
+                )
+
+                ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0] # convert descriptor back to full representation
+                ri_d_desc_perms = np.reshape(
+                    np.tile(ri_d_desc.T, n_perms)[:, tril_perms_lin], (-1, dim_d, n_perms)
+                )
+
+                diff_ab_perms = R_desc[j % n_train, :] - ri_desc_perms
+
+                norm_ab_perms = sqrt5 * np.linalg.norm(diff_ab_perms, axis=1)
+
+                K_fe = (
+                    5
+                    * diff_ab_perms
+                    / (3 * sig ** 3)
+                    * (norm_ab_perms[:, None] + sig)
+                    * np.exp(-norm_ab_perms / sig)[:, None]
+                )
+
+                K_fe = -np.einsum('ik,jki -> j', K_fe, ri_d_desc_perms)
+
+                blk_i_full = slice(i * dim_i, (i + 1) * dim_i)
+                K[blk_i_full, K_j] = K_fe  # vertical
+
+                K[E_off_i + i, K_j] = -(
+                    1 + (norm_ab_perms / sig) * (1 + norm_ab_perms / (3 * sig))
+                ).dot(np.exp(-norm_ab_perms / sig))
 
     return blk_j.stop - blk_j.start
 
@@ -884,7 +928,7 @@ class GDMLTrain(object):
             E_train_mean = np.mean(E_train)
 
             y = np.hstack((y, -E_train + E_train_mean))
-            # y = np.hstack((n*Ft, (1-n)*Et))
+
         y_std = np.std(y)
         y /= y_std
 
@@ -912,7 +956,7 @@ class GDMLTrain(object):
             self.log.debug('Iterative solver not installed.')
             use_analytic_solver = True
 
-        # use_analytic_solver = False # remove me!
+        #use_analytic_solver = False  # remove me!
 
         if use_analytic_solver:
 
@@ -1019,11 +1063,13 @@ class GDMLTrain(object):
                 if E_train_mean is None
                 else E_train_mean
             )
-            if c is None:
-                # Something does not seem right. Turn off energy predictions for this model, only output force predictions.
-                model['use_E'] = False
-            else:
-                model['c'] = c
+            #if c is None:
+            #    # Something does not seem right. Turn off energy predictions for this model, only output force predictions.
+            #    model['use_E'] = False
+            #else:
+            #    model['c'] = c
+
+            model['c'] = c
 
         return model
 
@@ -1114,7 +1160,7 @@ class GDMLTrain(object):
                 + ui.color_str('Note:', bold=True)
                 + 'Note: The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
-            return None
+            #return None
 
         if corrcoef < 0.95:
             self.log.warning(
@@ -1154,7 +1200,7 @@ class GDMLTrain(object):
                 + ui.color_str('Note:', bold=True)
                 + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
-            return None
+            #return None
 
         if np.abs(e_fact - 1) > 1e-1:
             self.log.warning(
@@ -1175,7 +1221,7 @@ class GDMLTrain(object):
                 + ui.color_str('Note:', bold=True)
                 + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
-            return None
+            #return None
 
         # Least squares estimate for integration constant.
         return np.sum(E_ref - E_pred) / E_ref.shape[0]
@@ -1226,7 +1272,7 @@ class GDMLTrain(object):
                     done_str : :obj:`str`, optional
                         Once complete, this string contains the
                         time it took to assemble the kernel (seconds).
-            cols_m_limit : int, optional
+            cols_m_limit : int, optional (DEPRECATED)
                 Only generate the columns up to index 'cols_m_limit'. This creates
                 a M*3N x cols_m_limit*3N kernel matrix, instead of M*3N x M*3N.
             cols_3n_keep_idxs : :obj:`numpy.ndarray`, optional
@@ -1251,6 +1297,11 @@ class GDMLTrain(object):
 
         # Determine size of kernel matrix.
         K_n_rows = n_train * dim_i
+
+        # Account for additional rows (and columns) due to energy constraints in the kernel matrix.
+        if use_E_cstr:
+            K_n_rows += n_train
+
         if isinstance(col_idxs, slice):  # indexed by slice
             K_n_cols = len(range(*col_idxs.indices(K_n_rows)))
         else:  # indexed by list
@@ -1263,11 +1314,6 @@ class GDMLTrain(object):
             assert np.array_equal(col_idxs, np.sort(col_idxs))
 
             K_n_cols = len(col_idxs)
-
-        # Account for additional rows and columns due to energy constraints in the kernel matrix.
-        if use_E_cstr:
-            K_n_rows += n_train
-            K_n_cols += n_train
 
         # Make sure no indices are outside of the valid range.
         if K_n_cols > K_n_rows:
@@ -1290,7 +1336,7 @@ class GDMLTrain(object):
             M_slice_stop = None if col_idxs.stop is None else int(col_idxs.stop / dim_i)
             M_slice = slice(M_slice_start, M_slice_stop)
 
-            J = range(*M_slice.indices(n_train))
+            J = range(*M_slice.indices(n_train + (n_train if use_E_cstr else 0)))
 
             if M_slice_start is None:
                 exploit_sym = True
@@ -1299,21 +1345,26 @@ class GDMLTrain(object):
         else:
 
             if isinstance(col_idxs, slice):
-                random = list(range(*col_idxs.indices(n_train * dim_i)))
-            else:
-                random = col_idxs
+                # random = list(range(*col_idxs.indices(n_train * dim_i)))
+                col_idxs = list(range(*col_idxs.indices(K_n_rows)))
+
+            # Separate column indices of force-force and force-energy constraints.
+            cond = col_idxs >= (n_train * dim_i)
+            ff_col_idxs, fe_col_idxs = col_idxs[~cond], col_idxs[cond]
 
             # M - number training
             # N - number atoms
 
-            n_idxs = np.mod(random, dim_i)
-            m_idxs = (np.array(random) / dim_i).astype(int)
+            n_idxs = np.concatenate(
+                [np.mod(ff_col_idxs, dim_i), np.zeros(fe_col_idxs.shape, dtype=int)]
+            )  # Column indices that go beyond force-force correlations need a different treatment.
+
+            m_idxs = np.concatenate([np.array(ff_col_idxs) // dim_i, fe_col_idxs])
             m_idxs_uniq = np.unique(m_idxs)  # which points to include?
 
             m_n_idxs = [
                 list(n_idxs[np.where(m_idxs == m_idx)]) for m_idx in m_idxs_uniq
             ]
-
             m_n_idxs_lens = [len(m_n_idx) for m_n_idx in m_n_idxs]
 
             m_n_idxs_lens.insert(0, 0)
@@ -1366,6 +1417,7 @@ class GDMLTrain(object):
                 J,
                 tril_perms_lin,
                 sig,
+                use_E_cstr,
                 R_desc_torch,
                 R_d_desc_torch,
                 out=K[:K_n_rows, :],
@@ -1444,7 +1496,6 @@ class GDMLTrain(object):
         glob.pop('R_desc', None)
         glob.pop('R_d_desc', None)
 
-        # return np.frombuffer(K).reshape(glob['K_shape'])
         return np.frombuffer(K).reshape((K_n_rows + alloc_extra_rows), K_n_cols)
 
     def draw_strat_sample(self, T, n, excl_idxs=None):

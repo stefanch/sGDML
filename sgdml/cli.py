@@ -79,7 +79,13 @@ def _print_splash(max_memory, max_processes, use_torch):
 
     version_str = __version__
     version_str += (
-        ' ' + ui.color_str(' Latest: ' + latest_version + ' ', fore_color=ui.BLACK, back_color=ui.YELLOW, bold=True)
+        ' '
+        + ui.color_str(
+            ' Latest: ' + latest_version + ' ',
+            fore_color=ui.BLACK,
+            back_color=ui.YELLOW,
+            bold=True,
+        )
         if can_update
         else ''
     )
@@ -101,7 +107,12 @@ def _print_splash(max_memory, max_processes, use_torch):
     if can_update:
         print(
             '\n'
-            + ui.color_str(' UPDATE AVAILABLE ', fore_color=ui.BLACK, back_color=ui.YELLOW, bold=True)
+            + ui.color_str(
+                ' UPDATE AVAILABLE ',
+                fore_color=ui.BLACK,
+                back_color=ui.YELLOW,
+                bold=True,
+            )
             + '\n'
             + '-' * MAX_PRINT_WIDTH
         )
@@ -247,14 +258,14 @@ def _print_task_properties_reduced(
 
     energy_fix_str = (
         (
-            'kernel constraints (+E)'
+            'pointwise energy constraints'
             if use_E_cstr
-            else 'global integration constant recovery'
+            else 'global integration constant'
         )
         if use_E
         else 'none'
     )
-    print('  {:<16} {}'.format('Energy handling:', energy_fix_str))
+    print('  {:<16} {}'.format('Energy offset:', energy_fix_str))
 
     print(
         '  {:<16} {}'.format(
@@ -396,17 +407,13 @@ def _print_model_properties(model, title_str='Model properties'):
             if 'solver_iters' in model:
                 print('    {:<16} {:<d}'.format('Iterations:', model['solver_iters']))
 
-            if 'n_inducing_pts_init' in model and 'inducing_pts_idxs' in model:
-                n_inducing_pts_final = len(model['inducing_pts_idxs']) // (3 * n_atoms)
-                increased_str = (
-                    ' (increased to {:<d})'.format(n_inducing_pts_final)
-                    if model['n_inducing_pts_init'] < n_inducing_pts_final
-                    else ''
-                )
-                print(
-                    '    {:<16} {:<d}{}'.format(
-                        'Inducing points:', model['n_inducing_pts_init'], increased_str
-                    )
+            if 'inducing_pts_idxs' in model:
+                n_inducing_pts = len(model['inducing_pts_idxs']) // (3 * n_atoms)
+                ui.print_two_column_str(
+                    '    {:<16} {:<d}'.format('Inducing points:', n_inducing_pts),
+                    'inducing columns: {:<d} (multiplied by DOF)'.format(
+                        n_inducing_pts * n_atoms * 3
+                    ),
                 )
     else:
         print('  {:<18} {}'.format('Solver:', 'unknown'))
@@ -415,6 +422,20 @@ def _print_model_properties(model, title_str='Model properties'):
     ui.print_two_column_str(
         '  {:<18} {:,} points'.format('Trained on:', n_train),
         'from \'' + ui.unicode_str(model['md5_train']) + '\'',
+    )
+
+    use_E_cstr = 'alphas_E' in model
+    print(
+        '    {:<16} {}'.format(
+            'Energy offset',
+            '[{}] global integration constant'.format('x' if not use_E_cstr else ' '),
+        )
+    )
+    ui.print_two_column_str(
+        '                     {:<16}'.format(
+            '[{}] pointwise energy constraints'.format('x' if use_E_cstr else ' ')
+        ),
+        'using \'--E_cstr\'',
     )
 
     if model['use_E']:
@@ -616,9 +637,7 @@ def all(
         )
 
     ui.print_step_title('STEP 3', 'Hyper-parameter selection')
-    model_file_name = select(
-        model_dir_arg, overwrite, model_file, **kwargs
-    )
+    model_file_name = select(model_dir_arg, overwrite, model_file, **kwargs)
 
     # Have all tasks been trained?
     _, task_file_names = task_dir_arg
@@ -1027,9 +1046,6 @@ def train(
                     command,
                     **kwargs
                 )
-
-                # if valid_errs is None: # Only one model found, i.e. there is nothing to validate.
-                #    break
 
                 is_conv = True
                 if 'solver_resid' in model:
@@ -2006,7 +2022,7 @@ def main():
             '--E_cstr',
             dest='use_E_cstr',
             action='store_true',
-            help='include the energy constraints in the kernel',
+            help='include pointwise energy constraints',
         )
 
         subparser.add_argument(
