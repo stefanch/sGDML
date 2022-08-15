@@ -364,7 +364,7 @@ class GDMLTorchAssemble(nn.Module):
                             )
 
                         elif _n_perm_batches < self.n_perms:
-                            self.n_perm_batches = _next_batch_size(
+                            _n_perm_batches = _next_batch_size(
                                 self.n_perms, _n_perm_batches
                             )
 
