@@ -382,10 +382,10 @@ class GDMLPredict(object):
                             model = model.module
 
                         if (
-                            model.n_perm_batches == 1
+                            model.get_n_perm_batches() == 1
                         ):  # model caches the permutations, this could be why it is too large
                             model.set_n_perm_batches(
-                                model.n_perm_batches + 1
+                                model.get_n_perm_batches() + 1
                             )  # uncache
                             self.torch_predict.to(
                                 self.torch_device
