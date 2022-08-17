@@ -144,7 +144,7 @@ def _assemble_kernel_mat_wkr(
 
     else:  # Sequential indexing
         K_j = j * dim_i if j < n_train else n_train * dim_i + (j % n_train)
-        blk_j = slice(K_j, K_j + dim_i) if j < n_train else slice(K_j, K_j+1) ######
+        blk_j = slice(K_j, K_j + dim_i) if j < n_train else slice(K_j, K_j + 1)
         keep_idxs_3n = slice(None)  # same as [:]
 
     # Note: The modulo-operator wraps around the index pointer on the training points when
@@ -179,7 +179,7 @@ def _assemble_kernel_mat_wkr(
         j < n_train
     ):  # This column only contrains second and first derivative constraints.
 
-        #for i in range(j if exploit_sym else 0, n_train):
+        # for i in range(j if exploit_sym else 0, n_train):
         for i in range(0, n_train):
 
             blk_i = slice(i * dim_i, (i + 1) * dim_i)
@@ -233,23 +233,23 @@ def _assemble_kernel_mat_wkr(
 
                 K_fe = -np.einsum('ik,jki -> j', K_fe, rj_d_desc_perms)
 
-                E_off_i = n_train * dim_i#, K.shape[1] - n_train
+                E_off_i = n_train * dim_i  # , K.shape[1] - n_train
                 K[E_off_i + i, blk_j] = K_fe
 
     else:
 
         if use_E_cstr:
 
-            #rj_d_desc = desc_func.d_desc_from_comp(R_d_desc[j % n_train, :, :])[0][
+            # rj_d_desc = desc_func.d_desc_from_comp(R_d_desc[j % n_train, :, :])[0][
             #    :, :
-            #]  # convert descriptor back to full representation
+            # ]  # convert descriptor back to full representation
 
-            #rj_d_desc_perms = np.reshape(
+            # rj_d_desc_perms = np.reshape(
             #    np.tile(rj_d_desc.T, n_perms)[:, tril_perms_lin], (-1, dim_d, n_perms)
-            #)
+            # )
 
-            E_off_i = n_train * dim_i # Account for 'alloc_extra_rows'!.
-            #blk_j_full = slice((j % n_train) * dim_i, ((j % n_train) + 1) * dim_i)
+            E_off_i = n_train * dim_i  # Account for 'alloc_extra_rows'!.
+            # blk_j_full = slice((j % n_train) * dim_i, ((j % n_train) + 1) * dim_i)
             # for i in range((j % n_train) if exploit_sym else 0, n_train):
             for i in range(0, n_train):
 
@@ -259,9 +259,12 @@ def _assemble_kernel_mat_wkr(
                     order='F',
                 )
 
-                ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[0] # convert descriptor back to full representation
+                ri_d_desc = desc_func.d_desc_from_comp(R_d_desc[i, :, :])[
+                    0
+                ]  # convert descriptor back to full representation
                 ri_d_desc_perms = np.reshape(
-                    np.tile(ri_d_desc.T, n_perms)[:, tril_perms_lin], (-1, dim_d, n_perms)
+                    np.tile(ri_d_desc.T, n_perms)[:, tril_perms_lin],
+                    (-1, dim_d, n_perms),
                 )
 
                 diff_ab_perms = R_desc[j % n_train, :] - ri_desc_perms
@@ -956,7 +959,7 @@ class GDMLTrain(object):
             self.log.debug('Iterative solver not installed.')
             use_analytic_solver = True
 
-        #use_analytic_solver = False  # remove me!
+        # use_analytic_solver = False  # remove me!
 
         if use_analytic_solver:
 
@@ -1063,10 +1066,10 @@ class GDMLTrain(object):
                 if E_train_mean is None
                 else E_train_mean
             )
-            #if c is None:
+            # if c is None:
             #    # Something does not seem right. Turn off energy predictions for this model, only output force predictions.
             #    model['use_E'] = False
-            #else:
+            # else:
             #    model['c'] = c
 
             model['c'] = c
@@ -1115,8 +1118,8 @@ class GDMLTrain(object):
                 If inconsistent/corrupted energy labels are detected
                 in the provided dataset.
             ValueError
-                If different scales in energy vs. force labels are
-                detected in the provided dataset.
+                If potentially inconsistent scales in energy vs.
+                force labels are detected in the provided dataset.
         """
 
         gdml_predict = GDMLPredict(
@@ -1156,16 +1159,22 @@ class GDMLTrain(object):
 
         if np.sign(e_fact) == -1:
             self.log.warning(
-                'The provided dataset contains gradients instead of force labels (flipped sign). Please correct!\n'
-                + ui.color_str('Note:', bold=True)
-                + 'Note: The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
+                'It looks like the provided dataset may contain gradients instead of force labels (flipped sign).\n\n'
+                + ui.color_str('Troubleshooting tips:\n', bold=True)
+                + ui.wrap_indent_str(
+                    '(1) ',
+                    'Verify the sign of your force labels.',
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(2) ', 'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.'
+                )
             )
-            #return None
 
         if corrcoef < 0.95:
             self.log.warning(
-                'Inconsistent energy labels detected!\n'
-                + 'The predicted energies for the training data are only weakly correlated with the reference labels (correlation coefficient {:.2f}) which indicates that the issue is most likely NOT just a unit conversion error.\n\n'.format(
+                'Potentially inconsistent energy labels detected!\n'
+                + 'The predicted energies for the training data are only weakly correlated with the reference labels (correlation coefficient {:.2f}). Note that correlation is independent of scale, which indicates that the issue is most likely not just a unit conversion error.\n\n'.format(
                     corrcoef
                 )
                 + ui.color_str('Troubleshooting tips:\n', bold=True)
@@ -1175,37 +1184,37 @@ class GDMLTrain(object):
                 )
                 + '\n'
                 + ui.wrap_indent_str(
-                    '(2) ', 'Verify the consistency between energy and force labels.'
+                    '(2) ', 'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.'
                 )
                 + '\n'
-                + ui.wrap_indent_str('    - ', 'Correspondence correct?')
+                + ui.wrap_indent_str(
+                    '(3) ', 'Verify the consistency between energy and force labels.'
+                )
                 + '\n'
-                + ui.wrap_indent_str('    - ', 'Same level of theory?')
+                + ui.wrap_indent_str('    - ', 'Correspondence between force and energy labels correct?')
                 + '\n'
-                + ui.wrap_indent_str('    - ', 'Accuracy of forces?')
+                + ui.wrap_indent_str('    - ', 'Accuracy of forces (convergence of your ab-initio calculations)?')
+                + '\n'
+                + ui.wrap_indent_str('    - ', 'Was the same level of theory used to compute forces and energies?')
                 + '\n'
                 + ui.wrap_indent_str(
-                    '(3) ',
+                    '(4) ',
                     'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?',
                 )
                 + '\n'
                 + ui.wrap_indent_str(
-                    '(4) ', 'Are there duplicate geometries in the training data?'
+                    '(5) ', 'Are there duplicate geometries in the training data?'
                 )
                 + '\n'
                 + ui.wrap_indent_str(
-                    '(5) ', 'Are there any corrupted data points (e.g. parsing errors)?'
+                    '(6) ', 'Are there any corrupted data points (e.g. parsing errors)?'
                 )
-                + '\n\n'
-                + ui.color_str('Note:', bold=True)
-                + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
-            #return None
 
         if np.abs(e_fact - 1) > 1e-1:
             self.log.warning(
-                'Different scales in energy vs. force labels detected!\n'
-                + 'The integrated forces differ from the energy labels by factor ~{:.2f}, meaning that the trained model will likely fail to predict energies accurately.\n\n'.format(
+                'Potentially inconsistent scales in energy vs. force labels detected!\n'
+                + 'The integrated force predictions differ from the reference energy labels by factor ~{:.2f} (for the training data), meaning that this model will likely fail to predict energies accurately in real-world use.\n\n'.format(
                     e_fact
                 )
                 + ui.color_str('Troubleshooting tips:\n', bold=True)
@@ -1214,14 +1223,14 @@ class GDMLTrain(object):
                 )
                 + '\n'
                 + ui.wrap_indent_str(
-                    '(2) ',
+                    '(2) ', 'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.'
+                )
+                + '\n'
+                + ui.wrap_indent_str(
+                    '(3) ',
                     'Is the training data spread too broadly (i.e. weakly sampled transitions between example clusters)?',
                 )
-                + '\n\n'
-                + ui.color_str('Note:', bold=True)
-                + ' The energy prediction accuracy of the model will thus neither be validated nor tested in the following steps!'
             )
-            #return None
 
         # Least squares estimate for integration constant.
         return np.sum(E_ref - E_pred) / E_ref.shape[0]

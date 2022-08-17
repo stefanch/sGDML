@@ -729,7 +729,7 @@ def create(  # noqa: C901
 
     if sigs is None:
         log.info(
-            'Kernel hyper-parameter sigma was automatically set to range \'10:10:100\'.'
+            'Kernel hyper-parameter sigma (length scale) was automatically set to range \'10:10:100\'.'
         )
         sigs = list(range(10, 100, 10))  # default range
 
@@ -919,13 +919,22 @@ def train(
     has_converged_once = False
 
     for i, task_file_name in enumerate(task_file_names):
-        if n_tasks > 1:
-            if i > 0:
-                print()
-            print(ui.color_str('Task {:d} of {:d}'.format(i + 1, n_tasks), bold=True))
 
         task_file_path = os.path.join(task_dir, task_file_name)
         with np.load(task_file_path, allow_pickle=True) as task:
+
+            if n_tasks > 1:
+                if i > 0:
+                    print()
+
+                n_train = len(task['idxs_train'])
+                n_valid = len(task['idxs_valid'])
+                ui.print_two_column_str(
+                    ui.color_str('Task {:d} of {:d}'.format(i + 1, n_tasks), bold=True),
+                    '{:,} + {:,} points (training + validation), sigma (length scale): {}'.format(
+                        n_train, n_valid, task['sig']
+                    ),
+                )
 
             model_file_name = io.model_file_name(task, is_extended=False)
             model_file_path = os.path.join(task_dir, model_file_name)
@@ -1625,9 +1634,16 @@ def test(
             e_rmse_pct = (e_rmse / e_err['rmse'] - 1.0) * 100
         f_rmse_pct = (f_rmse / f_err['rmse'] - 1.0) * 100
 
-        # if func_called_directly and n_models == 1:
         if is_test and n_models == 1:
-            print(ui.color_str('\nTest errors (MAE/RMSE)', bold=True))
+            n_train = len(model['idxs_train'])
+            n_valid = len(model['idxs_valid'])
+            print()
+            ui.print_two_column_str(
+                ui.color_str('Test errors (MAE/RMSE)', bold=True),
+                '{:,} + {:,} points (training + validation), sigma (length scale): {}'.format(
+                    n_train, n_valid, model['sig']
+                ),
+            )
 
             r_unit = 'unknown unit'
             e_unit = 'unknown unit'
@@ -1805,7 +1821,7 @@ def select(model_dir, overwrite, model_file=None, command=None, **kwargs):  # no
         sig_col = [row[0] for row in rows]
         if best_sig == min(sig_col) or best_sig == max(sig_col):
             log.warning(
-                'The optimal sigma lies on the boundary of the search grid.\n'
+                'The optimal sigma (length scale) lies on the boundary of the search grid.\n'
                 + 'Model performance might improve if the search grid is extended in direction sigma {} {:d}.'.format(
                     '<' if best_idx == 0 else '>', best_sig
                 )
@@ -1992,7 +2008,7 @@ def main():
             metavar=('<s1>', '<s2>'),
             dest='sigs',
             type=io.parse_list_or_range,
-            help='integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-parameter sigma',
+            help='integer list and/or range <start>:[<step>:]<stop> for the kernel hyper-parameter sigma (length scale)',
             nargs='+',
         )
 
