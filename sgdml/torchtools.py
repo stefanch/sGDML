@@ -348,7 +348,8 @@ class GDMLTorchAssemble(nn.Module):
                     done = self._forward(self.J[i])
                 except RuntimeError as e:
                     if 'out of memory' in str(e):
-                        torch.cuda.empty_cache()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
 
                         if _n_batches < self.n_train:
                             _n_batches = _next_batch_size(
@@ -478,8 +479,6 @@ class GDMLTorchPredict(nn.Module):
 
         self.tril_indices = np.tril_indices(self.n_atoms, k=-1)
 
-        self.R_d_desc = None
-
         if torch.cuda.is_available():  # Ignore limits and take whatever the GPU has.
             max_memory = (
                 min(
@@ -522,20 +521,9 @@ class GDMLTorchPredict(nn.Module):
 
         self.max_processes = max_processes
 
-        self.perm_idxs = (
-            torch.tensor(model['tril_perms_lin']).view(-1, self.n_perms).t()
-        )
-
-        self._xs_train = nn.Parameter(
-            self.apply_perms_to_obj(torch.tensor(model['R_desc']).t(), perm_idxs=None),
-            requires_grad=False,
-        )
-        self._Jx_alphas = nn.Parameter(
-            self.apply_perms_to_obj(
-                torch.tensor(np.array(model['R_d_desc_alpha'])), perm_idxs=None
-            ),
-            requires_grad=False,
-        )
+        self.R_d_desc = None
+        self._xs_train = nn.Parameter(torch.tensor(model['R_desc']).t(), requires_grad=False)
+        self._Jx_alphas = nn.Parameter(torch.tensor(np.array(model['R_d_desc_alpha'])), requires_grad=False)
 
         self._alphas_E = None
         if 'alphas_E' in model:
@@ -543,18 +531,20 @@ class GDMLTorchPredict(nn.Module):
                 torch.from_numpy(model['alphas_E']), requires_grad=False
             )
 
+        self.perm_idxs = (
+            torch.tensor(model['tril_perms_lin']).view(-1, self.n_perms).t()
+        )
+
         # Try to cache all permutated variants of 'self._xs_train' and 'self._Jx_alphas'
         try:
             self.set_n_perm_batches(n_perm_batches)
         except RuntimeError as e:
             if 'out of memory' in str(e):
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
                 if n_perm_batches == 1:
-                    self._log.debug(
-                        'Trying to cache permutations FAILED during init (continuing without)'
-                    )
-                    self.set_n_perm_batches(2)
+                    self.set_n_perm_batches(2) # Set to 2 perm batches, because that's the first batch size (and fastest) that is not cached.
                     pass
                 else:
                     self._log.critical(
@@ -577,11 +567,8 @@ class GDMLTorchPredict(nn.Module):
             else self.n_train
         )
         _batch_size = min(_batch_size, max_batch_size)
-        self._log.debug(
-            'Starting with a batch size of {} ({} points in total).'.format(
-                _batch_size, self.n_train
-            )
-        )
+
+        self._log.debug('Setting batch size to {}/{} points.'.format(_batch_size, self.n_train))
 
         self.desc = Desc(self.n_atoms, max_processes=max_processes)
 
@@ -594,9 +581,7 @@ class GDMLTorchPredict(nn.Module):
 
         global _n_perm_batches
 
-        self._log.debug(
-            'Permutations will be generated in {} batches.'.format(n_perm_batches)
-        )
+        self._log.debug('Setting permutation batch size to {}{}.'.format(n_perm_batches, ' (no caching)' if n_perm_batches > 1 else ''))
 
         _n_perm_batches = n_perm_batches
         if n_perm_batches == 1 and self.n_perms > 1:
@@ -627,14 +612,12 @@ class GDMLTorchPredict(nn.Module):
 
         xs_train_n_perms = self._xs_train.numel() // (self.n_train * self.dim_d)
         if xs_train_n_perms != 1:  # Uncached already?
-            self._log.debug('Uncaching permutations for \'self._xs_train\'')
             self._xs_train = nn.Parameter(
                 self.remove_perms_from_obj(self._xs_train), requires_grad=False
             )
 
         Jx_alphas_n_perms = self._Jx_alphas.numel() // (self.n_train * self.dim_d)
         if Jx_alphas_n_perms != 1:  # Uncached already?
-            self._log.debug('Uncaching permutations for \'self._Jx_alphas\'')
             self._Jx_alphas = nn.Parameter(
                 self.remove_perms_from_obj(self._Jx_alphas), requires_grad=False
             )
@@ -643,19 +626,13 @@ class GDMLTorchPredict(nn.Module):
 
         xs_train_n_perms = self._xs_train.numel() // (self.n_train * self.dim_d)
         if xs_train_n_perms == 1:  # Cached already?
-            self._log.debug('Caching permutations for \'self._xs_train\'')
-            xs_train = self.apply_perms_to_obj(self._xs_train, perm_idxs=self.perm_idxs)
+            self._xs_train = nn.Parameter(self.apply_perms_to_obj(self._xs_train, perm_idxs=self.perm_idxs), requires_grad=False)
 
         Jx_alphas_n_perms = self._Jx_alphas.numel() // (self.n_train * self.dim_d)
         if Jx_alphas_n_perms == 1:  # Cached already?
-            self._log.debug('Caching permutations for \'self._Jx_alphas\'')
-            Jx_alphas = self.apply_perms_to_obj(
+            self._Jx_alphas = nn.Parameter(self.apply_perms_to_obj(
                 self._Jx_alphas, perm_idxs=self.perm_idxs
-            )
-
-        # Do not overwrite before the operation above is successful.
-        self._xs_train = nn.Parameter(xs_train, requires_grad=False)
-        self._Jx_alphas = nn.Parameter(Jx_alphas, requires_grad=False)
+            ), requires_grad=False)
 
     def est_mem_requirement(self, return_min=False):
         """
@@ -741,14 +718,11 @@ class GDMLTorchPredict(nn.Module):
                 if 'out of memory' in str(e):
                     torch.cuda.empty_cache()
 
-                    self._log.debug('Not enough memory to cache \'R_d_desc\' on GPU')
+                    self._log.debug('Failed to cache \'R_d_desc\' on GPU.')
                 else:
                     raise e
             else:
-                self._log.debug('\'R_d_desc\' lives on the GPU now')
                 self.R_d_desc = R_d_desc
-
-        self.R_d_desc = nn.Parameter(self.R_d_desc, requires_grad=False)
 
     def set_alphas(self, alphas, alphas_E=None):
         """
@@ -776,42 +750,52 @@ class GDMLTorchPredict(nn.Module):
 
         if alphas_E is not None:
             self._alphas_E = nn.Parameter(
-                torch.from_numpy(alphas_E).to(self.R_d_desc.device), requires_grad=False
+                torch.from_numpy(alphas_E).to(self._xs_train.device), requires_grad=False
             )
 
         del self._Jx_alphas
         while True:
             try:
 
-                alphas_torch = torch.from_numpy(alphas).to(self.R_d_desc.device)
+                alphas_torch = torch.from_numpy(alphas).to(self.R_d_desc.device) # Send to whatever device 'R_d_desc' is on, first.
                 xs = self.desc.d_desc_dot_vec(
                     self.R_d_desc, alphas_torch.reshape(-1, self.dim_i)
                 )
                 del alphas_torch
 
+                if torch.cuda.is_available() and not xs.is_cuda:
+                    xs = xs.to(self._xs_train.device) # Only now send it to the GPU ('_xs_train' will be for sure, if GPUs are available)
+
             except RuntimeError as e:
                 if 'out of memory' in str(e):
-                    if not torch.cuda.is_available():
+
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                        self.R_d_desc = self.R_d_desc.cpu()
+                        #torch.cuda.empty_cache()
+
+                        self._log.debug(
+                            'Failed to \'set_alphas()\': \'R_d_desc\' was moved back from GPU to CPU'
+                        )
+
+                        pass
+
+                    else:
+
                         self._log.critical(
-                            'Not enough CPU memory to cache \'R_d_desc\'! There nothing we can do...'
+                            'Not enough memory to cache \'R_d_desc\'! There nothing we can do...'
                         )
                         print()
                         os._exit(1)
-                    else:
-                        self.R_d_desc = self.R_d_desc.cpu()
-                        torch.cuda.empty_cache()
 
-                        self._log.debug(
-                            'Failed to \'set_alphas()\' on the GPU (\'R_d_desc\' was moved back from GPU to CPU)'
-                        )
-
-                    pass
                 else:
                     raise e
             else:
                 break
 
         try:
+
             perm_idxs = self.perm_idxs if _n_perm_batches == 1 else None
             self._Jx_alphas = nn.Parameter(
                 self.apply_perms_to_obj(xs, perm_idxs=perm_idxs), requires_grad=False
@@ -819,25 +803,22 @@ class GDMLTorchPredict(nn.Module):
 
         except RuntimeError as e:
             if 'out of memory' in str(e):
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
                 if _n_perm_batches < self.n_perms:
 
-                    self._log.debug('Uncaching permutations (within \'set_alphas()\')')
+                    #self._log.debug('Uncaching permutations (within \'set_alphas()\')')
+
+                    self._log.debug('Setting permutation batch size to {}{}.'.format(_n_perm_batches, ' (no caching)' if _n_perm_batches > 1 else ''))
 
                     _n_perm_batches += 1 # Do NOT change me to use 'self.set_n_perm_batches(_n_perm_batches + 1)'!
                     self._xs_train = nn.Parameter(
                         self.remove_perms_from_obj(self._xs_train), requires_grad=False
-                    )
+                    ) # Remove any permutations from 'self._xs_train'.
                     self._Jx_alphas = nn.Parameter(
                         self.apply_perms_to_obj(xs, perm_idxs=None), requires_grad=False
-                    )
-
-                    self._log.debug(
-                        'Trying {} permutation batches (within \'set_alphas()\')'.format(
-                            _n_perm_batches
-                        )
-                    )
+                    ) # Set 'self._Jx_alphas' without applying permutations.
 
                 else:
                     self._log.critical(
@@ -847,6 +828,7 @@ class GDMLTorchPredict(nn.Module):
                     os._exit(1)
             else:
                 raise e
+
 
     def _forward(self, Rs_or_train_idxs, return_E=True):
 
@@ -895,6 +877,8 @@ class GDMLTorchPredict(nn.Module):
             ]  # ignore permutations
 
             Jxs = self.R_d_desc[train_idxs, :, :]
+            #if torch.cuda.is_available() and not self.R_d_desc.is_cuda:
+            Jxs = Jxs.to(xs.device) # 'R_d_desc' can live on the CPU, as well.
 
         # current:
         # diffs: N, a, a, 3
@@ -1000,6 +984,7 @@ class GDMLTorchPredict(nn.Module):
             diffs = torch.zeros(
                 (n, self.n_atoms, self.n_atoms, 3), device=xs.device, dtype=xs.dtype
             )
+
             diffs[:, i, j, :] = Jxs * Fs_x[..., None]
             diffs[:, j, i, :] = -diffs[:, i, j, :]
 
@@ -1061,22 +1046,19 @@ class GDMLTorchPredict(nn.Module):
                 )
             except RuntimeError as e:
                 if 'out of memory' in str(e):
-                    torch.cuda.empty_cache()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
                     if _batch_size > 1:
-                        _batch_size -= 1
 
-                        self._log.debug('Trying batch size of {}.'.format(_batch_size))
+                        self._log.debug('Setting batch size to {}/{} points.'.format(_batch_size, self.n_train))
+                        _batch_size -= 1
 
                     elif _n_perm_batches < self.n_perms:
                         n_perm_batches = _next_batch_size(
                             self.n_perms, _n_perm_batches
                         )
                         self.set_n_perm_batches(n_perm_batches)
-
-                        self._log.debug(
-                            'Trying {} permutation batches.'.format(n_perm_batches)
-                        )
 
                     else:
                         self._log.critical(
