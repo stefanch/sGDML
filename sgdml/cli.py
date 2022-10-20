@@ -46,6 +46,17 @@ else:
     _has_torch = True
 
 try:
+    _torch_mps_is_available = torch.backends.mps.is_available()
+except AttributeError:
+    _torch_mps_is_available = False
+_torch_mps_is_available = False
+
+try:
+    _torch_cuda_is_available = torch.cuda.is_available()
+except AttributeError:
+    _torch_cuda_is_available = False
+
+try:
     import ase
 except ImportError:
     _has_ase = False
@@ -94,10 +105,14 @@ def _print_splash(max_memory, max_processes, use_torch):
     max_processes_str = '{:d} CPU(s)'.format(max_processes)
     hardware_str = 'using {}, {}'.format(max_memory_str, max_processes_str)
 
-    if use_torch and _has_torch and torch.cuda.is_available():
-        num_gpu = torch.cuda.device_count()
-        if num_gpu > 0:
-            hardware_str += ', {:d} GPU(s)'.format(num_gpu)
+    if use_torch and _has_torch:
+
+        if _torch_cuda_is_available:
+            num_gpu = torch.cuda.device_count()
+            if num_gpu > 0:
+                hardware_str += ', {:d} GPU(s)'.format(num_gpu)
+        elif _torch_mps_is_available:
+            hardware_str += ', MPS enabled'
 
     logo_str_split = logo_str.splitlines()
     print('\n'.join(logo_str_split[:-1]))
@@ -126,6 +141,9 @@ def _print_splash(max_memory, max_processes, use_torch):
         )
 
 
+    _print_billboard()
+
+
 def _check_update():
 
     try:
@@ -133,8 +151,8 @@ def _check_update():
     except ImportError:
         from urllib2 import urlopen
 
-    base_url = 'http://www.quantum-machine.org/gdml/'
-    url = '%supdate.php?v=%s' % (base_url, __version__)
+    base_url = 'http://api.sgdml.org/'
+    url = '{}update.php?v={}'.format(base_url, __version__)
 
     can_update, must_update = '0', '0'
     latest_version = ''
@@ -146,6 +164,60 @@ def _check_update():
         pass
 
     return can_update == '1', latest_version
+
+
+def _print_billboard():
+
+    try:
+        from urllib.request import urlopen
+    except ImportError:
+        from urllib2 import urlopen
+
+    base_url = 'http://api.sgdml.org/'
+    url = '{}billboard.php'.format(base_url)
+
+    resp_str = ''
+    try:
+        response = urlopen(url, timeout=1)
+        resp_str = response.read().decode()
+        response.close()
+    except:
+        pass
+
+    bbs = None
+    try:
+        import json
+        bbs = json.loads(resp_str)
+    except:
+        pass
+
+    if bbs is not None:
+
+        for bb in bbs:
+
+            back_color = ui.WHITE
+            if bb['color'] == 'YELLOW':
+                back_color = ui.YELLOW
+            elif bb['color'] == 'GREEN':
+                back_color = ui.GREEN
+            elif bb['color'] == 'RED':
+                back_color = ui.RED
+            elif bb['color'] == 'CYAN':
+                back_color = ui.CYAN
+
+            print(
+                '\n'
+                + ui.color_str(
+                    ' {} '.format(bb['title']),
+                    fore_color=ui.BLACK,
+                    back_color=back_color,
+                    bold=True,
+                )
+                + '\n'
+                + '-' * MAX_PRINT_WIDTH
+            )
+
+            print(ui.wrap_str(bb['text'], width=MAX_PRINT_WIDTH - 2))
 
 
 def _print_dataset_properties(dataset, title_str='Dataset properties'):
@@ -1692,11 +1764,11 @@ def test(
 
             if model['use_E']:
                 model['e_err'] = {
-                    'mae': np.asscalar(e_mae),
-                    'rmse': np.asscalar(e_rmse),
+                    'mae': e_mae.item(),
+                    'rmse': e_rmse.item(),
                 }
 
-            model['f_err'] = {'mae': np.asscalar(f_mae), 'rmse': np.asscalar(f_rmse)}
+            model['f_err'] = {'mae':f_mae.item(), 'rmse': f_rmse.item()}
             np.savez_compressed(model_path, **model)
 
             if is_test and model['n_test'] > 0:
@@ -2191,7 +2263,7 @@ def main():
     # Check PyTorch GPU support.
     if ('use_torch' in args and args.use_torch) or 'use_torch' not in args:
         if _has_torch:
-            if not torch.cuda.is_available():
+            if not (_torch_cuda_is_available or _torch_mps_is_available):
                 print()  # TODO: print only if log level includes warning
                 log.warning(
                     'Your PyTorch installation does not see any GPU(s) on your system and will thus run all calculations on the CPU! If this is what you want, we recommend bypassing PyTorch using \'--cpu\' for improved performance.'

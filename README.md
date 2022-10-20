@@ -115,12 +115,17 @@ We appreciate and welcome contributions and would like to thank the following pe
 Science Advances, 3(5), e1603015 (2017)   
 [10.1126/sciadv.1603015](http://dx.doi.org/10.1126/sciadv.1603015)
 
-* [2] Chmiela, S., Sauceda, H. E., Müller, K.-R., & Tkatchenko, A.,
+* [2] Chmiela, S., Sauceda, H. E., Müller, K.-R., Tkatchenko, A.,
 *Towards Exact Molecular Dynamics Simulations with Machine-Learned Force Fields.*
 Nature Communications, 9(1), 3887 (2018)   
 [10.1038/s41467-018-06169-2](https://doi.org/10.1038/s41467-018-06169-2)
 
-* [3] Chmiela, S., Sauceda, H. E., Poltavsky, I., Müller, K.-R., & Tkatchenko, A.,
+* [3] Chmiela, S., Sauceda, H. E., Poltavsky, I., Müller, K.-R., Tkatchenko, A.,
 *sGDML: Constructing Accurate and Data Efficient Molecular Force Fields Using Machine Learning.*
 Computer Physics Communications, 240, 38-45 (2019)
 [10.1016/j.cpc.2019.02.007](https://doi.org/10.1016/j.cpc.2019.02.007)
+
+* [4] Chmiela, S., Vassilev-Galindo, V., Unke, O. T., Kabylda, A., Sauceda, H. E., Tkatchenko, A., Müller, K.-R.,
+*Accurate global machine learning force fields for molecules with hundreds of atoms*
+Preprint (2022)
+[arXiv:2209.14865](https://arxiv.org/abs/2209.14865)

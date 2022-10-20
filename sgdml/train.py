@@ -47,6 +47,17 @@ except ImportError:
 else:
     _has_torch = True
 
+try:
+    _torch_mps_is_available = torch.backends.mps.is_available()
+except AttributeError:
+    _torch_mps_is_available = False
+_torch_mps_is_available = False
+
+try:
+    _torch_cuda_is_available = torch.cuda.is_available()
+except AttributeError:
+    _torch_cuda_is_available = False
+
 from . import __version__, DONE, NOT_DONE
 from .solvers.analytic import Analytic
 
@@ -959,7 +970,7 @@ class GDMLTrain(object):
             self.log.debug('Iterative solver not installed.')
             use_analytic_solver = True
 
-        # use_analytic_solver = False  # remove me!
+        # use_analytic_solver = True  # remove me!
 
         if use_analytic_solver:
 
@@ -1415,7 +1426,12 @@ class GDMLTrain(object):
 
             start = timeit.default_timer()
 
-            torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            if _torch_cuda_is_available:
+                torch_device = 'cuda'
+            elif _torch_mps_is_available:
+                torch_device = 'mps'
+            else:
+                torch_device = 'cpu'
 
             R_desc_torch = torch.from_numpy(R_desc).to(torch_device)  # N, d
             R_d_desc_torch = torch.from_numpy(R_d_desc).to(torch_device)

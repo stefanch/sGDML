@@ -45,6 +45,17 @@ except ImportError:
 else:
     _has_torch = True
 
+try:
+    _torch_mps_is_available = torch.backends.mps.is_available()
+except AttributeError:
+    _torch_mps_is_available = False
+_torch_mps_is_available = False
+
+try:
+    _torch_cuda_is_available = torch.cuda.is_available()
+except AttributeError:
+    _torch_cuda_is_available = False
+
 import numpy as np
 
 from . import __version__
@@ -367,15 +378,22 @@ class GDMLPredict(object):
                 self.torch_predict = torch.nn.DataParallel(self.torch_predict)
 
             # Send model to device
-            self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            #self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            if _torch_cuda_is_available:
+                self.torch_device = 'cuda'
+            elif _torch_mps_is_available:
+                self.torch_device = 'mps'
+            else:
+                self.torch_device = 'cpu'
+            
             while True:
                 try:
                     self.torch_predict.to(self.torch_device)
                 except RuntimeError as e:
                     if 'out of memory' in str(e):
-                        torch.cuda.empty_cache()
 
-                        print('sending to device -> fail (trying again)')
+                        if _torch_cuda_is_available:
+                            torch.cuda.empty_cache()
 
                         model = self.torch_predict
                         if isinstance(self.torch_predict, torch.nn.DataParallel):
@@ -387,9 +405,9 @@ class GDMLPredict(object):
                             model.set_n_perm_batches(
                                 model.get_n_perm_batches() + 1
                             )  # uncache
-                            self.torch_predict.to(
-                                self.torch_device
-                            )  # try sending to device again
+                            #self.torch_predict.to( # NOTE!
+                            #    self.torch_device
+                            #)  # try sending to device again
                             pass
                         else:
                             self.log.critical(
@@ -1120,7 +1138,7 @@ class GDMLPredict(object):
         if self.use_torch:
 
             model = self.torch_predict
-            if isinstance(self.torch_predict, torch.nn.DataParallel):
+            if isinstance(model, torch.nn.DataParallel):
                 model = model.module
 
             return model._batch_size()
@@ -1176,11 +1194,14 @@ class GDMLPredict(object):
                     print()
                     os._exit(1)
             else:
-                R_torch = torch.from_numpy(R.reshape(-1, self.n_atoms, 3)).to(
+                R_torch = torch.from_numpy(R.reshape(-1, self.n_atoms, 3)).type(torch.float32).to(
                     self.torch_device
                 )
 
-            E_torch_F_torch = self.torch_predict.forward(R_torch, return_E=return_E)
+            model = self.torch_predict
+            if R_torch.shape[0] < torch.cuda.device_count() and isinstance(model, torch.nn.DataParallel):
+                model = self.torch_predict.module
+            E_torch_F_torch = model.forward(R_torch, return_E=return_E)
 
             if return_E:
                 E_torch, F_torch = E_torch_F_torch
@@ -1258,9 +1279,10 @@ class GDMLPredict(object):
                             )
                         )
 
-            E_F *= self.std
-            F = E_F[:, 1:]
-            E = E_F[:, 0] + self.c
+            if R is not None: # Not in train mode. TODO: better set y_std to zero
+                E_F *= self.std
+                F = E_F[:, 1:]
+                E = E_F[:, 0] + self.c
 
         ret = (F,)
         if return_E:
