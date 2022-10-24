@@ -1278,11 +1278,10 @@ class GDMLPredict(object):
                                 _predict_wo_wkr_starts_stops, self.wkr_starts_stops
                             )
                         )
-
-            if R is not None: # Not in train mode. TODO: better set y_std to zero
-                E_F *= self.std
-                F = E_F[:, 1:]
-                E = E_F[:, 0] + self.c
+                        
+            E_F *= self.std
+            F = E_F[:, 1:]
+            E = E_F[:, 0] + self.c
 
         ret = (F,)
         if return_E:
