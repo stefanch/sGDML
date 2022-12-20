@@ -437,8 +437,8 @@ class GDMLTorchPredict(nn.Module):
             None
             if lat_and_inv is None
             else (
-                torch.tensor(lat_and_inv[0]),
-                torch.tensor(lat_and_inv[1]),
+                torch.tensor(lat_and_inv[0], dtype=_dtype),
+                torch.tensor(lat_and_inv[1], dtype=_dtype),
             )
         )
 
@@ -869,7 +869,7 @@ class GDMLTorchPredict(nn.Module):
         is_train_pred = Rs_or_train_idxs.dim() == 1
         if not is_train_pred:  # Rs
 
-            Rs = Rs_or_train_idxs
+            Rs = Rs_or_train_idxs.type(_dtype)
             diffs = Rs[:, :, None, :] - Rs[:, None, :, :] # N, a, a, 3
             diffs = diffs[:, i, j, :]  # N, d, 3
 

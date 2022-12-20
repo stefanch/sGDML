@@ -1278,7 +1278,7 @@ class GDMLPredict(object):
                                 _predict_wo_wkr_starts_stops, self.wkr_starts_stops
                             )
                         )
-                        
+
             E_F *= self.std
             F = E_F[:, 1:]
             E = E_F[:, 0] + self.c

@@ -975,7 +975,7 @@ class GDMLTrain(object):
         if use_analytic_solver:
 
             self.log.info(
-                'Using analytic solver (expected memory requirement: ~{})'.format(
+                'Using analytic solver (expected memory use: ~{})'.format(
                     ui.gen_memory_str(est_bytes_analytic + est_bytes_overhead)
                 )
             )
@@ -993,7 +993,7 @@ class GDMLTrain(object):
             )
 
             self.log.info(
-                'Using iterative solver (expected memory requirement: ~{})'.format(
+                'Using iterative solver (expected memory use: ~{})'.format(
                     ui.gen_memory_str(est_bytes_iterative + est_bytes_overhead)
                 )
             )
