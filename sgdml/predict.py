@@ -172,7 +172,7 @@ def _predict_wkr(
 
     # avoid divisions (slower)
     sig_inv = 1.0 / sig
-    mat52_base_fact = 5.0 / (3 * sig ** 3)
+    mat52_base_fact = 5.0 / (3 * sig**3)
     diag_scale_fact = 5.0 / sig
     sqrt5 = np.sqrt(5.0)
 
@@ -313,7 +313,7 @@ class GDMLPredict(object):
         if log_level is not None:
             self.log.setLevel(log_level)
 
-        total_memory = psutil.virtual_memory().total // 2 ** 30  # bytes to GB)
+        total_memory = psutil.virtual_memory().total // 2**30  # bytes to GB)
         self.max_memory = (
             min(max_memory, total_memory) if max_memory is not None else total_memory
         )
@@ -378,14 +378,14 @@ class GDMLPredict(object):
                 self.torch_predict = torch.nn.DataParallel(self.torch_predict)
 
             # Send model to device
-            #self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            # self.torch_device = 'cuda' if torch.cuda.is_available() else 'cpu'
             if _torch_cuda_is_available:
                 self.torch_device = 'cuda'
             elif _torch_mps_is_available:
                 self.torch_device = 'mps'
             else:
                 self.torch_device = 'cpu'
-            
+
             while True:
                 try:
                     self.torch_predict.to(self.torch_device)
@@ -405,9 +405,9 @@ class GDMLPredict(object):
                             model.set_n_perm_batches(
                                 model.get_n_perm_batches() + 1
                             )  # uncache
-                            #self.torch_predict.to( # NOTE!
+                            # self.torch_predict.to( # NOTE!
                             #    self.torch_device
-                            #)  # try sending to device again
+                            # )  # try sending to device again
                             pass
                         else:
                             self.log.critical(
@@ -1194,12 +1194,16 @@ class GDMLPredict(object):
                     print()
                     os._exit(1)
             else:
-                R_torch = torch.from_numpy(R.reshape(-1, self.n_atoms, 3)).type(torch.float32).to(
-                    self.torch_device
+                R_torch = (
+                    torch.from_numpy(R.reshape(-1, self.n_atoms, 3))
+                    .type(torch.float32)
+                    .to(self.torch_device)
                 )
 
             model = self.torch_predict
-            if R_torch.shape[0] < torch.cuda.device_count() and isinstance(model, torch.nn.DataParallel):
+            if R_torch.shape[0] < torch.cuda.device_count() and isinstance(
+                model, torch.nn.DataParallel
+            ):
                 model = self.torch_predict.module
             E_torch_F_torch = model.forward(R_torch, return_E=return_E)
 

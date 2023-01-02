@@ -140,7 +140,6 @@ def _print_splash(max_memory, max_processes, use_torch):
             'You can update your installation by running \'pip install sgdml --upgrade\'.'
         )
 
-
     _print_billboard()
 
 
@@ -187,6 +186,7 @@ def _print_billboard():
     bbs = None
     try:
         import json
+
         bbs = json.loads(resp_str)
     except:
         pass
@@ -1174,7 +1174,7 @@ def _online_err(err, size, n, mae_n_sum, rmse_n_sum):
     mae_n_sum += np.sum(err) / size
     mae = mae_n_sum / n
 
-    rmse_n_sum += np.sum(err ** 2) / size
+    rmse_n_sum += np.sum(err**2) / size
     rmse = np.sqrt(rmse_n_sum / n)
 
     return mae, mae_n_sum, rmse, rmse_n_sum
@@ -1768,7 +1768,7 @@ def test(
                     'rmse': e_rmse.item(),
                 }
 
-            model['f_err'] = {'mae':f_mae.item(), 'rmse': f_rmse.item()}
+            model['f_err'] = {'mae': f_mae.item(), 'rmse': f_rmse.item()}
             np.savez_compressed(model_path, **model)
 
             if is_test and model['n_test'] > 0:
@@ -1994,7 +1994,7 @@ def main():
         )
 
     # Available resources
-    total_memory = psutil.virtual_memory().total // 2 ** 30
+    total_memory = psutil.virtual_memory().total // 2**30
     total_cpus = mp.cpu_count()
 
     parser = argparse.ArgumentParser()

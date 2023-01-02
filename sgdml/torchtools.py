@@ -95,7 +95,9 @@ class GDMLTorchAssemble(nn.Module):
         self.use_E_cstr = use_E_cstr
 
         self.R_desc_torch = nn.Parameter(R_desc_torch.type(_dtype), requires_grad=False)
-        self.R_d_desc_torch = nn.Parameter(R_d_desc_torch.type(_dtype), requires_grad=False)
+        self.R_d_desc_torch = nn.Parameter(
+            R_d_desc_torch.type(_dtype), requires_grad=False
+        )
 
         self._desc = Desc(self.n_atoms)
 
@@ -184,7 +186,7 @@ class GDMLTorchAssemble(nn.Module):
 
                     x_dists = x_diffs.norm(dim=-1)  # N, n_perms
 
-                    exp_xs = torch.exp(-x_dists) * (q ** 2) / 3  # N, n_perms
+                    exp_xs = torch.exp(-x_dists) * (q**2) / 3  # N, n_perms
                     exp_xs_1_x_dists = exp_xs * (1 + x_dists)  # N, n_perms*N_train
 
                     del x_dists  # E_cstr
@@ -303,7 +305,7 @@ class GDMLTorchAssemble(nn.Module):
 
                         x_dists = x_diffs.norm(dim=1)
 
-                        exp_xs = torch.exp(-x_dists) * (q ** 2) / 3
+                        exp_xs = torch.exp(-x_dists) * (q**2) / 3
                         exp_xs_1_x_dists = exp_xs * (1 + x_dists)
 
                         K_fe = x_diffs / q * exp_xs_1_x_dists[:, None, :]
@@ -485,21 +487,21 @@ class GDMLTorchPredict(nn.Module):
                         for i in range(torch.cuda.device_count())
                     ]
                 )
-                // 2 ** 30
+                // 2**30
             )  # bytes to GB
-        else: # TODO: what about MPS?
+        else:  # TODO: what about MPS?
             default_cpu_max_mem = 32
             if max_memory is None:
                 self._log.warning(
                     'PyTorch CPU memory budget is limited to {} by default, which may impact performance.\n'.format(
-                        ui.gen_memory_str(2 ** 30 * default_cpu_max_mem)
+                        ui.gen_memory_str(2**30 * default_cpu_max_mem)
                     )
                     + 'If necessary, adjust memory limit with option \'-m\'.'
                 )
             max_memory = (
                 max_memory or default_cpu_max_mem
             )  # 32 GB as default (hardcoded for now...)
-        max_memory = int(2 ** 30 * max_memory)  # GB to bytes
+        max_memory = int(2**30 * max_memory)  # GB to bytes
 
         min_const_mem, min_per_sample_mem = self.est_mem_requirement(return_min=True)
 
@@ -510,7 +512,9 @@ class GDMLTorchPredict(nn.Module):
         )
         log_type(
             '{} memory report: max./avail. {}, min. req. (const./per-sample) ~{}/~{}'.format(
-                'GPU' if (_torch_cuda_is_available or _torch_mps_is_available) else 'CPU',
+                'GPU'
+                if (_torch_cuda_is_available or _torch_mps_is_available)
+                else 'CPU',
                 ui.gen_memory_str(max_memory),
                 ui.gen_memory_str(min_const_mem),
                 ui.gen_memory_str(min_per_sample_mem),
@@ -524,7 +528,8 @@ class GDMLTorchPredict(nn.Module):
             torch.tensor(model['R_desc'], dtype=_dtype).t(), requires_grad=False
         )
         self._Jx_alphas = nn.Parameter(
-            torch.tensor(np.array(model['R_d_desc_alpha']), dtype=_dtype), requires_grad=False
+            torch.tensor(np.array(model['R_d_desc_alpha']), dtype=_dtype),
+            requires_grad=False,
         )
 
         self._alphas_E = None
@@ -534,11 +539,15 @@ class GDMLTorchPredict(nn.Module):
             )
 
         self.perm_idxs = (
-            torch.tensor(model['tril_perms_lin'], dtype=torch.long).view(-1, self.n_perms).t()
+            torch.tensor(model['tril_perms_lin'], dtype=torch.long)
+            .view(-1, self.n_perms)
+            .t()
         )
 
         i, j = self.tril_indices
-        self.register_buffer('agg_mat', torch.zeros((self.n_atoms, self.dim_d), dtype=torch.int8))
+        self.register_buffer(
+            'agg_mat', torch.zeros((self.n_atoms, self.dim_d), dtype=torch.int8)
+        )
         self.agg_mat[i, range(self.dim_d)] = -1
         self.agg_mat[j, range(self.dim_d)] = 1
 
@@ -594,7 +603,9 @@ class GDMLTorchPredict(nn.Module):
 
         self._log.debug(
             'Setting permutation batch size to {}/{}{}.'.format(
-                self.n_perms // n_perm_batches, self.n_perms, ' (no caching)' if n_perm_batches > 1 else ''
+                self.n_perms // n_perm_batches,
+                self.n_perms,
+                ' (no caching)' if n_perm_batches > 1 else '',
             )
         )
 
@@ -686,7 +697,7 @@ class GDMLTorchPredict(nn.Module):
         # Peak memory requirement (bytes)
         per_sample_mem = 2 * self.n_atoms * 3  # Rs (batch), # Fs (batch)
         per_sample_mem += self.n_atoms  # Es (batch)
-        per_sample_mem += self.n_atoms ** 2 * 3  # diffs
+        per_sample_mem += self.n_atoms**2 * 3  # diffs
         per_sample_mem += self.dim_d  # xs
         per_sample_mem += self.dim_d * n_perms_mem * self.n_train  # x_diffs
         per_sample_mem += (
@@ -780,15 +791,17 @@ class GDMLTorchPredict(nn.Module):
         while True:
             try:
 
-                alphas_torch = torch.from_numpy(alphas).type(_dtype).to(
-                    self.R_d_desc.device
+                alphas_torch = (
+                    torch.from_numpy(alphas).type(_dtype).to(self.R_d_desc.device)
                 )  # Send to whatever device 'R_d_desc' is on, first.
                 xs = self.desc.d_desc_dot_vec(
                     self.R_d_desc, alphas_torch.reshape(-1, self.dim_i)
                 )
                 del alphas_torch
 
-                if (_torch_cuda_is_available and not xs.is_cuda) or (_torch_mps_is_available and not xs.is_mps):
+                if (_torch_cuda_is_available and not xs.is_cuda) or (
+                    _torch_mps_is_available and not xs.is_mps
+                ):
                     xs = xs.to(
                         self._xs_train.device
                     )  # Only now send it to the GPU ('_xs_train' will be for sure, if GPUs are available)
@@ -797,7 +810,7 @@ class GDMLTorchPredict(nn.Module):
                 if 'out of memory' in str(e):
 
                     if _torch_cuda_is_available or _torch_mps_is_available:
-                        
+
                         if _torch_cuda_is_available:
                             torch.cuda.empty_cache()
 
@@ -838,7 +851,9 @@ class GDMLTorchPredict(nn.Module):
 
                     self._log.debug(
                         'Setting permutation batch size to {}/{}{}.'.format(
-                            self.n_perms // n_perm_batches, self.n_perms, ' (no caching)' if n_perm_batches > 1 else ''
+                            self.n_perms // n_perm_batches,
+                            self.n_perms,
+                            ' (no caching)' if n_perm_batches > 1 else '',
                         )
                     )
 
@@ -870,7 +885,7 @@ class GDMLTorchPredict(nn.Module):
         if not is_train_pred:  # Rs
 
             Rs = Rs_or_train_idxs.type(_dtype)
-            diffs = Rs[:, :, None, :] - Rs[:, None, :, :] # N, a, a, 3
+            diffs = Rs[:, :, None, :] - Rs[:, None, :, :]  # N, a, a, 3
             diffs = diffs[:, i, j, :]  # N, d, 3
 
             if self._lat_and_inv is not None:
@@ -892,7 +907,7 @@ class GDMLTorchPredict(nn.Module):
 
                 diffs = diffs.reshape(diffs_shape)
 
-            xs = 1 / diffs.norm(dim=-1) # N, d
+            xs = 1 / diffs.norm(dim=-1)  # N, d
 
             diffs *= xs[:, :, None] ** 3
             Jxs = diffs
@@ -910,7 +925,9 @@ class GDMLTorchPredict(nn.Module):
                 train_idxs, idx_id_perm, :
             ]  # ignore permutations
 
-            Jxs = self.R_d_desc[train_idxs, :, :].to(xs.device) # 'R_d_desc' might be living on the CPU...
+            Jxs = self.R_d_desc[train_idxs, :, :].to(
+                xs.device
+            )  # 'R_d_desc' might be living on the CPU...
 
         # current:
         # diffs: N, a, a, 3
@@ -947,7 +964,7 @@ class GDMLTorchPredict(nn.Module):
             )  # N, n_perms*N_train, d
             x_dists = x_diffs.norm(dim=-1)  # N, n_perms*N
 
-            exp_xs = torch.exp(-x_dists) * (q ** 2) / 3  # N, n_perms
+            exp_xs = torch.exp(-x_dists) * (q**2) / 3  # N, n_perms
             exp_xs_1_x_dists = exp_xs * (1 + x_dists)  # N, n_perms*N_train
 
             if self._alphas_E is None:
@@ -958,7 +975,7 @@ class GDMLTorchPredict(nn.Module):
             )  # N, n_perms*N_train
 
             # Fs_x = ((exp_xs * dot_x_diff_Jx_alphas)[..., None] * x_diffs).sum(dim=1)
-            Fs_x += torch.einsum( # NOTE ! Fs_x = Fs_x + torch.einsum(
+            Fs_x += torch.einsum(  # NOTE ! Fs_x = Fs_x + torch.einsum(
                 '...j,...j,...jk', exp_xs, dot_x_diff_Jx_alphas, x_diffs
             )  # N, d
             del exp_xs
@@ -1017,7 +1034,7 @@ class GDMLTorchPredict(nn.Module):
 
         Fs = torch.einsum('ji,...ik,...i->...jk', self.agg_mat, Jxs, Fs_x)
 
-        if not is_train_pred: # TODO: set std to zero in training mode?
+        if not is_train_pred:  # TODO: set std to zero in training mode?
             Fs *= self._std
 
         if return_E:
@@ -1049,17 +1066,17 @@ class GDMLTorchPredict(nn.Module):
 
         global _batch_size, _n_perm_batches
 
-        #if Rs_or_train_idxs.dim() == 1:
+        # if Rs_or_train_idxs.dim() == 1:
         #    # contains index list. return predictions for these training points
         #    dtype = self.R_d_desc.dtype
-        #elif Rs_or_train_idxs.dim() == 3:
-            # this is real data
+        # elif Rs_or_train_idxs.dim() == 3:
+        # this is real data
 
         #    assert Rs_or_train_idxs.shape[1:] == (self.n_atoms, 3)
         #    Rs_or_train_idxs = Rs_or_train_idxs.double()
         #    dtype = Rs_or_train_idxs.dtype
 
-        #else:
+        # else:
         #    # unknown input
         #    self._log.critical('Invalid input for \'Rs_or_train_idxs\'.')
         #    print()

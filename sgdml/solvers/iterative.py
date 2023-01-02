@@ -148,7 +148,7 @@ class Iterative(object):
         n_train = R_desc.shape[0]
 
         # dummy alphas
-        v_F = np.zeros((n-n_train, 1)) if task['use_E_cstr'] else np.zeros((n, 1))
+        v_F = np.zeros((n - n_train, 1)) if task['use_E_cstr'] else np.zeros((n, 1))
         v_E = np.zeros((n_train, 1)) if task['use_E_cstr'] else None
 
         # Note: The standard deviation is set to 1.0, because we are predicting normalized labels here.
@@ -372,12 +372,16 @@ class Iterative(object):
         dim_m = dim_i * min(n_inducing_pts, 10)
 
         # Which columns to use for leverage score approximation?
-        lev_approx_idxs = np.sort(np.random.choice(n_train*dim_i + (n_train if use_E_cstr else 0), dim_m, replace=False)) # random subset of columns
-        #lev_approx_idxs = np.sort(np.random.choice(n_train*dim_i, dim_m, replace=False)) # random subset of columns
-        
-        #lev_approx_idxs = np.s_[
+        lev_approx_idxs = np.sort(
+            np.random.choice(
+                n_train * dim_i + (n_train if use_E_cstr else 0), dim_m, replace=False
+            )
+        )  # random subset of columns
+        # lev_approx_idxs = np.sort(np.random.choice(n_train*dim_i, dim_m, replace=False)) # random subset of columns
+
+        # lev_approx_idxs = np.s_[
         #    :dim_m
-        #]  # first 'dim_m' columns (faster kernel construction)
+        # ]  # first 'dim_m' columns (faster kernel construction)
 
         L_inv_K_mn = self._nystroem_cholesky_factor(
             R_desc,
@@ -460,7 +464,7 @@ class Iterative(object):
 
         self.log.critical(
             'Failed to factorize despite strong regularization (max: {})!\nYou could try a larger sigma.'.format(
-                10.0 ** eps_mag_max
+                10.0**eps_mag_max
             )
         )
         print()
@@ -492,7 +496,7 @@ class Iterative(object):
         num_iters0 = task['solver_iters'] if 'solver_iters' in task else 0
 
         # Number of inducing points to use for Nystrom approximation.
-        max_memory_bytes = self._max_memory * 1024 ** 3
+        max_memory_bytes = self._max_memory * 1024**3
         max_n_inducing_pts = Iterative.max_n_inducing_pts(
             n_train, n_atoms, max_memory_bytes
         )
@@ -849,12 +853,11 @@ class Iterative(object):
         ny_factor = SQUARE_FACT * to_dof
 
         n_inducing_pts = (
-            np.sqrt(sq_factor ** 2 + 4.0 * ny_factor * max_memory_bytes) - sq_factor
+            np.sqrt(sq_factor**2 + 4.0 * ny_factor * max_memory_bytes) - sq_factor
         ) / (2 * ny_factor)
         n_inducing_pts = int(n_inducing_pts)
 
         return min(n_inducing_pts, n_train)
-
 
     @staticmethod
     def est_memory_requirement(n_train, n_inducing_pts, n_atoms):

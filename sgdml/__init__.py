@@ -22,7 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-__version__ = '1.0.0.dev0'
+__version__ = '1.0.0'
 
 MAX_PRINT_WIDTH = 100
 LOG_LEVELNAME_WIDTH = 7  # do not modify
@@ -109,7 +109,7 @@ class ColoredLogger(logging.Logger):
         hd.setFormatter(formatter)
         hd.setLevel(
             logging.INFO
-        )  # control logging level here
+        ) # control logging level here
 
         self.addHandler(hd)
         return

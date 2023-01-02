@@ -176,9 +176,9 @@ def _assemble_kernel_mat_wkr(
         np.tile(rj_d_desc.T, n_perms)[:, tril_perms_lin], (-1, dim_d, n_perms)
     )
 
-    mat52_base_div = 3 * sig ** 4
+    mat52_base_div = 3 * sig**4
     sqrt5 = np.sqrt(5.0)
-    sig_pow2 = sig ** 2
+    sig_pow2 = sig**2
 
     dim_i_keep = rj_d_desc.shape[1]
     diff_ab_outer_perms = np.empty((dim_d, dim_i_keep))
@@ -237,7 +237,7 @@ def _assemble_kernel_mat_wkr(
                 K_fe = (
                     5
                     * diff_ab_perms
-                    / (3 * sig ** 3)
+                    / (3 * sig**3)
                     * (norm_ab_perms[:, None] + sig)
                     * np.exp(-norm_ab_perms / sig)[:, None]
                 )
@@ -285,7 +285,7 @@ def _assemble_kernel_mat_wkr(
                 K_fe = (
                     5
                     * diff_ab_perms
-                    / (3 * sig ** 3)
+                    / (3 * sig**3)
                     * (norm_ab_perms[:, None] + sig)
                     * np.exp(-norm_ab_perms / sig)[:, None]
                 )
@@ -343,7 +343,7 @@ class GDMLTrain(object):
 
         self.log = logging.getLogger(__name__)
 
-        total_memory = psutil.virtual_memory().total // 2 ** 30  # bytes to GB)
+        total_memory = psutil.virtual_memory().total // 2**30  # bytes to GB)
         self._max_memory = (
             min(max_memory, total_memory) if max_memory is not None else total_memory
         )
@@ -946,7 +946,7 @@ class GDMLTrain(object):
         y_std = np.std(y)
         y /= y_std
 
-        max_memory_bytes = self._max_memory * 1024 ** 3
+        max_memory_bytes = self._max_memory * 1024**3
 
         # Memory cost of analytic solver
         est_bytes_analytic = Analytic.est_memory_requirement(n_train, n_atoms)
@@ -1178,7 +1178,8 @@ class GDMLTrain(object):
                 )
                 + '\n'
                 + ui.wrap_indent_str(
-                    '(2) ', 'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.'
+                    '(2) ',
+                    'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.',
                 )
             )
 
@@ -1195,18 +1196,27 @@ class GDMLTrain(object):
                 )
                 + '\n'
                 + ui.wrap_indent_str(
-                    '(2) ', 'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.'
+                    '(2) ',
+                    'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.',
                 )
                 + '\n'
                 + ui.wrap_indent_str(
                     '(3) ', 'Verify the consistency between energy and force labels.'
                 )
                 + '\n'
-                + ui.wrap_indent_str('    - ', 'Correspondence between force and energy labels correct?')
+                + ui.wrap_indent_str(
+                    '    - ', 'Correspondence between force and energy labels correct?'
+                )
                 + '\n'
-                + ui.wrap_indent_str('    - ', 'Accuracy of forces (convergence of your ab-initio calculations)?')
+                + ui.wrap_indent_str(
+                    '    - ',
+                    'Accuracy of forces (convergence of your ab-initio calculations)?',
+                )
                 + '\n'
-                + ui.wrap_indent_str('    - ', 'Was the same level of theory used to compute forces and energies?')
+                + ui.wrap_indent_str(
+                    '    - ',
+                    'Was the same level of theory used to compute forces and energies?',
+                )
                 + '\n'
                 + ui.wrap_indent_str(
                     '(4) ',
@@ -1234,7 +1244,8 @@ class GDMLTrain(object):
                 )
                 + '\n'
                 + ui.wrap_indent_str(
-                    '(2) ', 'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.'
+                    '(2) ',
+                    'This issue might very well just be a sympthom of using too few trainnig data and your labels are correct.',
                 )
                 + '\n'
                 + ui.wrap_indent_str(

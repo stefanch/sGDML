@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2018-2021 Stefan Chmiela
+# Copyright (c) 2018-2023 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -131,15 +131,15 @@ def main():
     print()
     print('Available %ss:' % args.command)
 
-    print('{:<2} {:<25}    {:>4}'.format('ID', 'Name', 'Size'))
-    print('-' * 36)
+    print('{:<2} {:<31}    {:>4}'.format('ID', 'Name', 'Size'))
+    print('-' * 42)
 
     items = line[0].split(b';')
     for i, item in enumerate(items):
         name, size = item.split(b',')
-        size = int(size) / 1024 ** 2  # Bytes to MBytes
+        size = int(size) / 1024**2  # Bytes to MBytes
 
-        print('{:>2d} {:<24} {:>5.1f} MB'.format(i, name.decode("utf-8"), size))
+        print('{:>2d} {:<30} {:>5.1f} MB'.format(i, name.decode("utf-8"), size))
     print()
 
     down_list = raw_input(
@@ -155,12 +155,12 @@ def main():
         down_idxs = [int(idx) for idx in re.split(r'\s+', down_list.strip())]
         down_idxs = list(set(down_idxs))
     else:
-        print(ui.warn_str('ABORTED'))
+        print(ui.color_str('ABORTED', fore_color=ui.RED, bold=True))
 
     for idx in down_idxs:
         if idx not in range(len(items)):
             print(
-                ui.warn_str('[WARN]')
+                ui.color_str('[WARN]', fore_color=ui.YELLOW, bold=True)
                 + ' Index '
                 + str(idx)
                 + ' out of range, skipping.'

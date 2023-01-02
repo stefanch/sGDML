@@ -200,7 +200,7 @@ def _r_to_d_desc(r, pdist, lat_and_inv=None):
     if lat_and_inv is not None:
         pdiff = _pbc_diff(pdiff, lat_and_inv)
 
-    d_desc_elem = pdiff / (pdist ** 3)[:, None]
+    d_desc_elem = pdiff / (pdist**3)[:, None]
 
     return d_desc_elem
 
@@ -531,7 +531,7 @@ class Desc(object):
         n = len(perm)
 
         rest = np.zeros((n, n))
-        rest[np.tril_indices(n, -1)] = list(range((n ** 2 - n) // 2))
+        rest[np.tril_indices(n, -1)] = list(range((n**2 - n) // 2))
         rest = rest + rest.T
         rest = rest[perm, :]
         rest = rest[:, perm]
