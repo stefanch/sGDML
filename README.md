@@ -126,6 +126,6 @@ Computer Physics Communications, 240, 38-45 (2019)
 [10.1016/j.cpc.2019.02.007](https://doi.org/10.1016/j.cpc.2019.02.007)
 
 * [4] Chmiela, S., Vassilev-Galindo, V., Unke, O. T., Kabylda, A., Sauceda, H. E., Tkatchenko, A., Müller, K.-R.,
-*Accurate global machine learning force fields for molecules with hundreds of atoms.*
+*Accurate Global Machine Learning Force Fields for Molecules With Hundreds of Atoms.*
 Science Advances, 9(2), e1603015 (2023)   
 [10.1126/sciadv.adf0873](https://doi.org/10.1126/sciadv.adf0873)
