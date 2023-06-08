@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2019-2022 Stefan Chmiela, Jan Hermann
+# Copyright (c) 2019-2023 Stefan Chmiela, Jan Hermann
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -1032,7 +1032,7 @@ class GDMLTorchPredict(nn.Module):
         # exp_xs_1_x_dists: N, n_perms*N
         # Fs_x: N, d
 
-        Fs = torch.einsum('ji,...ik,...i->...jk', self.agg_mat, Jxs, Fs_x)
+        Fs = torch.einsum('ji,...ik,...i->...jk', self.agg_mat.double(), Jxs, Fs_x)
 
         if not is_train_pred:  # TODO: set std to zero in training mode?
             Fs *= self._std

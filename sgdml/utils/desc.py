@@ -264,7 +264,7 @@ class Desc(object):
         self.tril_indices = np.tril_indices(n_atoms, k=-1)
 
         # Precompute indices for nonzero entries in desriptor derivatives.
-        self.d_desc_mask = np.zeros((n_atoms, n_atoms - 1), dtype=np.int)
+        self.d_desc_mask = np.zeros((n_atoms, n_atoms - 1), dtype=int)
         for a in range(n_atoms):  # for each partial derivative
             rows, cols = self.tril_indices
             self.d_desc_mask[a, :] = np.concatenate(
