@@ -925,6 +925,8 @@ class GDMLTorchPredict(nn.Module):
                 train_idxs, idx_id_perm, :
             ]  # ignore permutations
 
+            train_idxs = train_idxs.to(self.R_d_desc.device) # 'train_idxs' should be on the same device with 'R_d_desc'
+
             Jxs = self.R_d_desc[train_idxs, :, :].to(
                 xs.device
             )  # 'R_d_desc' might be living on the CPU...
