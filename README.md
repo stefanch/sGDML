@@ -107,6 +107,7 @@ We appreciate and welcome contributions and would like to thank the following pe
 * Luis Gálvez
 * Danny Panknin
 * Grégory Fonseca
+* Anton Charkin-Gorbulin
 
 ## References
 
