@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2020-2022 Stefan Chmiela
+# Copyright (c) 2020-2025 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -622,53 +622,21 @@ class Iterative(object):
 
             old_resid = resid
             try:
-                f_locals = inspect.currentframe().f_back.f_locals
 
+                # Can we extract the residual from the solver?
+                f_locals = inspect.currentframe().f_back.f_locals
                 if 'resid' in f_locals:
                     resid = f_locals['resid']
                 elif 'r' in f_locals:
                     resid = np.linalg.norm(f_locals['r'])
                 else:
-                    raise KeyError  # Neither key found: fallback
+                    raise KeyError
 
             except KeyError:
-                
-                # Fallback: compute residual manually
+
+                # Fallback: compute residual from scratch (slower)
                 rk = y + K_op @ xk
                 resid = np.linalg.norm(rk)
-
-            #resid = inspect.currentframe().f_back.f_locals['resid']
-
-            # work = inspect.currentframe().f_back.f_locals['work'] # R, Z, P, Q
-            # P = work.reshape(4,-1)[2,:] # P
-
-            # if P_t is not None:
-            # print('assign P')
-
-            # P = P_t.copy()
-
-            # P[0] = 0
-
-            # work = inspect.currentframe().f_back.f_locals['work'] # R, Z, P, Q
-            # P = work.reshape(4,-1)[2,:]
-            # print(P)
-
-            # rint(P_t)
-
-            # P_t = None
-
-            # if Pold is not None:
-            #    P = Pold.copy()
-
-            # print(np.linalg.norm(P, axis=0))
-
-            # if Pold is not None:
-            #    print(P.T.dot(Pold))
-
-            # if Pold is  None:
-            #    Pold = P.copy()
-
-            # print(P)
 
             step = 0 if num_iters == num_iters0 else resid - old_resid
             steps_hist.append(step)
@@ -774,8 +742,8 @@ class Iterative(object):
                     y,
                     x0=alpha_t,
                     M=P_op,
-                    tol=tol,  # norm(residual) <= max(tol*norm(b), atol)
-                    atol=None,
+                    rtol=tol,  # norm(residual) <= max(rtol*norm(b), atol)
+                    atol=0,
                     maxiter=3
                     * n_atoms
                     * n_train

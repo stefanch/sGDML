@@ -2,7 +2,7 @@
 
 # MIT License
 #
-# Copyright (c) 2019-2022 Stefan Chmiela
+# Copyright (c) 2019-2025 Stefan Chmiela
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-__version__ = '1.0.3.dev0'
+__version__ = '1.0.3.dev1'
 
 MAX_PRINT_WIDTH = 100
 LOG_LEVELNAME_WIDTH = 7  # do not modify
