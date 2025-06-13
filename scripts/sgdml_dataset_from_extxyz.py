@@ -42,7 +42,7 @@ if sys.version[0] == '3':
     raw_input = input
 
 
-# Assumes that the atoms in each molecule are in the same order.
+# Note: assumes that the atoms in each molecule are in the same order.
 def read_nonstd_ext_xyz(f):
     n_atoms = None
 
@@ -91,6 +91,40 @@ def read_nonstd_ext_xyz(f):
     f.close()
     return (R, z, E, F)
 
+# Extracts info string for each frame.
+def extract_info_from_extxyz(file_path):
+    infos = []
+
+    with open(file_path) as f:
+        lines = f.readlines()
+
+    i = 0
+    while i < len(lines):
+        try:
+            n_atoms = int(lines[i])
+        except ValueError:
+            raise ValueError(f"Invalid atom count at line {i + 1}")
+
+        if i + 1 >= len(lines):
+            break
+
+        comment_line = lines[i + 1].strip()
+        info = {}
+        for token in comment_line.split():
+            if "=" in token:
+                key, val = token.split("=", 1)
+                val = val.strip('"')
+                try:
+                    val = float(val)
+                except ValueError:
+                    pass
+                info[key] = val
+        infos.append(info)
+
+        i += 2 + n_atoms
+
+    return infos
+
 
 parser = argparse.ArgumentParser(
     description='Creates a dataset from extended XYZ format.'
@@ -128,8 +162,9 @@ else:
 
 lattice, R, z, E, F = None, None, None, None, None
 
-mols = read(dataset.name, index=':')
-calc = mols[0].get_calculator()
+mols = read(dataset.name, format='extxyz', index=':')
+#calc = mols[0].get_calculator() # depreciated
+calc = mols[0].calc
 is_extxyz = calc is not None
 if is_extxyz:
 
@@ -160,6 +195,18 @@ if is_extxyz:
     R = np.array([mol.get_positions() for mol in mols])
     z = Z[0]
 
+    # ASE did not parse info string. Try doing it manually.
+    if not mols[0].info:
+
+        print(
+            ui.color_str('[INFO]', bold=True)
+            + ' ASE did not parse info string completely. Try doing it manually.'
+        )
+
+        infos = extract_info_from_extxyz(dataset.name)
+        for mol, info in zip(mols, infos):
+            mol.info.update(info)
+
     if 'Energy' in mols[0].info:
         E = np.array([mol.info['Energy'] for mol in mols])
     if 'energy' in mols[0].info:
@@ -170,7 +217,6 @@ else:  # legacy non-standard XYZ format
 
     with open(dataset.name) as f:
         R, z, E, F = read_nonstd_ext_xyz(f)
-
 
 # Base variables contained in every model file.
 base_vars = {

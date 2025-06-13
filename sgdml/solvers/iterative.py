@@ -621,7 +621,23 @@ class Iterative(object):
             start = timeit.default_timer()
 
             old_resid = resid
-            resid = inspect.currentframe().f_back.f_locals['resid']
+            try:
+                f_locals = inspect.currentframe().f_back.f_locals
+
+                if 'resid' in f_locals:
+                    resid = f_locals['resid']
+                elif 'r' in f_locals:
+                    resid = np.linalg.norm(f_locals['r'])
+                else:
+                    raise KeyError  # Neither key found: fallback
+
+            except KeyError:
+                
+                # Fallback: compute residual manually
+                rk = y + K_op @ xk
+                resid = np.linalg.norm(rk)
+
+            #resid = inspect.currentframe().f_back.f_locals['resid']
 
             # work = inspect.currentframe().f_back.f_locals['work'] # R, Z, P, Q
             # P = work.reshape(4,-1)[2,:] # P
