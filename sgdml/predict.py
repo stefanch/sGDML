@@ -1043,9 +1043,9 @@ class GDMLPredict(object):
 
     def _save_cached_bmark_result(self, n_bulk, num_workers, chunk_size, bulk_mp, gps):
 
-        pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        curr_dir = os.getcwd()
         bmark_file = '_bmark_cache.npz'
-        bmark_path = os.path.join(pkg_dir, bmark_file)
+        bmark_path = os.path.join(curr_dir, bmark_file)
 
         bkey = '{}-{}-{}-{}'.format(
             self.n_atoms, self.n_train, n_bulk, self.max_processes
@@ -1075,9 +1075,9 @@ class GDMLPredict(object):
 
     def _load_cached_bmark_result(self, n_bulk):
 
-        pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        curr_dir = os.getcwd()
         bmark_file = '_bmark_cache.npz'
-        bmark_path = os.path.join(pkg_dir, bmark_file)
+        bmark_path = os.path.join(curr_dir, bmark_file)
 
         bkey = '{}-{}-{}-{}'.format(
             self.n_atoms, self.n_train, n_bulk, self.max_processes

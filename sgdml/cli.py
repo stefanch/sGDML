@@ -1956,9 +1956,9 @@ def reset(command=None, **kwargs):
 
     if ui.yes_or_no('\nDo you really want to purge all caches and temporary files?'):
 
-        pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        curr_dir = os.getcwd()
         bmark_file = '_bmark_cache.npz'
-        bmark_path = os.path.join(pkg_dir, bmark_file)
+        bmark_path = os.path.join(curr_dir, bmark_file)
 
         if os.path.exists(bmark_path):
             try:
