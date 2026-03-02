@@ -1737,7 +1737,7 @@ def test(
                 'relative to expected: {:+.1f}%'.format(f_rmse_pct),
             )
 
-            print(format_str.format('  Magnitude:', mag_mae, mag_rmse, r_unit))
+            print(format_str.format('  Magnitude:', mag_mae, mag_rmse, f_unit))
             ui.print_two_column_str(
                 format_str.format('  Angle:', cos_mae, cos_rmse, '0-1'),
                 'lower is better',
